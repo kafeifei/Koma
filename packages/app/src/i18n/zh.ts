@@ -1111,7 +1111,7 @@ export const dict = {
   "prompt.permission.default.description": "遵循权限规则，需要批准时询问。",
   "prompt.permission.auto.label": "自动批准",
   "prompt.permission.auto.description": "自动批准需要确认的请求，仍阻止明确禁止的操作。",
-  "prompt.permission.full.label": "Full Access",
+  "prompt.permission.full.label": "完全访问",
   "prompt.permission.full.description": "允许此聊天的所有权限请求。",
   "prompt.permission.updateFailed.title": "无法更改权限",
   "prompt.permission.updateFailed.description": "此服务器不支持会话权限模式。",
