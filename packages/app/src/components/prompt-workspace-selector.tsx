@@ -41,7 +41,7 @@ export function PromptWorkspaceSelector(props: {
             <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
           </MenuV2.Trigger>
           <MenuV2.Portal>
-            <MenuV2.Content class="w-[220px]">
+            <MenuV2.Content class="max-h-80 w-[220px] overflow-y-auto">
               <MenuV2.Group>
                 <MenuV2.GroupLabel>{language.t("session.new.worktree.baseBranch")}</MenuV2.GroupLabel>
                 <Show when={props.optionsLoading}>

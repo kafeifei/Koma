@@ -27,8 +27,8 @@ export function resolveNewSessionBranch(input: { isolated: boolean; current?: st
   return input.isolated ? input.base : input.current
 }
 
-export function resolveNewSessionBaseBranch(input: { selected?: string; fallback?: string }) {
-  return input.selected ?? input.fallback
+export function resolveNewSessionBaseBranch(input: { selected?: string; current?: string; fallback?: string }) {
+  return input.selected ?? input.current ?? input.fallback
 }
 
 export function createNewSessionWorkspaceController() {
@@ -81,6 +81,7 @@ export function createNewSessionWorkspaceController() {
   const selectedBaseBranch = createMemo(() =>
     resolveNewSessionBaseBranch({
       selected: state.projectRoot === projectRoot() ? state.baseBranch : undefined,
+      current: currentBranch(),
       fallback: defaultBranch(),
     }),
   )

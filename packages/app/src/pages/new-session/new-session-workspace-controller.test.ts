@@ -41,8 +41,9 @@ describe("new session workspace selection", () => {
     expect(resolveNewSessionBranch({ isolated: false, current: "feature", base: "dev" })).toBe("feature")
   })
 
-  test("falls back to the selected source's default starting branch", () => {
-    expect(resolveNewSessionBaseBranch({ selected: "feature", fallback: "dev" })).toBe("feature")
+  test("starts from the current directory branch before falling back to the repository default", () => {
+    expect(resolveNewSessionBaseBranch({ selected: "release", current: "feature", fallback: "dev" })).toBe("release")
+    expect(resolveNewSessionBaseBranch({ current: "feature", fallback: "dev" })).toBe("feature")
     expect(resolveNewSessionBaseBranch({ fallback: "dev" })).toBe("dev")
   })
 })
