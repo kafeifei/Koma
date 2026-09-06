@@ -1,3 +1,4 @@
+import { DirectoryLease } from "../directory-lease"
 export * as SessionExecution from "./execution"
 
 import { Context, Effect, Layer } from "effect"
@@ -10,7 +11,9 @@ export interface Interface {
   /** Snapshots active execution owned by this process. */
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   /** Starts execution while idle or joins the active execution. */
-  readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, SessionRunner.RunError>
+  readonly resume: (
+    sessionID: SessionSchema.ID,
+  ) => Effect.Effect<void, SessionRunner.RunError | DirectoryLease.UnavailableError>
   /** Registers newly recorded work. Repeated wakeups may coalesce. */
   readonly wake: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   /** Interrupt active work owned by this process. Idle interruption is a no-op. */

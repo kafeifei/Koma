@@ -79,6 +79,60 @@ test.beforeEach(async ({ page }, info) => {
         ]
       : [],
   })
+  if (info.title.startsWith("disables lifecycle")) {
+    await page.route("**/api/session/capabilities", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            archive: false,
+            restore: false,
+            delete: false,
+            managedWorktree: false,
+            occupancy: { pty: true, v2: true, externalProcesses: false },
+          },
+        }),
+      }),
+    )
+  }
+  if (info.title.startsWith("uses bundled lifecycle")) {
+    await page.route("**/api/session/capabilities", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            archive: true,
+            restore: true,
+            delete: true,
+            managedWorktree: true,
+            occupancy: { pty: true, v2: true, externalProcesses: false },
+          },
+        }),
+      }),
+    )
+  }
+  if (info.title.startsWith("retries failed lifecycle capabilities")) {
+    let requests = 0
+    await page.route("**/api/session/capabilities", (route) => {
+      requests += 1
+      if (requests === 1) return route.fulfill({ status: 500, json: { message: "capabilities unavailable" } })
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            archive: true,
+            restore: true,
+            delete: true,
+            managedWorktree: true,
+            occupancy: { pty: true, v2: true, externalProcesses: false },
+          },
+        }),
+      })
+    })
+  }
   await page.addInitScript(
     ({ directory }) => {
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
@@ -145,12 +199,18 @@ test("removes the current project during search and restores its tasks when adde
   await page.reload()
   await expect(sidebar.locator('button[aria-label="Add project"]')).toBeVisible()
   await expect(sidebar.locator('[data-slot="workspace-project"]')).toHaveCount(0)
+  const browsing: string[] = []
+  const recordBrowse = (request: import("@playwright/test").Request) => browsing.push(new URL(request.url()).pathname)
+  page.on("request", recordBrowse)
   await sidebar.locator('button[aria-label="Add project"]').click()
   const picker = page.getByRole("dialog").getByRole("textbox")
   await picker.fill("TaskWorkspaceRegression")
   await expect(
     page.getByRole("dialog").getByRole("button", { name: /C:\/OpenCode\/.*TaskWorkspaceRegression/ }),
   ).toBeVisible()
+  page.off("request", recordBrowse)
+  expect(browsing).toContain("/api/directory")
+  expect(browsing.filter((path) => ["/file", "/api/file", "/find/file", "/api/find/file"].includes(path))).toEqual([])
   await page
     .getByRole("dialog")
     .getByRole("button", { name: /C:\/OpenCode\/.*TaskWorkspaceRegression/ })
@@ -366,7 +426,9 @@ test("archives reclaimed worktree session under its project and restores with pr
   await page.route("**/session/ses-task-b**", async (route) => {
     if (route.request().method() !== "PATCH") return route.fallback()
     const url = new URL(route.request().url())
-    restoreRequests.push(url.searchParams.get("directory") ?? "")
+    restoreRequests.push(
+      url.searchParams.get("directory") ?? decodeURIComponent(route.request().headers()["x-opencode-directory"] ?? ""),
+    )
     return route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -435,30 +497,72 @@ test("shows the Sandy worktree checkbox and base branch selector", async ({ page
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ hasHead: true, defaultBranch: "main", branches: ["main", "release"] }),
+        body: JSON.stringify({
+          hasHead: true,
+          currentBranch: "main",
+          defaultBranch: "main",
+          branches: ["main", "release"],
+        }),
       })
     return route.fallback()
   })
   const sidebar = page.locator('[data-component="task-sidebar"]')
   await sidebar.locator('button[data-action="workspace-new-task"]').click()
-  await expect(page.getByText("Create new worktree", { exact: true })).toBeVisible()
-  await page.getByText("Create new worktree", { exact: true }).click()
-  const worktree = page.getByRole("menuitemcheckbox", { name: "Worktree", exact: true })
+  await expect(page).toHaveURL(/\/new-session\?/)
+  const editor = page.locator('[data-component="prompt-input-v2"] [data-component="prompt-input"]')
+  await editor.fill("Keep this input")
+  const href = page.url()
+  const worktreeControl = page.locator('[data-action="prompt-worktree"]')
+  const worktree = page.getByRole("checkbox", { name: "Worktree", exact: true })
   await expect(worktree).toBeVisible()
-  await worktree.click()
-  await page.keyboard.press("Escape")
-  await expect(page.getByText("Main branch", { exact: true })).toBeVisible()
-  await page.getByText("Main branch", { exact: true }).click()
-  await page.getByRole("menuitemcheckbox", { name: "Worktree", exact: true }).click()
-  await page.keyboard.press("Escape")
-  await page.getByText("Create new worktree", { exact: true }).click()
-  await page.getByRole("menuitem", { name: /^Base branch/ }).hover()
+  await expect(worktree).toBeChecked()
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
+  await worktreeControl.click()
+  await expect(page).toHaveURL(href)
+  await expect(editor).toHaveText("Keep this input")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="prompt-current-branch"]')).toContainText("main")
+  await worktreeControl.click()
+  await expect(page).toHaveURL(href)
+  await expect(editor).toHaveText("Keep this input")
+  await page.locator('[data-action="prompt-base-branch"]').click()
   await page.getByRole("menuitem", { name: "release", exact: true }).click()
-  await expect(page.getByText("Create new worktree", { exact: true })).toBeVisible()
-  await expect(page.locator("#root").getByText("release", { exact: true })).toBeVisible()
-  await page.getByText("Create new worktree", { exact: true }).click()
-  await expect(page.getByRole("menuitem", { name: /^Base branch/ })).toBeVisible()
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
+  await expect(page).toHaveURL(href)
+  await expect(editor).toHaveText("Keep this input")
   await page.screenshot({ path: "/tmp/worktree-lifecycle-selector.png", animations: "disabled" })
+})
+
+test("disables lifecycle mutations when the V2 server reports them unsupported", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+
+  await expect(page.getByRole("menuitem", { name: "Archive", exact: true })).toBeDisabled()
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeDisabled()
+})
+
+test("uses bundled lifecycle capabilities and sends the V2 archive mutation", async ({ page }) => {
+  const request = page.waitForRequest(
+    (value) => value.method() === "POST" && new URL(value.url()).pathname === "/api/session/ses-task-b/archive",
+  )
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  const archive = page.getByRole("menuitem", { name: "Archive", exact: true })
+  await expect(archive).toBeEnabled()
+
+  await archive.click()
+
+  expect((await request).method()).toBe("POST")
+  await expect(sidebar.locator('[data-session-id="ses-task-b"]')).toBeHidden()
+})
+
+test("retries failed lifecycle capabilities when opening the task menu", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+
+  await expect(page.getByRole("menuitem", { name: "Archive", exact: true })).toBeEnabled()
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeEnabled()
 })
 
 function taskRow(sidebar: Locator, id: string) {

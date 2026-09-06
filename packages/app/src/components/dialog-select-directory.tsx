@@ -10,6 +10,8 @@ import { ServerConnection } from "@/context/server"
 import { useGlobal } from "@/context/global"
 import { cleanPickerInput, createDirectorySearch, displayPickerPath } from "./directory-picker-domain"
 import type { Path } from "@opencode-ai/sdk/v2/client"
+import { errorMessage } from "@/pages/layout/helpers"
+import { showToast } from "@/utils/toast"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -81,6 +83,11 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     sdk,
     home,
     base: start,
+    onError: (error) =>
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      }),
   })
 
   const recentProjects = createMemo(() => {

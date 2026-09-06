@@ -866,17 +866,22 @@ export default function LegacyLayout(props: ParentProps) {
   }
 
   async function archiveSession(session: Session) {
-    if ((await serverSDK().protocol) !== "v1") return
     const [store, setStore] = serverSync().child(session.directory)
     const sessions = store.session ?? []
     const index = sessions.findIndex((s) => s.id === session.id)
     const nextSession = sessions[index + 1] ?? sessions[index - 1]
 
-    await serverSDK().client.session.update({
-      sessionID: session.id,
-      directory: session.directory,
-      time: { archived: Date.now() },
-    })
+    const archived = await serverSDK()
+      .api.session.archive({ sessionID: session.id, directory: session.directory })
+      .then(() => true)
+      .catch((cause) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(cause, language.t("common.requestFailed")),
+        })
+        return false
+      })
+    if (!archived) return
     setStore(
       produce((draft) => {
         const match = Binary.search(draft.session, session.id, (s) => s.id)
@@ -1473,20 +1478,21 @@ export default function LegacyLayout(props: ParentProps) {
       return
     }
 
-    if ((await serverSDK().protocol) === "v1")
-      await Promise.all(
-        sessions
-          .filter((session) => session.time.archived === undefined)
-          .map((session) =>
-            serverSDK()
-              .client.session.update({
-                sessionID: session.id,
-                directory: session.directory,
-                time: { archived: Date.now() },
-              })
-              .catch(() => undefined),
-          ),
-      )
+    const archive = await Promise.allSettled(
+      sessions
+        .filter((session) => session.time.archived === undefined)
+        .map((session) => serverSDK().api.session.archive({ sessionID: session.id, directory: session.directory })),
+    )
+    const failure = archive.find((item) => item.status === "rejected")
+    if (failure?.status === "rejected") {
+      setBusy(directory, false)
+      dismiss()
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: errorMessage(failure.reason, language.t("common.requestFailed")),
+      })
+      return
+    }
 
     setBusy(directory, false)
     dismiss()

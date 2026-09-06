@@ -87,7 +87,14 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
       fallbackPath()?.home ||
       fallbackPath()?.directory,
   )
-  const search = createDirectorySearch({ sdk, home, base: () => root() || start() })
+  const search = createDirectorySearch({ sdk, home, base: () => root() || start(), onError: () => setError(true) })
+  const searchFiles = createDirectorySearch({
+    sdk,
+    home,
+    base: () => root() || start(),
+    type: "file",
+    onError: () => setError(true),
+  })
   const [suggestions] = createResource(input, async (value) => {
     const cleaned = cleanPickerInput(value)
     const typed = cleaned.replace(/\/+$/, "")
@@ -95,21 +102,8 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
     if (!cleaned || (root() && typed === current)) return { query: value, items: [] }
     const directories = (await search(value)).map((absolute) => ({ absolute, type: "directory" as const }))
     if (!policy.includeFiles) return { query: value, items: directories.slice(0, 5) }
-    const base = pickerRoot(cleaned) || root() || start()
-    if (!base) return { query: value, items: directories.slice(0, 5) }
-    const files = await sdk.api.file
-      .find({
-        location: { directory: base },
-        query: pickerFileSearchQuery(base, value, home()),
-        type: "file",
-        limit: 20,
-      })
-      .then((result) => result.data)
-      .catch(() => [])
-    const results = [
-      ...directories,
-      ...files.map((entry) => ({ absolute: absoluteTreePath(base, entry.path), type: "file" as const })),
-    ]
+    const files = await searchFiles(value)
+    const results = [...directories, ...files.map((absolute) => ({ absolute, type: "file" as const }))]
     return {
       query: value,
       items: Array.from(new Map(results.map((result) => [result.absolute, result])).values()).slice(0, 8),
@@ -127,10 +121,10 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
       existing ??
       loads.schedule(`${generation}:${key}`, eager ? "background" : "user", () => {
         if (!activeTreeNavigation(generation, navigation)) return Promise.resolve(undefined)
-        return sdk.api.file
-          .list({ location: { directory: absolute } })
+        return sdk.api.directory
+          .list({ path: absolute })
           .then((result) =>
-            result.data.map((entry) => ({
+            result.map((entry) => ({
               name: getFilename(entry.path.replace(/[\\/]+$/, "")),
               type: entry.type,
             })),

@@ -274,6 +274,8 @@ import type {
   V2CredentialRemoveResponses,
   V2CredentialUpdateErrors,
   V2CredentialUpdateResponses,
+  V2DirectoryListErrors,
+  V2DirectoryListResponses,
   V2EventSubscribeErrors,
   V2EventSubscribeResponses,
   V2FsFindErrors,
@@ -338,6 +340,10 @@ import type {
   V2ReferenceListResponses,
   V2SessionActiveErrors,
   V2SessionActiveResponses,
+  V2SessionArchiveErrors,
+  V2SessionArchiveResponses,
+  V2SessionCapabilitiesErrors,
+  V2SessionCapabilitiesResponses,
   V2SessionCompactErrors,
   V2SessionCompactResponses,
   V2SessionContextErrors,
@@ -374,6 +380,10 @@ import type {
   V2SessionQuestionRejectResponses,
   V2SessionQuestionReplyErrors,
   V2SessionQuestionReplyResponses,
+  V2SessionRemoveErrors,
+  V2SessionRemoveResponses,
+  V2SessionRestoreErrors,
+  V2SessionRestoreResponses,
   V2SessionRevertClearErrors,
   V2SessionRevertClearResponses,
   V2SessionRevertCommitErrors,
@@ -400,11 +410,21 @@ import type {
   VcsGetResponses,
   VcsStatusErrors,
   VcsStatusResponses,
+  WorktreeAdoptErrors,
+  WorktreeAdoptResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
+  WorktreeDetailsErrors,
+  WorktreeDetailsResponses,
   WorktreeListErrors,
   WorktreeListResponses,
+  WorktreeManagedErrors,
+  WorktreeManagedResponses,
+  WorktreeMergeApplyErrors,
+  WorktreeMergeApplyResponses,
+  WorktreeMergePreviewErrors,
+  WorktreeMergePreviewResponses,
   WorktreeOptionsErrors,
   WorktreeOptionsResponses,
   WorktreeRemoveErrors,
@@ -1794,6 +1814,236 @@ export class Worktree extends HeyApiClient {
       url: "/experimental/session/{sessionID}/worktree",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Preview worktree merge
+   *
+   * Compare linked worktree results with the clean primary checkout without changing either checkout.
+   */
+  public mergePreview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      resolutions?: Array<{
+        path: string
+        choice: "source" | "target"
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "resolutions" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorktreeMergePreviewResponses,
+      WorktreeMergePreviewErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/worktree/merge/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List worktree ownership and usage
+   */
+  public managed<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorktreeManagedResponses, WorktreeManagedErrors, ThrowOnError>({
+      url: "/experimental/worktree/managed",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Inspect worktree files and space
+   */
+  public details<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorktreeDetailsResponses, WorktreeDetailsErrors, ThrowOnError>({
+      url: "/experimental/worktree/details",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Explicitly adopt a linked worktree
+   */
+  public adopt<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorktreeAdoptResponses, WorktreeAdoptErrors, ThrowOnError>({
+      url: "/experimental/worktree/adopt",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Apply reviewed worktree merge
+   *
+   * Stage a conflict-free, unchanged preview in the primary checkout. Does not commit or move branch references.
+   */
+  public mergeApply<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      resolutions?: Array<{
+        path: string
+        choice: "source" | "target"
+      }>
+      reviewID?: string
+      sourceHead?: string
+      sourceTree?: string
+      targetHead?: string
+      mergedTree?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "resolutions" },
+            { in: "body", key: "reviewID" },
+            { in: "body", key: "sourceHead" },
+            { in: "body", key: "sourceTree" },
+            { in: "body", key: "targetHead" },
+            { in: "body", key: "mergedTree" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorktreeMergeApplyResponses, WorktreeMergeApplyErrors, ThrowOnError>({
+      url: "/experimental/worktree/merge/apply",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -5152,6 +5402,27 @@ export class Health extends HeyApiClient {
   }
 }
 
+export class Directory extends HeyApiClient {
+  /**
+   * List a directory
+   *
+   * List the direct file and directory children of one absolute path.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "path" }] }])
+    return (options?.client ?? this.client).get<V2DirectoryListResponses, V2DirectoryListErrors, ThrowOnError>({
+      url: "/api/directory",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Location extends HeyApiClient {
   /**
    * Get location
@@ -5542,6 +5813,87 @@ export class Question2 extends HeyApiClient {
 
 export class Session3 extends HeyApiClient {
   /**
+   * Session lifecycle capabilities
+   */
+  public capabilities<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      V2SessionCapabilitiesResponses,
+      V2SessionCapabilitiesErrors,
+      ThrowOnError
+    >({ url: "/api/session/capabilities", ...options })
+  }
+
+  /**
+   * Archive session and preserve its managed worktree
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).post<V2SessionArchiveResponses, V2SessionArchiveErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/archive",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Restore archived session
+   */
+  public restore<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).post<V2SessionRestoreResponses, V2SessionRestoreErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/restore",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete session and its exclusively owned worktree
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).delete<V2SessionRemoveResponses, V2SessionRemoveErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session
+   *
+   * Retrieve a session by ID.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<V2SessionGetResponses, V2SessionGetErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * List sessions
    *
    * Retrieve sessions in the requested order. Items keep that order across pages; use cursor.next or cursor.previous to move through the ordered list.
@@ -5633,25 +5985,6 @@ export class Session3 extends HeyApiClient {
     return (options?.client ?? this.client).get<V2SessionActiveResponses, V2SessionActiveErrors, ThrowOnError>({
       url: "/api/session/active",
       ...options,
-    })
-  }
-
-  /**
-   * Get session
-   *
-   * Retrieve a session by ID.
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
-    return (options?.client ?? this.client).get<V2SessionGetResponses, V2SessionGetErrors, ThrowOnError>({
-      url: "/api/session/{sessionID}",
-      ...options,
-      ...params,
     })
   }
 
@@ -7149,6 +7482,11 @@ export class V2 extends HeyApiClient {
   private _health?: Health
   get health(): Health {
     return (this._health ??= new Health({ client: this.client }))
+  }
+
+  private _directory?: Directory
+  get directory(): Directory {
+    return (this._directory ??= new Directory({ client: this.client }))
   }
 
   private _location?: Location

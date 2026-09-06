@@ -1,9 +1,18 @@
 import type {
   HealthGetOutput,
+  ServerDirectoryListInput,
+  ServerDirectoryListOutput,
   LocationGetInput,
   LocationGetOutput,
   AgentsListInput,
   AgentsListOutput,
+  SessionsCapabilitiesOutput,
+  SessionsArchiveInput,
+  SessionsArchiveOutput,
+  SessionsRestoreInput,
+  SessionsRestoreOutput,
+  SessionsRemoveInput,
+  SessionsRemoveOutput,
   SessionsListInput,
   SessionsListOutput,
   SessionsCreateInput,
@@ -256,6 +265,20 @@ export function make(options: ClientOptions) {
           requestOptions,
         ),
     },
+    "server.directory": {
+      list: (input: ServerDirectoryListInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: ServerDirectoryListOutput }>(
+          {
+            method: "GET",
+            path: `/api/directory`,
+            query: { path: input["path"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+    },
     location: {
       get: (input?: LocationGetInput, requestOptions?: RequestOptions) =>
         request<LocationGetOutput>(
@@ -285,6 +308,50 @@ export function make(options: ClientOptions) {
         ),
     },
     sessions: {
+      capabilities: (requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsCapabilitiesOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/capabilities`,
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      archive: (input: SessionsArchiveInput, requestOptions?: RequestOptions) =>
+        request<SessionsArchiveOutput>(
+          {
+            method: "POST",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/archive`,
+            successStatus: 204,
+            declaredStatuses: [409, 503, 404, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      restore: (input: SessionsRestoreInput, requestOptions?: RequestOptions) =>
+        request<SessionsRestoreOutput>(
+          {
+            method: "POST",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/restore`,
+            successStatus: 204,
+            declaredStatuses: [409, 503, 404, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      remove: (input: SessionsRemoveInput, requestOptions?: RequestOptions) =>
+        request<SessionsRemoveOutput>(
+          {
+            method: "DELETE",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}`,
+            successStatus: 204,
+            declaredStatuses: [409, 503, 404, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
       list: (input?: SessionsListInput, requestOptions?: RequestOptions) =>
         request<SessionsListOutput>(
           {
@@ -319,7 +386,7 @@ export function make(options: ClientOptions) {
               permissionMode: input?.["permissionMode"],
             },
             successStatus: 200,
-            declaredStatuses: [401, 400],
+            declaredStatuses: [409, 401, 400],
             empty: false,
           },
           requestOptions,
@@ -857,7 +924,7 @@ export function make(options: ClientOptions) {
               env: input?.["env"],
             },
             successStatus: 200,
-            declaredStatuses: [401, 400],
+            declaredStatuses: [409, 401, 400],
             empty: false,
           },
           requestOptions,

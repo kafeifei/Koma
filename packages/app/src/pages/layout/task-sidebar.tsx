@@ -1,4 +1,4 @@
-import { createMemo, For, Show, Suspense, type ParentProps } from "solid-js"
+import { createMemo, createResource, For, Show, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import type { Session } from "@opencode-ai/sdk/v2/client"
@@ -6,7 +6,6 @@ import { Icon } from "@opencode-ai/ui/v2/icon"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { useCommand } from "@/context/command"
-import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
 import { useGlobal, type ServerCtx } from "@/context/global"
 import { createHomeSessionQuery } from "@/context/global-sync/home-session-query"
 import { useLanguage } from "@/context/language"
@@ -29,6 +28,10 @@ import { TaskSidebarMenu } from "./task-sidebar-menu"
 import { createTaskSearch } from "./task-search"
 import { pathKey } from "@/utils/path-key"
 import { BuildInfo } from "@/components/build-info"
+import { sessionCapabilities } from "@/utils/server-compat"
+import { mutateTask, type TaskLifecycleOperation } from "./task-lifecycle"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogWorktreeManager } from "@/components/dialog-worktree-manager"
 import "./task-sidebar.css"
 
 export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: () => void }>) {
@@ -326,6 +329,7 @@ function TaskProject(props: {
   onNewTask: () => void
 }) {
   const language = useLanguage()
+  const dialog = useDialog()
   const navigate = useNavigate()
   const [state, setState] = createStore({ collapsed: false, limit: 8 })
   const open = () => props.searching || !state.collapsed
@@ -370,6 +374,22 @@ function TaskProject(props: {
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content>
+              <Show when={props.project.vcs === "git"}>
+                <DropdownMenu.Item
+                  onSelect={() =>
+                    dialog.show(() => (
+                      <DialogWorktreeManager
+                        root={props.project.worktree}
+                        server={props.server}
+                        context={props.context}
+                        onNavigate={props.onNavigate}
+                      />
+                    ))
+                  }
+                >
+                  <DropdownMenu.ItemLabel>{language.t("worktree.manager.title")}</DropdownMenu.ItemLabel>
+                </DropdownMenu.Item>
+              </Show>
               <DropdownMenu.Item onSelect={remove}>
                 <DropdownMenu.ItemLabel>{language.t("workspace.removeProject")}</DropdownMenu.ItemLabel>
               </DropdownMenu.Item>
@@ -430,6 +450,10 @@ function TaskSession(props: {
   const navigate = useNavigate()
   const language = useLanguage()
   const [mutation, setMutation] = createStore({ pending: false })
+  const [capabilities, capabilitiesAction] = createResource(
+    () => props.context.sdk.api,
+    (api) => sessionCapabilities(api).catch(() => undefined),
+  )
   const state = useSessionTabAvatarState(
     () => props.server,
     () => props.session.directory,
@@ -439,34 +463,20 @@ function TaskSession(props: {
     state.needsAttention() ? "attention" : state.loading() ? "running" : state.unread() ? "unread" : "idle"
   const title = () => sessionTitle(props.session.title) || language.t("workspace.newTask")
   const tab = () => ({ type: "session" as const, server: props.server, sessionId: props.session.id })
-  const update = async (input: { title?: string; time?: { archived: number | null } }) => {
+  const lifecycle = async (operation: TaskLifecycleOperation) => {
     if (mutation.pending) return
-    // Applying the returned summary can remove this row and its project group.
-    const context = props.context
-    const target = tab()
-    const directory = props.projectDirectory
-    const active = props.active
     setMutation("pending", true)
-    await context.sdk.client.session
-      .update({
-        sessionID: props.session.id,
-        directory,
-        ...input,
-      })
-      .then((result) => {
-        const info = result.data!
-        context.sync.homeSessions.apply({ type: "session.updated", properties: { sessionID: info.id, info } })
-        void context.queryClient.invalidateQueries({ queryKey: ["task-search", context.sdk.scope] })
-        tabs.rememberSessionInfo(target, info)
-        if (typeof info.time.archived === "number") {
-          const [, setChild] = context.sync.child(info.directory, { bootstrap: false })
-          setChild("session", (sessions) => sessions.filter((session) => session.id !== info.id))
-          if (active) navigate("/")
-          notifySessionTabsRemoved({ server: target.server, directory: info.directory, sessionIDs: [info.id] })
-        }
-        if (input.time?.archived === null) context.projects.open(directory)
-      })
-      .finally(() => setMutation("pending", false))
+    await mutateTask({
+      context: props.context,
+      tabs,
+      server: props.server,
+      projectDirectory: props.projectDirectory,
+      session: props.session,
+      operation,
+      onArchivedOrDeleted: () => {
+        if (props.active) navigate("/")
+      },
+    }).finally(() => setMutation("pending", false))
   }
   return (
     <TaskSidebarMenu
@@ -482,27 +492,9 @@ function TaskSession(props: {
         })
         return result.data!
       }}
-      onDelete={async () => {
-        if (mutation.pending) return
-        const context = props.context
-        const info = props.session
-        const target = tab()
-        const active = props.active
-        setMutation("pending", true)
-        await context.sdk.client.session
-          .delete({ sessionID: info.id, directory: props.projectDirectory })
-          .then(() => {
-            context.sync.homeSessions.apply({ type: "session.deleted", properties: { sessionID: info.id, info } })
-            const [, setChild] = context.sync.child(info.directory, { bootstrap: false })
-            setChild("session", (sessions) => sessions.filter((session) => session.id !== info.id))
-            if (context.tasks.pinned().includes(info.id)) context.tasks.togglePin(info.id)
-            void context.queryClient.invalidateQueries({ queryKey: ["task-search", context.sdk.scope] })
-            if (active) navigate("/")
-            notifySessionTabsRemoved({ server: target.server, directory: info.directory, sessionIDs: [info.id] })
-          })
-          .finally(() => setMutation("pending", false))
-      }}
-      canMutate={props.context.sdk.protocolKind() === "v1"}
+      onDelete={() => lifecycle("delete")}
+      canMutate={!!capabilities()?.archive && !!capabilities()?.restore && !!capabilities()?.delete}
+      onRetryCapabilities={() => void capabilitiesAction.refetch()}
       onPin={() => props.context.tasks.togglePin(props.session.id)}
       onRename={async (title) => {
         const context = props.context
@@ -513,8 +505,8 @@ function TaskSession(props: {
         void context.queryClient.invalidateQueries({ queryKey: ["task-search", context.sdk.scope] })
         tabs.rememberSessionInfo(target, info)
       }}
-      onArchive={() => update({ time: { archived: Date.now() } })}
-      onRestore={() => update({ time: { archived: null } })}
+      onArchive={() => lifecycle("archive")}
+      onRestore={() => lifecycle("restore")}
     >
       <a
         href={tabHref(tab())}

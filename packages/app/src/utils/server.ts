@@ -15,6 +15,25 @@ type ServerSessionSetPermissionModeInput = {
   permissionMode: ServerPermissionMode
   location?: { directory?: string }
 }
+type ServerSessionCapabilities = {
+  archive: boolean
+  restore: boolean
+  delete: boolean
+  managedWorktree: boolean
+  occupancy: { pty: boolean; v2: boolean; externalProcesses: false }
+}
+type ServerSessionLifecycleInput = { sessionID: string; directory?: string }
+export type ServerDirectoryEntry = { name: string; path: string; type: "file" | "directory" }
+
+export class ServerHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = "ServerHttpError"
+  }
+}
 
 export function authTokenFromCredentials(input: { username?: string; password: string }) {
   return btoa(`${input.username ?? "opencode"}:${input.password}`)
@@ -68,8 +87,8 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
     fetch: input.fetch,
     headers,
   })
-  // The vendored client predates session permission modes. Remove this transport
-  // extension when that client supports create.permissionMode and setPermissionMode.
+  // The app intentionally remains on the vendored singular-session client. Remove
+  // these transport extensions when it supports permission modes and lifecycle endpoints.
   const request = async (path: string, value: RequestInit) => {
     const requestHeaders = new Headers(headers)
     new Headers(value.headers).forEach((item, key) => requestHeaders.set(key, item))
@@ -82,11 +101,25 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
     const body = (await response.json().catch(() => undefined)) as
       | { message?: string; data?: { message?: string } }
       | undefined
-    throw new Error(body?.data?.message ?? body?.message ?? `Request failed with status ${response.status}`)
+    throw new ServerHttpError(
+      body?.data?.message ?? body?.message ?? `Request failed with status ${response.status}`,
+      response.status,
+    )
   }
 
   return {
     ...client,
+    directory: {
+      async list(value: { path: string }) {
+        const url = new URL("/api/directory", input.server.url)
+        url.searchParams.set("path", value.path)
+        return (
+          (await (await request(url.toString(), { method: "GET" })).json()) as {
+            data: ServerDirectoryEntry[]
+          }
+        ).data
+      },
+    },
     session: {
       ...client.session,
       create: async (
@@ -118,6 +151,22 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
           method: "POST",
           body: JSON.stringify({ permissionMode: value.permissionMode }),
         })
+      },
+      async capabilities() {
+        return (
+          (await (await request("/api/session/capabilities", { method: "GET" })).json()) as {
+            data: ServerSessionCapabilities
+          }
+        ).data
+      },
+      async archive(value: ServerSessionLifecycleInput) {
+        await request(`/api/session/${encodeURIComponent(value.sessionID)}/archive`, { method: "POST" })
+      },
+      async restore(value: ServerSessionLifecycleInput) {
+        await request(`/api/session/${encodeURIComponent(value.sessionID)}/restore`, { method: "POST" })
+      },
+      async remove(value: ServerSessionLifecycleInput) {
+        await request(`/api/session/${encodeURIComponent(value.sessionID)}`, { method: "DELETE" })
       },
     },
   }

@@ -1,5 +1,5 @@
 import { PermissionModeError } from "@/utils/server-errors"
-import type { ServerApi, ServerSessionInfo } from "./server"
+import { ServerHttpError, type ServerApi, type ServerSessionInfo } from "./server"
 import type { ServerProtocol } from "./server-protocol"
 import type { AgentPartInput, FilePartInput, OpencodeClient, Session, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type {
@@ -20,8 +20,19 @@ type LegacyClient = OpencodeClient
 type LegacyFor = (directory?: string) => LegacyClient
 type CompatibleSessionApi = Omit<
   ServerApi["session"],
-  "prompt" | "command" | "shell" | "compact" | "rename" | "archive" | "remove" | "setPermissionMode"
+  | "prompt"
+  | "command"
+  | "shell"
+  | "compact"
+  | "get"
+  | "rename"
+  | "capabilities"
+  | "archive"
+  | "restore"
+  | "remove"
+  | "setPermissionMode"
 > & {
+  get: (input: Parameters<ServerApi["session"]["get"]>[0] & LegacyLocation) => ReturnType<ServerApi["session"]["get"]>
   prompt: (input: SessionPromptInput & LegacyPrompt) => Promise<SessionPromptOutput>
   command: (input: SessionCommandInput) => Promise<SessionCommandOutput>
   shell: (input: SessionShellInput & LegacyPrompt) => Promise<SessionShellOutput>
@@ -32,10 +43,19 @@ type CompatibleSessionApi = Omit<
   setPermissionMode: (
     input: Parameters<ServerApi["session"]["setPermissionMode"]>[0] & LegacyLocation,
   ) => ReturnType<ServerApi["session"]["setPermissionMode"]>
-  // archive: (input: Parameters<ServerApi["session"]["archive"]>[0] & LegacyLocation) => ReturnType<ServerApi["session"]["archive"]>
+  capabilities: () => Promise<SessionCapabilities>
+  archive: (input: { sessionID: string } & LegacyLocation) => Promise<void>
+  restore: (input: { sessionID: string } & LegacyLocation) => Promise<void>
   remove: (
     input: Parameters<ServerApi["session"]["remove"]>[0] & LegacyLocation,
   ) => ReturnType<ServerApi["session"]["remove"]>
+}
+export type SessionCapabilities = {
+  archive: boolean
+  restore: boolean
+  delete: boolean
+  managedWorktree: boolean
+  occupancy: { pty: boolean; v2: boolean; externalProcesses: false }
 }
 type CompatiblePermissionApi = Omit<ServerApi["permission"], "reply"> & {
   reply: (
@@ -97,6 +117,36 @@ export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
     input.protocol.then((protocol) => (protocol === "v1" ? v1 : input.current)),
     input.current,
   )
+}
+
+const capabilityCache = new WeakMap<CompatibleSessionApi, Promise<SessionCapabilities>>()
+const capabilitySubscribers = new WeakMap<CompatibleSessionApi, Set<(value: SessionCapabilities) => void>>()
+
+export function subscribeSessionCapabilities(api: CompatibleApi, receive: (value: SessionCapabilities) => void) {
+  const subscribers = capabilitySubscribers.get(api.session) ?? new Set<(value: SessionCapabilities) => void>()
+  capabilitySubscribers.set(api.session, subscribers)
+  subscribers.add(receive)
+  return () => {
+    subscribers.delete(receive)
+    if (!subscribers.size) capabilitySubscribers.delete(api.session)
+  }
+}
+
+export function sessionCapabilities(api: CompatibleApi) {
+  const cached = capabilityCache.get(api.session)
+  if (cached) return cached
+  const result = api.session
+    .capabilities()
+    .then((value) => {
+      capabilitySubscribers.get(api.session)?.forEach((receive) => receive(value))
+      return value
+    })
+    .catch((error) => {
+      capabilityCache.delete(api.session)
+      throw error
+    })
+  capabilityCache.set(api.session, result)
+  return result
 }
 
 function lazyApi<T extends object>(implementation: Promise<T>, shape: T): T {
@@ -183,8 +233,8 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         }
         return sessionInfo(result.data)
       },
-      async get(value: Parameters<ServerApi["session"]["get"]>[0]) {
-        const result = await legacy().session.get(value)
+      async get(value: Parameters<ServerApi["session"]["get"]>[0] & LegacyLocation) {
+        const result = await legacy(value).session.get(value)
         if (!result.data) throw new Error(`Session not found: ${value.sessionID}`)
         return sessionInfo(result.data)
       },
@@ -208,9 +258,24 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           throw new PermissionModeError()
         }
       },
-      // async archive(value: Parameters<ServerApi["session"]["archive"]>[0] & LegacyLocation) {
-      //   await legacy(value).session.update({ sessionID: value.sessionID, time: { archived: Date.now() } })
-      // },
+      async capabilities() {
+        return input.current.session.capabilities().catch((error) => {
+          if (!(error instanceof ServerHttpError) || ![404, 405, 501].includes(error.status)) throw error
+          return {
+            archive: true,
+            restore: true,
+            delete: true,
+            managedWorktree: false,
+            occupancy: { pty: false, v2: false, externalProcesses: false },
+          }
+        })
+      },
+      async archive(value) {
+        await legacy(value).session.update({ sessionID: value.sessionID, time: { archived: Date.now() } })
+      },
+      async restore(value) {
+        await legacy(value).session.update({ sessionID: value.sessionID, time: { archived: null } })
+      },
       async remove(value: Parameters<ServerApi["session"]["remove"]>[0] & LegacyLocation) {
         await legacy(value).session.delete(value)
       },

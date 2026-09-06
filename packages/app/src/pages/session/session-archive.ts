@@ -10,6 +10,7 @@ import { errorMessage } from "@/pages/layout/helpers"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { showToast } from "@/utils/toast"
+import { createSessionCapabilities } from "@/utils/session-capabilities"
 
 export function useSessionArchive() {
   const language = useLanguage()
@@ -19,6 +20,7 @@ export function useSessionArchive() {
   const serverSync = useServerSync()
   const tabs = useTabs()
   const { params } = useSessionKey()
+  const capabilities = createSessionCapabilities(() => sdk().api)
 
   const navigateAfterRemoval = (sessionID: string, parentID?: string, nextSessionID?: string) => {
     if (params.id !== sessionID) return
@@ -42,14 +44,12 @@ export function useSessionArchive() {
   const archive = async (sessionID: string) => {
     const session = sync().session.get(sessionID)
     if (!session) return
-    if ((await sdk().protocol) !== "v1") return
-
     const sessions = sync().data.session ?? []
     const index = sessions.findIndex((s) => s.id === sessionID)
     const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
     await sdk()
-      .client.session.update({ sessionID, directory: sdk().directory, time: { archived: Date.now() } })
+      .api.session.archive({ sessionID, directory: sdk().directory })
       .then(() => {
         sync().set(
           produce((draft) => {
@@ -70,5 +70,10 @@ export function useSessionArchive() {
       })
   }
 
-  return { archive, navigateAfterRemoval }
+  return {
+    archive,
+    navigateAfterRemoval,
+    canArchive: () => capabilities()?.archive === true,
+    canDelete: () => capabilities()?.delete === true,
+  }
 }

@@ -22,6 +22,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Project } from "@opencode-ai/schema/project"
+import path from "path"
 
 export const Info = Project.Info
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
@@ -143,6 +144,23 @@ const layer = Layer.effect(
 
     const scope = yield* Scope.Scope
 
+    const canonicalDirectory = Effect.fnUntraced(function* (directory: string) {
+      const absolute = path.resolve(directory)
+      let ancestor = absolute
+      while (!(yield* fs.exists(ancestor).pipe(Effect.orDie))) {
+        const parent = path.dirname(ancestor)
+        if (parent === ancestor) return AbsolutePath.make(absolute)
+        ancestor = parent
+      }
+      return AbsolutePath.make(path.join(yield* fs.resolve(ancestor), path.relative(ancestor, absolute)))
+    })
+
+    const canonicalSandboxes = Effect.fnUntraced(function* (directories: readonly string[], worktree?: string) {
+      const primary = worktree ? yield* canonicalDirectory(worktree) : undefined
+      const sandboxes = yield* Effect.forEach(directories, canonicalDirectory, { concurrency: "unbounded" })
+      return [...new Set(sandboxes)].filter((directory) => directory !== primary)
+    })
+
     const migrateProjectId = Effect.fn("Project.migrateProjectId")(function* (
       oldID: ProjectV2.ID | undefined,
       newID: ProjectV2.ID,
@@ -214,7 +232,8 @@ const layer = Layer.effect(
       yield* Effect.logInfo("fromDirectory", { directory })
 
       const data = yield* projectV2.resolve(AbsolutePath.make(directory))
-      const worktree = data.id === ProjectV2.ID.make("global") && !data.vcs ? "/" : data.directory
+      const opened = yield* canonicalDirectory(data.directory)
+      const worktree = data.id === ProjectV2.ID.make("global") && !data.vcs ? AbsolutePath.make("/") : opened
 
       // Phase 2: upsert
       const projectID = ProjectV2.ID.make(data.id)
@@ -234,25 +253,25 @@ const layer = Layer.effect(
 
       const result: Info = {
         ...existing,
-        worktree: projectID === ProjectV2.ID.global ? worktree : existing.worktree,
+        worktree: projectID === ProjectV2.ID.global ? worktree : yield* canonicalDirectory(existing.worktree),
         vcs: data.vcs?.type ?? fakeVcs,
         time: { ...existing.time, updated: Date.now() },
       }
-      if (
-        projectID !== ProjectV2.ID.global &&
-        data.directory !== result.worktree &&
-        !result.sandboxes.includes(data.directory)
-      )
-        result.sandboxes.push(data.directory)
       result.sandboxes = yield* Effect.forEach(
         result.sandboxes,
         (s) =>
           fs.exists(s).pipe(
             Effect.orDie,
-            Effect.map((exists) => (exists ? s : undefined)),
+            Effect.flatMap((exists) => (exists ? canonicalDirectory(s) : Effect.succeed(undefined))),
           ),
         { concurrency: "unbounded" },
-      ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
+      ).pipe(
+        Effect.map((arr) => arr.flatMap((directory) => (directory ? [directory] : []))),
+        Effect.flatMap((sandboxes) => canonicalSandboxes(sandboxes, result.worktree)),
+      )
+      if (projectID !== ProjectV2.ID.global && opened !== result.worktree && !result.sandboxes.includes(opened)) {
+        result.sandboxes.push(opened)
+      }
 
       yield* db
         .insert(ProjectTable)
@@ -306,7 +325,7 @@ const layer = Layer.effect(
       if (projectID !== ProjectV2.ID.global && data.vcs?.type === "git") {
         yield* projectV2.commit({ store: data.vcs.store, id: data.id })
       }
-      return { project: result, sandbox: data.vcs ? data.directory : worktree }
+      return { project: result, sandbox: data.vcs ? opened : worktree }
     })
 
     const discover = Effect.fn("Project.discover")(function* (input: Info) {
@@ -403,23 +422,22 @@ const layer = Layer.effect(
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return []
       const data = fromRow(row)
+      const sandboxes = yield* canonicalSandboxes(data.sandboxes, data.worktree)
       return yield* Effect.forEach(
-        data.sandboxes,
+        sandboxes,
         (dir) =>
           fs.isDir(dir).pipe(
             Effect.orDie,
             Effect.map((ok) => (ok ? dir : undefined)),
           ),
         { concurrency: "unbounded" },
-      ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
+      ).pipe(Effect.map((arr) => arr.flatMap((directory) => (directory ? [directory] : []))))
     })
 
     const addSandbox = Effect.fn("Project.addSandbox")(function* (id: ProjectV2.ID, directory: string) {
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       if (!row) throw new Error(`Project not found: ${id}`)
-      const sandbox = AbsolutePath.make(directory)
-      const sboxes = [...row.sandboxes]
-      if (!sboxes.includes(sandbox)) sboxes.push(sandbox)
+      const sboxes = yield* canonicalSandboxes([...row.sandboxes, yield* canonicalDirectory(directory)], row.worktree)
       const result = yield* db
         .update(ProjectTable)
         .set({ sandboxes: sboxes, time_updated: Date.now() })
@@ -434,8 +452,8 @@ const layer = Layer.effect(
     const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectV2.ID, directory: string) {
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       if (!row) throw new Error(`Project not found: ${id}`)
-      const sandbox = AbsolutePath.make(directory)
-      const sboxes = row.sandboxes.filter((s) => s !== sandbox)
+      const sandbox = yield* canonicalDirectory(directory)
+      const sboxes = (yield* canonicalSandboxes(row.sandboxes, row.worktree)).filter((s) => s !== sandbox)
       const result = yield* db
         .update(ProjectTable)
         .set({ sandboxes: sboxes, time_updated: Date.now() })

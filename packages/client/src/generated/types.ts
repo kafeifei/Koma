@@ -21,18 +21,6 @@ export type InvalidRequestError = {
 export const isInvalidRequestError = (value: unknown): value is InvalidRequestError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "InvalidRequestError"
 
-export type InvalidCursorError = { readonly _tag: "InvalidCursorError"; readonly message: string }
-export const isInvalidCursorError = (value: unknown): value is InvalidCursorError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "InvalidCursorError"
-
-export type SessionNotFoundError = {
-  readonly _tag: "SessionNotFoundError"
-  readonly sessionID: string
-  readonly message: string
-}
-export const isSessionNotFoundError = (value: unknown): value is SessionNotFoundError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SessionNotFoundError"
-
 export type ConflictError = {
   readonly _tag: "ConflictError"
   readonly message: string
@@ -48,6 +36,18 @@ export type ServiceUnavailableError = {
 }
 export const isServiceUnavailableError = (value: unknown): value is ServiceUnavailableError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ServiceUnavailableError"
+
+export type SessionNotFoundError = {
+  readonly _tag: "SessionNotFoundError"
+  readonly sessionID: string
+  readonly message: string
+}
+export const isSessionNotFoundError = (value: unknown): value is SessionNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SessionNotFoundError"
+
+export type InvalidCursorError = { readonly _tag: "InvalidCursorError"; readonly message: string }
+export const isInvalidCursorError = (value: unknown): value is InvalidCursorError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "InvalidCursorError"
 
 export type MessageNotFoundError = {
   readonly _tag: "MessageNotFoundError"
@@ -103,6 +103,12 @@ export const isProjectCopyError = (value: unknown): value is ProjectCopyError =>
 
 export type HealthGetOutput = { readonly healthy: true }
 
+export type ServerDirectoryListInput = { readonly path: { readonly path: string }["path"] }
+
+export type ServerDirectoryListOutput = {
+  readonly data: ReadonlyArray<{ readonly name: string; readonly path: string; readonly type: "file" | "directory" }>
+}["data"]
+
 export type LocationGetInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
@@ -147,6 +153,28 @@ export type AgentsListOutput = {
     }>
   }>
 }
+
+export type SessionsCapabilitiesOutput = {
+  readonly data: {
+    readonly archive: boolean
+    readonly restore: boolean
+    readonly delete: boolean
+    readonly managedWorktree: boolean
+    readonly occupancy: { readonly pty: boolean; readonly v2: boolean; readonly externalProcesses: false }
+  }
+}["data"]
+
+export type SessionsArchiveInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsArchiveOutput = void
+
+export type SessionsRestoreInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsRestoreOutput = void
+
+export type SessionsRemoveInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsRemoveOutput = void
 
 export type SessionsListInput = {
   readonly workspace?: {

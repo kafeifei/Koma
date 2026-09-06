@@ -506,7 +506,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "session.archive",
       title: language.t("command.session.archive"),
       keybind: "mod+shift+backspace",
-      disabled: !params.id,
+      disabled: !params.id || !sessionArchive.canArchive(),
       onSelect: () => {
         const id = params.id
         if (id) void sessionArchive.archive(id)

@@ -21,6 +21,7 @@ export type TaskSidebarMenuProps = {
   cleanupStatus: () => Promise<{ managed: boolean; operation?: string; state?: string; message?: string }>
   onDelete: () => Promise<void>
   canMutate: boolean
+  onRetryCapabilities?: () => void
   onPin: () => void
   onRename: (title: string) => Promise<void>
   onArchive: () => Promise<void>
@@ -32,7 +33,9 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
   const language = useLanguage()
   const [cleanup, setCleanup] = createStore({ retry: false, message: undefined as string | undefined })
   const inspect = (open: boolean) => {
-    if (!open || !props.archived || !props.canMutate) return
+    if (!open) return
+    if (!props.canMutate) props.onRetryCapabilities?.()
+    if (!props.archived || !props.canMutate) return
     void props.cleanupStatus().then(
       (status) =>
         setCleanup({

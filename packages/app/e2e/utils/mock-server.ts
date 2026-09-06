@@ -25,6 +25,7 @@ export interface MockServerConfig {
   permissions?: unknown[] | (() => unknown[])
   questions?: unknown[] | (() => unknown[])
   fileList?: (path: string) => unknown | Promise<unknown>
+  directoryList?: (path: string) => { name: string; path: string; type: "directory" | "file" }[]
   fileContent?: (path: string) => unknown | Promise<unknown>
   findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown | Promise<unknown>
   sessionSearch?: (input: { query: string; archived: boolean; limit: number; cursor?: string }) => {
@@ -61,6 +62,23 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (url.port !== targetPort && url.port !== appPort) return route.fallback()
 
     const path = url.pathname
+    if (path === "/api/directory") {
+      const directory = url.searchParams.get("path") ?? ""
+      const parent = config.directory.replace(/[\\/][^\\/]+$/, "")
+      return json(route, {
+        data:
+          config.directoryList?.(directory) ??
+          (directory === parent
+            ? [
+                {
+                  name: config.directory.split(/[\\/]/).at(-1),
+                  path: config.directory,
+                  type: "directory",
+                },
+              ]
+            : []),
+      })
+    }
     if (path === "/global/event" || path === "/event" || path === "/api/event") {
       const events = config.events?.()
       return sse(
@@ -270,8 +288,22 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       config.sessions[index] = { ...config.sessions[index], title: update.title }
       return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
     }
+    const lifecycleSessionMatch = path.match(/^\/api\/session\/([^/]+)\/(archive|restore)$/)
+    if (lifecycleSessionMatch && route.request().method() === "POST") {
+      const index = config.sessions.findIndex((session) => session.id === lifecycleSessionMatch[1])
+      if (index === -1) return json(route, { error: "Session not found" }, undefined, 404)
+      const session = config.sessions[index]!
+      config.sessions[index] = {
+        ...session,
+        time: {
+          ...((session.time as Record<string, unknown> | undefined) ?? {}),
+          archived: lifecycleSessionMatch[2] === "archive" ? Date.now() : undefined,
+        },
+      }
+      return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
+    }
     if (
-      /^\/api\/session\/[^/]+\/(archive|rename|interrupt|revert\/clear|revert\/commit)$/.test(path) &&
+      /^\/api\/session\/[^/]+\/(rename|interrupt|revert\/clear|revert\/commit)$/.test(path) &&
       route.request().method() === "POST"
     ) {
       return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })

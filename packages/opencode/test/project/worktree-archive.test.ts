@@ -28,7 +28,12 @@ const git = Effect.fn("WorktreeArchiveTest.git")(function* (cwd: string, args: s
 
 const fixture = Effect.fn("WorktreeArchiveTest.fixture")(function* () {
   const tmp = yield* scopedTmpdir()
-  yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".gitignore"), "ignored.txt\n"))
+  yield* Effect.promise(() =>
+    Bun.write(
+      path.join(tmp.path, ".gitignore"),
+      "ignored.txt\nignored-link\n.env\nnode_modules/\nignored-empty/\nnested-repo/\n",
+    ),
+  )
   yield* Effect.promise(() => Bun.write(path.join(tmp.path, "tracked.txt"), "base\n"))
   yield* git(tmp.path, ["add", ".gitignore", "tracked.txt"])
   yield* git(tmp.path, ["commit", "--no-gpg-sign", "-m", "archive base"])
@@ -42,10 +47,11 @@ const dirty = Effect.fn("WorktreeArchiveTest.dirty")(function* (directory: strin
   yield* Effect.promise(() => Bun.write(path.join(directory, "tracked.txt"), "working\n"))
   yield* Effect.promise(() => Bun.write(path.join(directory, "untracked file.txt"), "untracked\n"))
   yield* Effect.promise(() => Bun.write(path.join(directory, "ignored.txt"), "ignored\n"))
+  yield* Effect.promise(() => Bun.write(path.join(directory, ".env"), "TOKEN=local\n"))
 })
 
 describe("WorktreeArchive", () => {
-  it.live("captures four Git states without changing the checkout or stash list", () =>
+  it.live("captures tracked, untracked, and ignored states without changing the checkout or stash list", () =>
     Effect.gen(function* () {
       const input = yield* fixture()
       yield* dirty(input.directory)
@@ -75,6 +81,7 @@ describe("WorktreeArchive", () => {
       expect(yield* git(input.directory, ["ls-tree", "-r", "--name-only", `${result.ref}^3`])).not.toContain(
         "ignored.txt",
       )
+      expect(yield* git(input.directory, ["ls-tree", "-r", "--name-only", `${result.ref}^4`])).toBe(".env\nignored.txt")
     }),
   )
 
@@ -90,6 +97,7 @@ describe("WorktreeArchive", () => {
       yield* git(input.directory, ["reset", "--hard", "HEAD"])
       yield* git(input.directory, ["clean", "-fd"])
       yield* Effect.promise(() => fs.rm(path.join(input.directory, "ignored.txt")))
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, ".env")))
 
       const restored = yield* service.restore({ ...input, oid: archived.oid })
 
@@ -99,7 +107,8 @@ describe("WorktreeArchive", () => {
       expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "untracked file.txt")).text())).toBe(
         "untracked\n",
       )
-      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "ignored.txt")).exists())).toBe(false)
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "ignored.txt")).text())).toBe("ignored\n")
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, ".env")).text())).toBe("TOKEN=local\n")
       expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, " leading.txt")).text())).toBe(
         "leading space\n",
       )
@@ -180,6 +189,172 @@ describe("WorktreeArchive", () => {
       expect(first.hasChanges).toBe(false)
       expect(second.oid).toBe(first.oid)
       expect(second.snapshot).toEqual(first.snapshot)
+    }),
+  )
+
+  it.live("previews the conservative ignored policy and supports preserving all ignored content", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, ".env"), "TOKEN=local\n"))
+      yield* Effect.promise(() => fs.mkdir(path.join(input.directory, "node_modules", "pkg"), { recursive: true }))
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "node_modules", "pkg", "index.js"), "module\n"))
+      const service = yield* WorktreeArchive.Service
+
+      const local = yield* service.preview(input)
+      expect(local.preserved.map((entry) => entry.path)).toContain(".env")
+      expect(local.skipped).toContainEqual({
+        path: "node_modules",
+        type: "directory",
+        reason: "rebuildable dependency or cache",
+        bytes: 7,
+      })
+      const conservative = yield* service.capture(input)
+      expect(yield* git(input.directory, ["ls-tree", "-r", "--name-only", `${conservative.ref}^4`])).toBe(".env")
+      const all = yield* service.capture({ ...input, ignored: "all" })
+      expect(yield* git(input.directory, ["ls-tree", "-r", "--name-only", `${all.ref}^4`])).toBe(
+        ".env\nnode_modules/pkg/index.js",
+      )
+    }),
+  )
+
+  it.live("stores an ignored symlink itself without following its target", () =>
+    Effect.gen(function* () {
+      if (process.platform === "win32") return
+      const input = yield* fixture()
+      yield* Effect.promise(() => fs.symlink("tracked.txt", path.join(input.directory, "ignored-link")))
+      const service = yield* WorktreeArchive.Service
+      const archived = yield* service.capture(input)
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, "ignored-link")))
+
+      yield* service.restore({ ...input, oid: archived.oid })
+
+      expect(yield* Effect.promise(() => fs.readlink(path.join(input.directory, "ignored-link")))).toBe("tracked.txt")
+    }),
+  )
+
+  it.live("preserves ignored empty directories with the ignored parent manifest", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* Effect.promise(() => fs.mkdir(path.join(input.directory, "ignored-empty", "child"), { recursive: true }))
+      const service = yield* WorktreeArchive.Service
+      const archived = yield* service.capture(input)
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, "ignored-empty"), { recursive: true }))
+
+      yield* service.restore({ ...input, oid: archived.oid })
+
+      expect(
+        (yield* Effect.promise(() => fs.stat(path.join(input.directory, "ignored-empty", "child")))).isDirectory(),
+      ).toBe(true)
+    }),
+  )
+
+  it.live("resumes an ignored restore after the stash-shaped parents were already applied", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* dirty(input.directory)
+      const service = yield* WorktreeArchive.Service
+      const archived = yield* service.capture(input)
+      yield* git(input.directory, ["reset", "--hard", "HEAD"])
+      yield* git(input.directory, ["clean", "-fd"])
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, "ignored.txt")))
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, ".env")))
+
+      yield* git(input.directory, ["stash", "apply", "--index", archived.oid])
+      const restored = yield* service.restore({ ...input, oid: archived.oid })
+
+      expect(restored.alreadyApplied).toBe(false)
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "ignored.txt")).text())).toBe("ignored\n")
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, ".env")).text())).toBe("TOKEN=local\n")
+    }),
+  )
+
+  it.live("does not overwrite ignored content that changed before restore", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* dirty(input.directory)
+      const service = yield* WorktreeArchive.Service
+      const archived = yield* service.capture(input)
+      yield* git(input.directory, ["reset", "--hard", "HEAD"])
+      yield* git(input.directory, ["clean", "-fd"])
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "ignored.txt"), "new local value\n"))
+
+      const result = yield* Effect.exit(service.restore({ ...input, oid: archived.oid }))
+
+      expect(Exit.isFailure(result)).toBe(true)
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "ignored.txt")).text())).toBe(
+        "new local value\n",
+      )
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "tracked.txt")).text())).toBe("base\n")
+    }),
+  )
+
+  it.live("verifies the live worktree against the immutable archive oid", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, ".env"), "TOKEN=first\n"))
+      const service = yield* WorktreeArchive.Service
+      const archived = yield* service.capture(input)
+      expect((yield* service.verify({ ...input, oid: archived.oid })).oid).toBe(archived.oid)
+
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, ".env"), "TOKEN=second\n"))
+      const result = yield* Effect.exit(service.verify({ ...input, oid: archived.oid }))
+
+      expect(Exit.isFailure(result)).toBe(true)
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, ".env")).text())).toBe("TOKEN=second\n")
+    }),
+  )
+
+  it.live("rejects ignored nested repositories without deleting their contents", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* Effect.promise(() => fs.mkdir(path.join(input.directory, "nested-repo", ".git"), { recursive: true }))
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "nested-repo", "data.txt"), "nested\n"))
+      const service = yield* WorktreeArchive.Service
+
+      const preview = yield* service.preview(input)
+      expect(preview.unsupported).toContainEqual({
+        path: "nested-repo/",
+        type: "directory",
+        reason: "nested Git repositories cannot be stored safely",
+      })
+      expect(Exit.isFailure(yield* Effect.exit(service.capture(input)))).toBe(true)
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "nested-repo", "data.txt")).text())).toBe(
+        "nested\n",
+      )
+    }),
+  )
+
+  it.live("restores legacy three-parent snapshots without requiring ignored metadata", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* dirty(input.directory)
+      const service = yield* WorktreeArchive.Service
+      const archived = yield* service.capture(input)
+      const legacy = yield* git(input.directory, [
+        "commit-tree",
+        archived.snapshot.workingTree,
+        "-p",
+        archived.snapshot.baseCommit,
+        "-p",
+        `${archived.oid}^2`,
+        "-p",
+        `${archived.oid}^3`,
+        "-m",
+        "legacy archive",
+      ])
+      yield* git(input.directory, ["update-ref", archived.ref, legacy, archived.oid])
+      yield* git(input.directory, ["reset", "--hard", "HEAD"])
+      yield* git(input.directory, ["clean", "-fd"])
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, "ignored.txt")))
+      yield* Effect.promise(() => fs.rm(path.join(input.directory, ".env")))
+
+      const restored = yield* service.restore({ ...input, oid: legacy })
+
+      expect(restored.snapshot.ignoredTree).toBeUndefined()
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "untracked file.txt")).text())).toBe(
+        "untracked\n",
+      )
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "ignored.txt")).exists())).toBe(false)
     }),
   )
 })
