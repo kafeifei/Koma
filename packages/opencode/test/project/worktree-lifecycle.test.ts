@@ -261,10 +261,23 @@ describe("WorktreeLifecycle", () => {
         .pipe(Effect.orDie)
 
       const results = yield* Effect.all(
-        [input.lifecycle.continueArchive(input.sessionID), input.lifecycle.prepareRestore(input.sessionID)],
+        {
+          archive: input.lifecycle.continueArchive(input.sessionID),
+          restore: input.lifecycle
+            .prepareRestore(input.sessionID)
+            .pipe(
+              Effect.catchTag("WorktreeLifecycleFailedError", (error) =>
+                error.reason === "busy" ? Effect.succeed({ busy: true }) : Effect.fail(error),
+              ),
+            ),
+        },
         { concurrency: "unbounded" },
       )
-      expect(results.every((result) => result.managed)).toBe(true)
+      expect(results.archive.managed).toBe(true)
+      // Restore may reach the mutex first; its busy response must be safely retryable after archive completes.
+      const restored =
+        "busy" in results.restore ? yield* input.lifecycle.prepareRestore(input.sessionID) : results.restore
+      expect(restored.managed).toBe(true)
       expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "tracked.txt")).text())).toBe("rapid\n")
       expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "restore", phase: "restored" })
 
