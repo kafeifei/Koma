@@ -165,6 +165,7 @@ export function SessionHeader() {
   const search = settings.visibility.search
   const status = settings.visibility.status
   const isDesktop = createMediaQuery("(min-width: 768px)")
+  const newLayoutDesktop = createMemo(() => isV2() && isDesktop())
 
   const [exists, setExists] = createStore<Partial<Record<OpenApp, boolean>>>({
     finder: true,
@@ -234,14 +235,15 @@ export function SessionHeader() {
   const tint = createMemo(() =>
     messageAgentColor(params.id ? sync().data.message[params.id] : undefined, sync().data.agent),
   )
-  const v2ActionsState = createMemo<SessionHeaderV2ActionsState>(() => ({
+  const v2StatusState = createMemo<SessionHeaderV2StatusState>(() => ({
     statusVisible: status(),
     statusLabel: language.t("status.popover.trigger"),
+  }))
+  const v2WorkspaceToggleState = createMemo<SessionHeaderV2WorkspaceToggleState>(() => ({
     reviewLabel: language.t("command.review.toggle"),
     reviewKeybind: reviewTooltipKeybind(command),
-    reviewVisible: isDesktop(),
-    reviewOpened: view().reviewPanel.opened(),
-    onReviewToggle: () => view().reviewPanel.toggle(),
+    reviewOpened: view().workspacePanel.opened(),
+    onReviewToggle: () => view().workspacePanel.toggle(),
   }))
 
   const selectApp = (app: OpenApp) => {
@@ -283,6 +285,7 @@ export function SessionHeader() {
 
   const [centerMount, setCenterMount] = createSignal<HTMLElement | null>(null)
   const rightMount = useTitlebarRightMount()
+  const workspaceToggleMount = useTitlebarRightMount("opencode-titlebar-workspace-toggle")
   onMount(() => {
     setCenterMount(document.getElementById("opencode-titlebar-center"))
   })
@@ -507,8 +510,15 @@ export function SessionHeader() {
                 </div>
               }
             >
-              <SessionHeaderV2Actions state={v2ActionsState()} />
+              <SessionHeaderV2Status state={v2StatusState()} />
             </Show>
+          </Portal>
+        )}
+      </Show>
+      <Show when={newLayoutDesktop() && workspaceToggleMount()} keyed>
+        {(mount) => (
+          <Portal mount={mount}>
+            <SessionHeaderV2WorkspaceToggle state={v2WorkspaceToggleState()} />
           </Portal>
         )}
       </Show>
@@ -516,53 +526,56 @@ export function SessionHeader() {
   )
 }
 
-type SessionHeaderV2ActionsState = {
+type SessionHeaderV2StatusState = {
   statusVisible: boolean
   statusLabel: string
+}
+
+type SessionHeaderV2WorkspaceToggleState = {
   reviewLabel: string
   reviewKeybind: string[]
-  reviewVisible: boolean
   reviewOpened: boolean
   onReviewToggle: () => void
 }
 
-function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
-  const language = useLanguage()
-
+function SessionHeaderV2Status(props: { state: SessionHeaderV2StatusState }) {
   return (
-    <div class="flex items-center gap-2">
+    <div class="flex items-center">
       <Show when={props.state.statusVisible}>
         <Tooltip placement="bottom" value={props.state.statusLabel}>
           <StatusPopoverV2 />
         </Tooltip>
       </Show>
-      <Show when={props.state.reviewVisible}>
-        <TooltipV2
-          class="shrink-0"
-          placement="bottom"
-          value={
-            <>
-              {props.state.reviewLabel}
-              <Show when={props.state.reviewKeybind.length > 0}>
-                <KeybindV2 keys={props.state.reviewKeybind} variant="neutral" />
-              </Show>
-            </>
-          }
-        >
-          <IconButtonV2
-            type="button"
-            variant="ghost-muted"
-            size="large"
-            class="!w-9 shrink-0"
-            state={props.state.reviewOpened ? "pressed" : undefined}
-            onClick={props.state.onReviewToggle}
-            aria-label={props.state.reviewLabel}
-            aria-expanded={props.state.reviewOpened}
-            aria-controls="review-panel"
-            icon={<IconV2 name="sidebar-right" />}
-          />
-        </TooltipV2>
-      </Show>
     </div>
+  )
+}
+
+function SessionHeaderV2WorkspaceToggle(props: { state: SessionHeaderV2WorkspaceToggleState }) {
+  return (
+    <TooltipV2
+      class="shrink-0"
+      placement="bottom"
+      value={
+        <>
+          {props.state.reviewLabel}
+          <Show when={props.state.reviewKeybind.length > 0}>
+            <KeybindV2 keys={props.state.reviewKeybind} variant="neutral" />
+          </Show>
+        </>
+      }
+    >
+      <IconButtonV2
+        type="button"
+        variant="ghost-muted"
+        size="large"
+        class="!w-9 shrink-0"
+        state={props.state.reviewOpened ? "pressed" : undefined}
+        onClick={props.state.onReviewToggle}
+        aria-label={props.state.reviewLabel}
+        aria-expanded={props.state.reviewOpened}
+        aria-controls="side-workspace-panel"
+        icon={<IconV2 name="sidebar-right" />}
+      />
+    </TooltipV2>
   )
 }

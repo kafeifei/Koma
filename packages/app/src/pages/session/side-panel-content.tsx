@@ -1,6 +1,5 @@
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { getToolInfo } from "@opencode-ai/session-ui/message-part"
@@ -8,14 +7,14 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useTerminal } from "@/context/terminal"
 import { useServerSync } from "@/context/server-sync"
-import { BackgroundTasksPanel, ChildSessionPanel, ToolInspectorPanel } from "./inspector-panels"
+import { ChildSessionPanel, ToolInspectorPanel } from "./inspector-panels"
 import { sidePanelTab, terminalTab } from "./side-panel-tabs"
 import { useSidePanel } from "./use-side-panel"
 import { useSessionLayout } from "./session-layout"
 import { terminalTabLabel } from "./terminal-label"
 import { TerminalPanelV2 } from "./terminal-panel-v2"
 
-export function SidePanelAddMenu(props: { onOpenFile: () => void }) {
+export function SidePanelAddMenu(props: { onOpenFile: () => void; onOpenReview: () => void; canReview: boolean }) {
   const language = useLanguage()
   const side = useSidePanel()
   const terminal = useTerminal()
@@ -40,10 +39,12 @@ export function SidePanelAddMenu(props: { onOpenFile: () => void }) {
             <Icon name="open-file" />
             {language.t("command.file.open")}
           </MenuV2.Item>
-          <MenuV2.Item onSelect={side.openBackground}>
-            <Icon name="bullet-list" />
-            {language.t("session.panel.background")}
-          </MenuV2.Item>
+          <Show when={props.canReview}>
+            <MenuV2.Item onSelect={props.onOpenReview}>
+              <Icon name="branch" />
+              {language.t("session.tab.review")}
+            </MenuV2.Item>
+          </Show>
           <Show when={hiddenTerminals().length > 0}>
             <MenuV2.Separator />
             <MenuV2.Group>
@@ -72,7 +73,7 @@ export function SidePanelTabLabel(props: { tab: string; temporary?: boolean }) {
   const title = createMemo(() => {
     const item = target()
     if (!item) return ""
-    if (item.type === "background") return language.t("session.panel.background")
+    if (item.type === "review") return language.t("session.tab.review")
     if (item.type === "terminal") {
       const pty = terminal.all().find((pty) => pty.id === item.id)
       return terminalTabLabel({ title: pty?.title ?? "", titleNumber: pty?.titleNumber ?? 0, t: language.t })
@@ -117,24 +118,7 @@ export function SidePanelContent(props: { tab: string }) {
   return (
     <div class="h-full min-h-0 overflow-hidden" data-component="side-panel-content" data-panel-type={target()?.type}>
       <Switch>
-        <Match when={target()?.type === "background"}>
-          <BackgroundTasksPanel onTool={side.inspectTool} onSession={side.previewSession} />
-        </Match>
-        <Match when={tool()}>
-          {(item) => (
-            <div class="flex h-full min-h-0 flex-col">
-              <div class="shrink-0 border-b border-border-weaker-base px-3 py-2">
-                <ButtonV2 variant="ghost-muted" size="small" onClick={side.openBackground}>
-                  <Icon name="arrow-left" size="small" />
-                  {language.t("session.panel.background")}
-                </ButtonV2>
-              </div>
-              <div class="min-h-0 flex-1 overflow-hidden">
-                <ToolInspectorPanel {...item()} />
-              </div>
-            </div>
-          )}
-        </Match>
+        <Match when={tool()}>{(item) => <ToolInspectorPanel {...item()} />}</Match>
         <Match when={child()}>
           {(item) => (
             <ChildSessionPanel sessionID={item().sessionID} onTool={side.inspectTool} onSession={side.previewSession} />

@@ -32,6 +32,7 @@ const DEFAULT_FILE_TREE_WIDTH = 200
 const DEFAULT_SESSION_WIDTH = 600
 const DEFAULT_TERMINAL_HEIGHT = 280
 const DEFAULT_REVIEW_PANEL_OPENED = false
+const DEFAULT_WORKSPACE_PANEL_OPENED = false
 export type AvatarColorKey = (typeof AVATAR_COLOR_KEYS)[number]
 
 export function getAvatarColors(key?: string) {
@@ -88,6 +89,7 @@ export type HomeProjectSelection = { server: ServerConnection.Key; directory?: s
 export type ReviewDiffStyle = "unified" | "split"
 export type ReviewChangeMode = "git" | "branch" | "turn"
 export type ReviewPanelSource = "context-button" | "other"
+export type WorkspacePanelSource = "context-button" | "other"
 
 export type LayoutRoute =
   | { type: "home" }
@@ -221,6 +223,17 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         }
       })()
 
+      const workspacePanel = value.workspacePanel
+      const migratedWorkspacePanel = (() => {
+        if (isRecord(workspacePanel) && typeof workspacePanel.opened === "boolean") return workspacePanel
+        return {
+          opened:
+            isRecord(migratedReview) && typeof migratedReview.panelOpened === "boolean"
+              ? migratedReview.panelOpened
+              : DEFAULT_WORKSPACE_PANEL_OPENED,
+        }
+      })()
+
       const sessionTabs = migrateLegacySessionStateKeys(value.sessionTabs)
       const sessionView = migrateLegacySessionStateKeys(value.sessionView)
       const migratedSessionTabs = (() => {
@@ -250,6 +263,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       if (
         migratedSidebar === sidebar &&
         migratedReview === review &&
+        migratedWorkspacePanel === workspacePanel &&
         migratedFileTree === fileTree &&
         migratedSessionTabs === value.sessionTabs &&
         sessionView === value.sessionView
@@ -261,6 +275,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         ...value,
         sidebar: migratedSidebar,
         review: migratedReview,
+        workspacePanel: migratedWorkspacePanel,
         fileTree: migratedFileTree,
         sessionTabs: migratedSessionTabs,
         sessionView,
@@ -285,6 +300,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           diffStyle: "split" as ReviewDiffStyle,
           panelOpened: DEFAULT_REVIEW_PANEL_OPENED,
         },
+        workspacePanel: {
+          opened: DEFAULT_WORKSPACE_PANEL_OPENED,
+        },
         fileTree: {
           opened: false,
           width: DEFAULT_FILE_TREE_WIDTH,
@@ -308,6 +326,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     )
     const [ephemeral, setEphemeral] = createStore({
       reviewPanelSource: "other" as ReviewPanelSource,
+      workspacePanelSource: "other" as WorkspacePanelSource,
       sessionTabPreview: {} as Record<string, string | undefined>,
       titlebarPanel: undefined as { owner: symbol; width: number | undefined } | undefined,
     })
@@ -829,6 +848,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const terminalOpened = createMemo(() => store.terminal?.opened ?? false)
         const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? DEFAULT_REVIEW_PANEL_OPENED)
         const reviewPanelSource = createMemo(() => (reviewPanelOpened() ? ephemeral.reviewPanelSource : "other"))
+        const workspacePanelOpened = createMemo(() => store.workspacePanel?.opened ?? DEFAULT_WORKSPACE_PANEL_OPENED)
+        const workspacePanelSource = createMemo(() =>
+          workspacePanelOpened() ? ephemeral.workspacePanelSource : "other",
+        )
 
         function setTerminalOpened(next: boolean) {
           const current = store.terminal
@@ -861,6 +884,13 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           batch(() => {
             setStore("review", "panelOpened", next)
             setEphemeral("reviewPanelSource", nextSource)
+          })
+        }
+
+        function setWorkspacePanelOpened(next: boolean, source: WorkspacePanelSource) {
+          batch(() => {
+            setStore("workspacePanel", { opened: next })
+            setEphemeral("workspacePanelSource", next ? source : "other")
           })
         }
 
@@ -906,6 +936,19 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             },
             toggle() {
               setReviewPanelOpened(!reviewPanelOpened(), "other")
+            },
+          },
+          workspacePanel: {
+            opened: workspacePanelOpened,
+            source: workspacePanelSource,
+            open(source: WorkspacePanelSource = "other") {
+              setWorkspacePanelOpened(true, source)
+            },
+            close() {
+              setWorkspacePanelOpened(false, "other")
+            },
+            toggle() {
+              setWorkspacePanelOpened(!workspacePanelOpened(), "other")
             },
           },
           review: {
