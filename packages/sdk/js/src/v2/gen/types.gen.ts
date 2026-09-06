@@ -2206,6 +2206,8 @@ export type WorktreeError = {
     | "WorktreeRemoveFailedError"
     | "WorktreeResetFailedError"
     | "WorktreeListFailedError"
+    | "WorktreeMergeFailedError"
+    | "WorktreeManagerFailedError"
   data: {
     message: string
   }
@@ -2514,6 +2516,12 @@ export type ProjectNotFoundError = {
   message: string
 }
 
+export type ConflictError = {
+  _tag: "ConflictError"
+  message: string
+  resource?: string
+}
+
 export type PtyNotFoundError = {
   _tag: "PtyNotFoundError"
   ptyID: string
@@ -2621,12 +2629,6 @@ export type NotFoundError = {
   data: {
     message: string
   }
-}
-
-export type ConflictError = {
-  _tag: "ConflictError"
-  message: string
-  resource?: string
 }
 
 export type SessionBusyError = {
@@ -2764,6 +2766,36 @@ export type UnauthorizedError = {
   message: string
 }
 
+export type DirectoryEntry = {
+  name: string
+  path: string
+  type: "file" | "directory"
+}
+
+export type SessionCapabilities = {
+  archive: boolean
+  restore: boolean
+  delete: boolean
+  managedWorktree: boolean
+  occupancy: {
+    pty: boolean
+    v2: boolean
+    externalProcesses: false
+  }
+}
+
+export type ServiceUnavailableError = {
+  _tag: "ServiceUnavailableError"
+  message: string
+  service?: string
+}
+
+export type SessionNotFoundError = {
+  _tag: "SessionNotFoundError"
+  sessionID: string
+  message: string
+}
+
 export type SessionsResponse = {
   data: Array<SessionV2Info>
   cursor: {
@@ -2781,22 +2813,10 @@ export type SessionActive = {
   type: "running"
 }
 
-export type SessionNotFoundError = {
-  _tag: "SessionNotFoundError"
-  sessionID: string
-  message: string
-}
-
 export type PromptInput = {
   text: string
   files?: Array<PromptInputFileAttachment>
   agents?: Array<PromptAgentAttachment>
-}
-
-export type ServiceUnavailableError = {
-  _tag: "ServiceUnavailableError"
-  message: string
-  service?: string
 }
 
 export type MessageNotFoundError = {
@@ -8369,6 +8389,293 @@ export type WorktreeStatusResponses = {
 
 export type WorktreeStatusResponse = WorktreeStatusResponses[keyof WorktreeStatusResponses]
 
+export type WorktreeMergePreviewData = {
+  body?: {
+    directory: string
+    resolutions?: Array<{
+      path: string
+      choice: "source" | "target"
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/merge/preview"
+}
+
+export type WorktreeMergePreviewErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeMergePreviewError = WorktreeMergePreviewErrors[keyof WorktreeMergePreviewErrors]
+
+export type WorktreeMergePreviewResponses = {
+  /**
+   * Success
+   */
+  200: {
+    directory: string
+    target: string
+    sourceHead: string
+    sourceTree: string
+    targetHead: string
+    mergedTree: string
+    conflicts: Array<string>
+    resolutions: Array<{
+      path: string
+      choice: "source" | "target"
+    }>
+    unresolved: Array<string>
+    reviewID: string
+    files: Array<string>
+    patch: string
+    truncated: boolean
+  }
+}
+
+export type WorktreeMergePreviewResponse = WorktreeMergePreviewResponses[keyof WorktreeMergePreviewResponses]
+
+export type WorktreeManagedData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/managed"
+}
+
+export type WorktreeManagedErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeManagedError = WorktreeManagedErrors[keyof WorktreeManagedErrors]
+
+export type WorktreeManagedResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    directory: string
+    branch?: string
+    primary: boolean
+    registered: boolean
+    managed: boolean
+    canAdopt: boolean
+    orphan: boolean
+    shared: boolean
+    missing: boolean
+    sessions: Array<{
+      id: string
+      directory: string
+      title: string
+      archived: boolean
+    }>
+    usage: {
+      ownerIDs: Array<string>
+      blocked: boolean
+    }
+    owner?: {
+      sessionID?: string
+      intent?: "archive" | "restore" | "delete"
+      phase: "registered" | "resident" | "captured" | "removed" | "restored" | "delete-preserve"
+      lastError?: string
+    }
+  }>
+}
+
+export type WorktreeManagedResponse = WorktreeManagedResponses[keyof WorktreeManagedResponses]
+
+export type WorktreeDetailsData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/details"
+}
+
+export type WorktreeDetailsErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeDetailsError = WorktreeDetailsErrors[keyof WorktreeDetailsErrors]
+
+export type WorktreeDetailsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    entry: {
+      directory: string
+      branch?: string
+      primary: boolean
+      registered: boolean
+      managed: boolean
+      canAdopt: boolean
+      orphan: boolean
+      shared: boolean
+      missing: boolean
+      sessions: Array<{
+        id: string
+        directory: string
+        title: string
+        archived: boolean
+      }>
+      usage: {
+        ownerIDs: Array<string>
+        blocked: boolean
+      }
+      owner?: {
+        sessionID?: string
+        intent?: "archive" | "restore" | "delete"
+        phase: "registered" | "resident" | "captured" | "removed" | "restored" | "delete-preserve"
+        lastError?: string
+      }
+    }
+    space?: {
+      bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      directories: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      symlinks: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      errors: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    ignored?: {
+      mode: "local" | "all"
+      preserved: Array<{
+        path: string
+        type: "file" | "directory" | "symlink" | "other"
+        reason: string
+        bytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+      skipped: Array<{
+        path: string
+        type: "file" | "directory" | "symlink" | "other"
+        reason: string
+        bytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+      unsupported: Array<{
+        path: string
+        type: "file" | "directory" | "symlink" | "other"
+        reason: string
+        bytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+    }
+  }
+}
+
+export type WorktreeDetailsResponse = WorktreeDetailsResponses[keyof WorktreeDetailsResponses]
+
+export type WorktreeAdoptData = {
+  body?: {
+    directory: string
+    sessionID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/adopt"
+}
+
+export type WorktreeAdoptErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeAdoptError = WorktreeAdoptErrors[keyof WorktreeAdoptErrors]
+
+export type WorktreeAdoptResponses = {
+  /**
+   * Success
+   */
+  200: {
+    directory: string
+    branch?: string
+    primary: boolean
+    registered: boolean
+    managed: boolean
+    canAdopt: boolean
+    orphan: boolean
+    shared: boolean
+    missing: boolean
+    sessions: Array<{
+      id: string
+      directory: string
+      title: string
+      archived: boolean
+    }>
+    usage: {
+      ownerIDs: Array<string>
+      blocked: boolean
+    }
+    owner?: {
+      sessionID?: string
+      intent?: "archive" | "restore" | "delete"
+      phase: "registered" | "resident" | "captured" | "removed" | "restored" | "delete-preserve"
+      lastError?: string
+    }
+  }
+}
+
+export type WorktreeAdoptResponse = WorktreeAdoptResponses[keyof WorktreeAdoptResponses]
+
+export type WorktreeMergeApplyData = {
+  body?: {
+    directory: string
+    resolutions?: Array<{
+      path: string
+      choice: "source" | "target"
+    }>
+    reviewID?: string
+    sourceHead: string
+    sourceTree: string
+    targetHead: string
+    mergedTree: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/merge/apply"
+}
+
+export type WorktreeMergeApplyErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeMergeApplyError = WorktreeMergeApplyErrors[keyof WorktreeMergeApplyErrors]
+
+export type WorktreeMergeApplyResponses = {
+  /**
+   * Success
+   */
+  200: boolean
+}
+
+export type WorktreeMergeApplyResponse = WorktreeMergeApplyResponses[keyof WorktreeMergeApplyResponses]
+
 export type WorktreeResetData = {
   body?: WorktreeResetInput
   path?: never
@@ -9611,6 +9918,10 @@ export type PtyCreateErrors = {
    * BadRequest | InvalidRequestError
    */
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type PtyCreateError = PtyCreateErrors[keyof PtyCreateErrors]
@@ -11986,6 +12297,39 @@ export type V2HealthGetResponses = {
 
 export type V2HealthGetResponse = V2HealthGetResponses[keyof V2HealthGetResponses]
 
+export type V2DirectoryListData = {
+  body?: never
+  path?: never
+  query: {
+    path: string
+  }
+  url: "/api/directory"
+}
+
+export type V2DirectoryListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2DirectoryListError = V2DirectoryListErrors[keyof V2DirectoryListErrors]
+
+export type V2DirectoryListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: Array<DirectoryEntry>
+  }
+}
+
+export type V2DirectoryListResponse = V2DirectoryListResponses[keyof V2DirectoryListResponses]
+
 export type V2LocationGetData = {
   body?: never
   path?: never
@@ -12057,6 +12401,203 @@ export type V2AgentListResponses = {
 
 export type V2AgentListResponse = V2AgentListResponses[keyof V2AgentListResponses]
 
+export type V2SessionCapabilitiesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/session/capabilities"
+}
+
+export type V2SessionCapabilitiesErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2SessionCapabilitiesError = V2SessionCapabilitiesErrors[keyof V2SessionCapabilitiesErrors]
+
+export type V2SessionCapabilitiesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: SessionCapabilities
+  }
+}
+
+export type V2SessionCapabilitiesResponse = V2SessionCapabilitiesResponses[keyof V2SessionCapabilitiesResponses]
+
+export type V2SessionArchiveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/archive"
+}
+
+export type V2SessionArchiveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2SessionArchiveError = V2SessionArchiveErrors[keyof V2SessionArchiveErrors]
+
+export type V2SessionArchiveResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionArchiveResponse = V2SessionArchiveResponses[keyof V2SessionArchiveResponses]
+
+export type V2SessionRestoreData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/restore"
+}
+
+export type V2SessionRestoreErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2SessionRestoreError = V2SessionRestoreErrors[keyof V2SessionRestoreErrors]
+
+export type V2SessionRestoreResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionRestoreResponse = V2SessionRestoreResponses[keyof V2SessionRestoreResponses]
+
+export type V2SessionRemoveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}"
+}
+
+export type V2SessionRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2SessionRemoveError = V2SessionRemoveErrors[keyof V2SessionRemoveErrors]
+
+export type V2SessionRemoveResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionRemoveResponse = V2SessionRemoveResponses[keyof V2SessionRemoveResponses]
+
+export type V2SessionGetData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}"
+}
+
+export type V2SessionGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionGetError = V2SessionGetErrors[keyof V2SessionGetErrors]
+
+export type V2SessionGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: SessionV2Info
+  }
+}
+
+export type V2SessionGetResponse = V2SessionGetResponses[keyof V2SessionGetResponses]
+
 export type V2SessionListData = {
   body?: never
   path?: never
@@ -12120,6 +12661,10 @@ export type V2SessionCreateErrors = {
    * UnauthorizedError
    */
   401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type V2SessionCreateError = V2SessionCreateErrors[keyof V2SessionCreateErrors]
@@ -12167,43 +12712,6 @@ export type V2SessionActiveResponses = {
 }
 
 export type V2SessionActiveResponse = V2SessionActiveResponses[keyof V2SessionActiveResponses]
-
-export type V2SessionGetData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: never
-  url: "/api/session/{sessionID}"
-}
-
-export type V2SessionGetErrors = {
-  /**
-   * InvalidRequestError
-   */
-  400: InvalidRequestError
-  /**
-   * UnauthorizedError
-   */
-  401: UnauthorizedError
-  /**
-   * SessionNotFoundError
-   */
-  404: SessionNotFoundError
-}
-
-export type V2SessionGetError = V2SessionGetErrors[keyof V2SessionGetErrors]
-
-export type V2SessionGetResponses = {
-  /**
-   * Success
-   */
-  200: {
-    data: SessionV2Info
-  }
-}
-
-export type V2SessionGetResponse = V2SessionGetResponses[keyof V2SessionGetResponses]
 
 export type V2SessionSwitchAgentData = {
   body: {
@@ -13827,6 +14335,10 @@ export type V2PtyCreateErrors = {
    * UnauthorizedError
    */
   401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type V2PtyCreateError = V2PtyCreateErrors[keyof V2PtyCreateErrors]

@@ -1,3 +1,6 @@
+import { DirectoryLease } from "@opencode-ai/core/directory-lease"
+import { WorktreeLifecycle } from "@/worktree/lifecycle"
+import { WorktreeRuntime } from "@/worktree/runtime"
 import { Config as EffectConfig, Context, Effect, Layer } from "effect"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { HttpClient, HttpMiddleware, HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http"
@@ -51,6 +54,8 @@ import { Storage } from "@/storage/storage"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
 import { Worktree } from "@/worktree"
+import { WorktreeMerge } from "@/worktree/merge"
+import { WorktreeManager } from "@/worktree/manager"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { Database } from "@opencode-ai/core/database/database"
@@ -261,6 +266,9 @@ const app = LayerNode.group([
   Vcs.node,
   Workspace.node,
   Worktree.node,
+  WorktreeMerge.node,
+  WorktreeManager.node,
+  WorktreeLifecycle.node,
   Installation.node,
   ShareNext.node,
   SessionShare.node,
@@ -275,43 +283,53 @@ const app = LayerNode.group([
 export function createRoutes(
   corsOptions?: CorsOptions,
 ): Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements> {
-  const locationServiceMapV2 = buildLocationServiceMap()
+  return Layer.unwrap(
+    Effect.gen(function* () {
+      const lifecycle = yield* WorktreeLifecycle.Service
+      const directoryLeases = WorktreeRuntime.leases(lifecycle)
+      const locationServiceMapV2 = buildLocationServiceMap([[DirectoryLease.node, directoryLeases]])
 
-  return Layer.mergeAll(
-    rootApiRoutes,
-    eventApiRoutes,
-    ptyConnectApiRoutes,
-    instanceRoutes,
-    serverRoutes,
-    docRoute,
-    uiRoute,
+      return Layer.mergeAll(
+        rootApiRoutes,
+        eventApiRoutes,
+        ptyConnectApiRoutes,
+        instanceRoutes,
+        serverRoutes,
+        docRoute,
+        uiRoute,
+      ).pipe(
+        Layer.provide([
+          errorLayer,
+          compressionLayer,
+          corsVaryFix,
+          fenceLayer,
+          cors(corsOptions),
+          AppNodeBuilderV1.build(MoveSession.node, [[LocationServiceMap.node, locationServiceMapV2]]),
+          HttpServer.layerServices,
+        ]),
+        Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
+        Layer.provide(sessionLocationLayer),
+        Layer.provide(locationLayer),
+        Layer.provide(PtyEnvironment.layer),
+        Layer.provide(WorktreeRuntime.sessionLayer),
+        Layer.provide(
+          AppNodeBuilderV1.build(SessionV2.node, [
+            [LocationServiceMap.node, locationServiceMapV2],
+            [SessionExecution.node, SessionExecutionLocal.node],
+            [DirectoryLease.node, directoryLeases],
+          ]),
+        ),
+        Layer.provide(locationServiceMapV2),
+
+        // Must stay last: layers provided later in this pipe build beneath earlier ones,
+        // so Observability must come after every service graph. Otherwise eagerly forked
+        // fibers (e.g. the ModelsDev background refresh) capture Effect's default stdout
+        // logger and corrupt the TUI (#34730).
+        Layer.provideMerge(Observability.layer),
+      )
+    }),
   ).pipe(
-    Layer.provide([
-      errorLayer,
-      compressionLayer,
-      corsVaryFix,
-      fenceLayer,
-      cors(corsOptions),
-      AppNodeBuilderV1.build(MoveSession.node, [[LocationServiceMap.node, locationServiceMapV2]]),
-      HttpServer.layerServices,
-    ]),
-    Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
-    Layer.provide(sessionLocationLayer),
-    Layer.provide(locationLayer),
-    Layer.provide(PtyEnvironment.layer),
-    Layer.provide(
-      AppNodeBuilderV1.build(SessionV2.node, [
-        [LocationServiceMap.node, locationServiceMapV2],
-        [SessionExecution.node, SessionExecutionLocal.node],
-      ]),
-    ),
-    Layer.provide(locationServiceMapV2),
-
     Layer.provide(AppNodeBuilderV1.build(app, [[CodexWorktreeAccess.node, CodexAccess.node]])),
-    // Must stay last: layers provided later in this pipe build beneath earlier ones,
-    // so Observability must come after every service graph. Otherwise eagerly forked
-    // fibers (e.g. the ModelsDev background refresh) capture Effect's default stdout
-    // logger and corrupt the TUI (#34730).
     Layer.provideMerge(Observability.layer),
   )
 }

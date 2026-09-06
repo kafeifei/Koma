@@ -83,6 +83,7 @@ describe("Worktree", () => {
       "returns info with name, branch, and directory",
       () =>
         Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
           const svc = yield* Worktree.Service
           const info = yield* svc.makeWorktreeInfo()
 
@@ -90,6 +91,7 @@ describe("Worktree", () => {
           expect(typeof info.name).toBe("string")
           expect(info.branch).toBe(`opencode/${info.name}`)
           expect(info.directory).toContain(info.name)
+          expect(path.dirname(info.directory)).toBe(yield* fs.resolve(path.dirname(info.directory)))
         }),
       { git: true },
     )
@@ -183,9 +185,11 @@ describe("Worktree", () => {
       () =>
         withCreatedWorktree(undefined, ({ info }) =>
           Effect.gen(function* () {
+            const fs = yield* FSUtil.Service
             expect(info.name).toBeDefined()
             expect(info.branch ?? "").toStartWith("opencode/")
             expect(info.directory).toBeDefined()
+            expect(path.dirname(info.directory)).toBe(yield* fs.resolve(path.dirname(info.directory)))
           }),
         ),
       { git: true },

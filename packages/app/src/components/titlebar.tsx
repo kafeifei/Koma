@@ -56,12 +56,16 @@ export type TitlebarUpdate = {
   install: () => void
 }
 
-export function useTitlebarRightMount() {
+export function useTitlebarRightMount(id = "opencode-titlebar-right") {
   const language = useLanguage()
+  const settings = useSettings()
+  const desktop = createMediaQuery("(min-width: 768px)")
   const [mount, setMount] = createSignal<HTMLElement | null>(null)
-  const sync = () => setMount(document.getElementById("opencode-titlebar-right"))
+  const sync = () => setMount(document.getElementById(id))
   onMount(sync)
-  createEffect(on(language.direction, sync, { defer: true }))
+  createEffect(
+    on([language.direction, settings.general.newLayoutDesigns, desktop], () => queueMicrotask(sync), { defer: true }),
+  )
   return mount
 }
 
@@ -524,21 +528,32 @@ export function Titlebar(props: {
                     class="min-w-0 flex items-center gap-2 px-1 text-[13px] font-medium"
                     data-tauri-drag-region
                   >
-                    <span class="min-w-0 truncate text-v2-text-text-base" data-tauri-drag-region>
-                      {workspaceHeading().title}
-                    </span>
-                    <Show when={workspaceHeading().directory}>
-                      {(directory) => (
-                        <span class="shrink-0 text-v2-text-text-muted" data-tauri-drag-region>
-                          {directory()}
-                        </span>
-                      )}
+                    <div id="opencode-titlebar-session-heading" class="hidden min-w-0 flex-1 items-center gap-1" />
+                    <div data-slot="workspace-titlebar-heading-fallback" class="contents">
+                      <span class="min-w-0 truncate text-v2-text-text-base" data-tauri-drag-region>
+                        {workspaceHeading().title}
+                      </span>
+                      <Show when={workspaceHeading().directory}>
+                        {(directory) => (
+                          <span class="shrink-0 text-v2-text-text-muted" data-tauri-drag-region>
+                            {directory()}
+                          </span>
+                        )}
+                      </Show>
+                    </div>
+                    <Show when={segmented()}>
+                      <div class="ml-auto shrink-0 pl-2">
+                        <TitlebarV2Right state={v2RightState()} />
+                      </div>
                     </Show>
                   </div>
                 </Show>
                 <div class="flex-1" classList={{ hidden: segmented() }} />
                 <div data-slot="workspace-titlebar-tools" classList={{ contents: !segmented() }} data-tauri-drag-region>
-                  <TitlebarV2Right state={v2RightState()} />
+                  <Show when={segmented()} fallback={<TitlebarV2Right state={v2RightState()} />}>
+                    <div id="opencode-titlebar-side-panel" class="h-full min-w-0 w-full" />
+                    <div id="opencode-titlebar-workspace-toggle" class="h-full shrink-0 flex items-center" />
+                  </Show>
                 </div>
               </div>
             )

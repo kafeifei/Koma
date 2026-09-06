@@ -83,6 +83,8 @@ import {
   sessionPanelWidthMax,
 } from "@/pages/session/session-panel-width"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
+import { SessionWorkspace } from "@/pages/session/session-workspace"
+import { normalizeWorkspaceTabs, REVIEW_TAB } from "@/pages/session/side-panel-tabs"
 import { useSidePanel } from "@/pages/session/use-side-panel"
 import { sessionPanelLayout } from "@/pages/session/session-panel-layout"
 import { SessionReviewEmptyChangesV2 } from "@opencode-ai/session-ui/v2/session-review-empty-changes-v2"
@@ -450,16 +452,17 @@ export default function Page() {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()
-  const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
+  const desktopReviewOpen = createMemo(() => !newSessionDesign() && isDesktop() && view().reviewPanel.opened())
   const unifiedSidePanel = createMemo(() => newSessionDesign() && isDesktop() && !!params.id)
-  const desktopV2ReviewOpen = createMemo(() => newSessionDesign() && desktopReviewOpen() && !!params.id)
+  const desktopWorkspaceOpen = createMemo(() => unifiedSidePanel() && view().workspacePanel.opened())
   const terminalOpen = createMemo(() => view().terminal.opened())
   const desktopTerminalOpen = createMemo(() => isDesktop() && terminalOpen() && !unifiedSidePanel())
   const desktopInlineTerminalOnlyOpen = createMemo(
-    () => newSessionDesign() && desktopTerminalOpen() && !desktopV2ReviewOpen(),
+    () => newSessionDesign() && desktopTerminalOpen() && !desktopWorkspaceOpen(),
   )
   const desktopFileTreeOpen = createMemo(
     () =>
+      !newSessionDesign() &&
       isDesktop() &&
       shouldShowFileTree({
         visible: settings.visibility.fileTree(),
@@ -467,7 +470,7 @@ export default function Page() {
       }),
   )
   const desktopSessionResizeOpen = createMemo(() =>
-    newSessionDesign() ? desktopV2ReviewOpen() || desktopTerminalOpen() : desktopReviewOpen(),
+    newSessionDesign() ? desktopWorkspaceOpen() || desktopTerminalOpen() : desktopReviewOpen(),
   )
   const desktopSidePanelOpen = createMemo(() => desktopSessionResizeOpen() || desktopFileTreeOpen())
   let panelRow: HTMLDivElement | undefined
@@ -506,7 +509,7 @@ export default function Page() {
   const centered = createMemo(() => isDesktop() && (newSessionDesign() || !desktopReviewOpen()))
   const desktopV2PanelLayout = createMemo(() =>
     sessionPanelLayout({
-      review: desktopV2ReviewOpen(),
+      review: desktopWorkspaceOpen(),
       terminal: desktopTerminalOpen(),
       files: desktopFileTreeOpen(),
     }),
@@ -536,13 +539,33 @@ export default function Page() {
   }
 
   const openReviewPanel = () => {
-    if (!view().reviewPanel.opened()) view().reviewPanel.open()
+    if (unifiedSidePanel()) {
+      view().workspacePanel.open()
+      return
+    }
+    view().reviewPanel.open()
   }
+
+  createEffect(() => {
+    if (!unifiedSidePanel() || !layout.ready()) return
+    const current = tabs().tabs()
+    const next = normalizeWorkspaceTabs(current)
+    if (
+      current.active === next.active &&
+      current.all.length === next.all.length &&
+      current.all.every((tab, i) => tab === next.all[i])
+    )
+      return
+    batch(() => {
+      tabs().setAll(next.all)
+      tabs().setActive(next.active)
+    })
+  })
 
   const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))
   const isChildSession = createMemo(() => !!info()?.parentID)
   const canReview = createMemo(() => !!sync().project)
-  const reviewTab = createMemo(() => isDesktop())
+  const reviewTab = createMemo(() => isDesktop() && !unifiedSidePanel())
   const tabState = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
@@ -646,7 +669,7 @@ export default function Page() {
   let diffTimer: number | undefined
 
   createComputed((prev) => {
-    const open = desktopReviewOpen()
+    const open = desktopReviewOpen() || desktopWorkspaceOpen()
     if (prev === undefined || prev === open) return open
 
     if (reviewFrame !== undefined) cancelAnimationFrame(reviewFrame)
@@ -656,7 +679,7 @@ export default function Page() {
       setUi("reviewSnap", false)
     })
     return open
-  }, desktopReviewOpen())
+  }, desktopReviewOpen() || desktopWorkspaceOpen())
 
   const externalSession = () => !!params.id && serverSync().external.isExternal(params.id)
   const nativeTurnDiff = createMemo(() =>
@@ -686,7 +709,8 @@ export default function Page() {
   const wantsReview = createMemo(() =>
     isDesktop()
       ? desktopFileTreeOpen() ||
-        (desktopReviewOpen() && (activeTab() === "review" || (newSessionDesign() && !!activeFileTab())))
+        (desktopReviewOpen() && activeTab() === "review") ||
+        (desktopWorkspaceOpen() && (activeTab() === REVIEW_TAB || !!activeFileTab()))
       : store.mobileTab === "changes",
   )
   const vcsMode = createMemo<VcsMode | undefined>(() => {
@@ -1144,6 +1168,7 @@ export default function Page() {
   )
 
   const showAllFiles = () => {
+    if (unifiedSidePanel()) return
     if (fileTreeTab() !== "changes") return
     setFileTreeTab("all")
   }
@@ -1164,6 +1189,14 @@ export default function Page() {
     onToggleTerminal: () => sidePanel.toggleTerminal(),
     onNewTerminal: () => void sidePanel.openTerminal(true),
     onCloseTab: sidePanel.close,
+    onToggleFiles: () => {
+      if (activeTab() === REVIEW_TAB || file.pathFromTab(activeTab())) {
+        view().workspacePanel.open()
+        reviewV2State.toggleSidebar()
+        return
+      }
+      sidePanel.openFile()
+    },
   })
   command.register("session-palette", () => [
     {
@@ -1325,7 +1358,12 @@ export default function Page() {
   // updates such as session switches.
   const reviewPanelV2Props = () => ({
     get title() {
-      return changesTitleV2()
+      return (
+        <div class="flex min-w-0 items-center gap-2">
+          <SessionReviewV2SidebarToggle opened={reviewV2State.sidebarOpened()} onToggle={reviewV2State.toggleSidebar} />
+          {changesTitleV2()}
+        </div>
+      )
     },
     get empty() {
       return reviewEmptyV2()
@@ -1498,7 +1536,7 @@ export default function Page() {
   let treeDir: string | undefined
   createEffect(() => {
     const dir = sdk().directory
-    if (!isDesktop()) return
+    if (!isDesktop() || newSessionDesign()) return
     if (!layout.fileTree.opened()) return
     if (sync().status === "loading") return
 
@@ -2346,31 +2384,14 @@ export default function Page() {
         <Show when={newSessionDesign()}>
           <Show when={isDesktop() ? desktopV2PanelLayout().visible : terminalOpen()}>
             <div class="min-w-0 h-full flex flex-1 flex-col">
-              <Show when={isDesktop() && (desktopV2ReviewOpen() || desktopFileTreeOpen())}>
+              <Show when={isDesktop() && (desktopWorkspaceOpen() || desktopFileTreeOpen())}>
                 <div class="min-h-0 flex-1">
                   <Suspense>
-                    <SessionSidePanel
+                    <SessionWorkspace
                       canReview={canReview}
                       diffs={reviewDiffs}
-                      diffsReady={reviewReady}
-                      empty={reviewEmptyText}
-                      hasReview={hasReview}
-                      reviewHasFocusableContent={() => hasReview() || reviewV2State.sidebarOpened()}
-                      reviewCount={reviewCount}
                       reviewPanel={reviewPanelV2}
-                      reviewSidebarToggle={(disabled) => (
-                        <SessionReviewV2SidebarToggle
-                          opened={reviewV2State.sidebarOpened()}
-                          disabled={disabled}
-                          onToggle={reviewV2State.toggleSidebar}
-                        />
-                      )}
                       fileBrowserState={reviewV2State}
-                      activeDiff={activeReviewFile()}
-                      focusReviewDiff={focusReviewDiff}
-                      reviewSnap={ui.reviewSnap}
-                      size={size}
-                      stacked={desktopV2PanelLayout().stacked}
                     />
                   </Suspense>
                 </div>

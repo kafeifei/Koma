@@ -14,6 +14,7 @@ export function SortableTabV2(props: {
   tab: string
   index: () => number
   temporary?: boolean
+  hidden?: boolean
   label?: JSX.Element
   onTabClose: (tab: string) => void
   onTabClick?: (tab: string) => void
@@ -38,10 +39,11 @@ export function SortableTabV2(props: {
     return <FileVisual path={value} temporary={props.temporary} />
   })
   return (
-    <div ref={sortable.ref} class="h-full flex items-center">
+    <div ref={sortable.ref} data-slot="side-panel-sortable-tab" class="h-full flex items-center">
       <div class="relative">
         <Tabs.Trigger
           value={props.tab}
+          data-side-tab-hidden={props.hidden || undefined}
           closeButton={
             <TooltipV2
               value={

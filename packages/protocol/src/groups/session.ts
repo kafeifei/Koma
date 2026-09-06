@@ -104,8 +104,48 @@ export const SessionsQuery = Schema.Struct({
   cursor: SessionsQueryCursor.pipe(Schema.optional),
 }).annotate({ identifier: "SessionsQuery" })
 
+export const SessionCapabilities = Schema.Struct({
+  archive: Schema.Boolean,
+  restore: Schema.Boolean,
+  delete: Schema.Boolean,
+  managedWorktree: Schema.Boolean,
+  occupancy: Schema.Struct({ pty: Schema.Boolean, v2: Schema.Boolean, externalProcesses: Schema.Literal(false) }),
+}).annotate({ identifier: "SessionCapabilities" })
+
 export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLocationMiddleware: Context.Key<I, S>) =>
   HttpApiGroup.make("server.session")
+    .add(
+      HttpApiEndpoint.get("session.capabilities", "/api/session/capabilities", {
+        success: Schema.Struct({ data: SessionCapabilities }),
+      }).annotateMerge(
+        OpenApi.annotations({ identifier: "v2.session.capabilities", summary: "Session lifecycle capabilities" }),
+      ),
+      HttpApiEndpoint.post("session.archive", "/api/session/:sessionID/archive", {
+        params: { sessionID: Session.ID },
+        success: HttpApiSchema.NoContent,
+        error: [ConflictError, ServiceUnavailableError, SessionNotFoundError],
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.session.archive",
+          summary: "Archive session and preserve its managed worktree",
+        }),
+      ),
+      HttpApiEndpoint.post("session.restore", "/api/session/:sessionID/restore", {
+        params: { sessionID: Session.ID },
+        success: HttpApiSchema.NoContent,
+        error: [ConflictError, ServiceUnavailableError, SessionNotFoundError],
+      }).annotateMerge(OpenApi.annotations({ identifier: "v2.session.restore", summary: "Restore archived session" })),
+      HttpApiEndpoint.delete("session.remove", "/api/session/:sessionID", {
+        params: { sessionID: Session.ID },
+        success: HttpApiSchema.NoContent,
+        error: [ConflictError, ServiceUnavailableError, SessionNotFoundError],
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.session.remove",
+          summary: "Delete session and its exclusively owned worktree",
+        }),
+      ),
+    )
     .add(
       HttpApiEndpoint.get("session.list", "/api/session", {
         query: SessionsQuery,
@@ -136,6 +176,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
           permissionMode: PermissionMode.pipe(Schema.optional),
         }),
         success: Schema.Struct({ data: Session.Info }),
+        error: ConflictError,
       }).annotateMerge(
         OpenApi.annotations({
           identifier: "v2.session.create",

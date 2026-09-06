@@ -42,6 +42,7 @@ export type HomeSessionsViewProps = {
   showProjectName: Accessor<boolean>
   server: Accessor<ServerConnection.Key>
   canCreateSession: Accessor<boolean>
+  canArchiveSession: Accessor<boolean>
   searchValue: Accessor<string>
   searchPlaceholder: Accessor<string>
   searchOpen: Accessor<boolean>
@@ -467,6 +468,7 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
               size="large"
               icon={<IconV2 name="archive" />}
               aria-label={props.language.t("common.archive")}
+              disabled={!props.canArchiveSession()}
               onClick={(event) => {
                 event.preventDefault()
                 event.stopPropagation()

@@ -24,6 +24,7 @@ async function openProjectDialog(page: Page) {
     project: fixture.project,
     pageMessages,
     fileList: () => [],
+    directoryList: () => [],
     findFiles: () => [],
   })
   await page.addInitScript((dirs) => {

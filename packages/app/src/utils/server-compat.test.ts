@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test"
 import { createApiForServer, createSdkForServer } from "./server"
-import { createCompatibleApi } from "./server-compat"
+import { createCompatibleApi, sessionCapabilities } from "./server-compat"
 
 function setup(
   protocol: "v1" | "v2" | Promise<"v1" | "v2">,
-  responses?: { vcs?: { branch: string; default_branch: string }; echoPermissionMode?: boolean },
+  responses?: {
+    vcs?: { branch: string; default_branch: string }
+    echoPermissionMode?: boolean
+    lifecycleStatus?: number
+    capabilitiesFailures?: number
+    capabilitiesStatus?: number
+    capabilities?: { archive: boolean; restore: boolean; delete: boolean; managedWorktree: boolean }
+  },
 ) {
   const requests: Request[] = []
+  let capabilitiesFailures = responses?.capabilitiesFailures ?? 0
   const fetcher = Object.assign(
     async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init)
@@ -39,6 +47,23 @@ function setup(
       }
       if (request.method === "GET" && new URL(request.url).pathname === "/vcs")
         return Response.json(responses?.vcs ?? {})
+      if (request.method === "GET" && new URL(request.url).pathname === "/api/session/capabilities") {
+        if (responses?.capabilitiesStatus)
+          return Response.json({ message: "capabilities unsupported" }, { status: responses.capabilitiesStatus })
+        if (capabilitiesFailures > 0) {
+          capabilitiesFailures--
+          return Response.json({ message: "capabilities failed" }, { status: 503 })
+        }
+        return Response.json({
+          data: {
+            ...(responses?.capabilities ?? { archive: true, restore: true, delete: true, managedWorktree: true }),
+            occupancy: { pty: true, v2: true, externalProcesses: false },
+          },
+        })
+      }
+      if (responses?.lifecycleStatus && new URL(request.url).pathname.startsWith("/api/session/")) {
+        return Response.json({ message: "lifecycle failed" }, { status: responses.lifecycleStatus })
+      }
       if (request.method === "GET") return Response.json([])
       return new Response(undefined, { status: 204 })
     },
@@ -55,7 +80,6 @@ function setup(
 }
 
 describe("createCompatibleApi", () => {
-  /*
   test("routes V1 archive through the legacy session update", async () => {
     const { api, requests } = setup("v1")
     await api.session.archive({ sessionID: "ses_1", directory: "/repo" })
@@ -66,7 +90,53 @@ describe("createCompatibleApi", () => {
     expect(requests[0]!.method).toBe("PATCH")
     expect(await requests[0]!.json()).toMatchObject({ time: { archived: expect.any(Number) } })
   })
-  */
+
+  test("loads a V1 session from the requested project directory", async () => {
+    const { api, requests } = setup("v1")
+
+    await api.session.get({ sessionID: "ses_1", directory: "/other" })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe("/session/ses_1")
+    expect(url.searchParams.get("directory")).toBe("/other")
+  })
+
+  test("uses actual bundled capabilities for V1 and restores through the legacy update", async () => {
+    const { api, requests } = setup("v1")
+
+    expect(await sessionCapabilities(api)).toEqual({
+      archive: true,
+      restore: true,
+      delete: true,
+      managedWorktree: true,
+      occupancy: { pty: true, v2: true, externalProcesses: false },
+    })
+    await api.session.restore({ sessionID: "ses_1", directory: "/repo" })
+
+    expect(requests).toHaveLength(2)
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/session/capabilities")
+    expect(await requests[1]!.json()).toMatchObject({ time: { archived: null } })
+  })
+
+  test("falls back to known legacy lifecycle capabilities when the V1 endpoint is unsupported", async () => {
+    const { api } = setup("v1", { capabilitiesStatus: 404 })
+
+    expect(await sessionCapabilities(api)).toEqual({
+      archive: true,
+      restore: true,
+      delete: true,
+      managedWorktree: false,
+      occupancy: { pty: false, v2: false, externalProcesses: false },
+    })
+  })
+
+  test("retries transient V1 capability discovery instead of caching a conservative fallback", async () => {
+    const { api, requests } = setup("v1", { capabilitiesFailures: 1 })
+
+    await expect(sessionCapabilities(api)).rejects.toThrow("capabilities failed")
+    expect((await sessionCapabilities(api)).occupancy.v2).toBe(true)
+    expect(requests.filter((request) => new URL(request.url).pathname === "/api/session/capabilities")).toHaveLength(2)
+  })
 
   test("converts current prompts to the V1 prompt contract", async () => {
     const { api, requests } = setup("v1")
@@ -149,7 +219,6 @@ describe("createCompatibleApi", () => {
     expect(detections).toBe(1)
   })
 
-  /*
   test("keeps V2 session actions on the current API", async () => {
     const { api, requests } = setup("v2")
     await api.session.archive({ sessionID: "ses_1" })
@@ -157,7 +226,39 @@ describe("createCompatibleApi", () => {
     expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/archive")
     expect(requests[0]!.method).toBe("POST")
   })
-  */
+
+  test("uses actual V2 lifecycle capabilities and propagates lifecycle failures", async () => {
+    const { api, requests } = setup("v2", {
+      capabilities: { archive: false, restore: false, delete: false, managedWorktree: false },
+      lifecycleStatus: 409,
+    })
+
+    expect(await api.session.capabilities()).toMatchObject({ archive: false, restore: false, delete: false })
+    await expect(api.session.restore({ sessionID: "ses_1" })).rejects.toThrow("lifecycle failed")
+    await expect(api.session.remove({ sessionID: "ses_1" })).rejects.toThrow("lifecycle failed")
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/api/session/capabilities",
+      "/api/session/ses_1/restore",
+      "/api/session/ses_1",
+    ])
+  })
+
+  test("shares one actual capability request across UI consumers", async () => {
+    const { api, requests } = setup("v2")
+
+    const [first, second] = await Promise.all([sessionCapabilities(api), sessionCapabilities(api)])
+
+    expect(second).toEqual(first)
+    expect(requests.filter((request) => new URL(request.url).pathname === "/api/session/capabilities")).toHaveLength(1)
+  })
+
+  test("retries capability discovery after a transient failure", async () => {
+    const { api, requests } = setup("v2", { capabilitiesFailures: 1 })
+
+    await expect(sessionCapabilities(api)).rejects.toThrow("capabilities failed")
+    expect((await sessionCapabilities(api)).archive).toBe(true)
+    expect(requests.filter((request) => new URL(request.url).pathname === "/api/session/capabilities")).toHaveLength(2)
+  })
 
   test("uses the global V1 session search endpoint", async () => {
     const { api, requests } = setup("v1")

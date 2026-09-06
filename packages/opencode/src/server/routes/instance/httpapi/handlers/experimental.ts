@@ -11,6 +11,8 @@ import type { SessionID } from "@/session/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Worktree } from "@/worktree"
+import { WorktreeMerge } from "@/worktree/merge"
+import { WorktreeManager } from "@/worktree/manager"
 import { Effect, Option } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
@@ -23,7 +25,9 @@ import {
   WorktreeApiError,
 } from "../groups/experimental"
 
-function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
+function mapWorktreeError<A, R>(
+  self: Effect.Effect<A, Worktree.Error | WorktreeMerge.MergeFailedError | WorktreeManager.ManagerFailedError, R>,
+) {
   return self.pipe(
     Effect.mapError((error) => new WorktreeApiError({ name: error._tag, data: { message: error.message } })),
   )
@@ -38,6 +42,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const project = yield* Project.Service
     const registry = yield* ToolRegistry.Service
     const worktreeSvc = yield* Worktree.Service
+    const worktreeMerge = yield* WorktreeMerge.Service
+    const worktreeManager = yield* WorktreeManager.Service
     const sessions = yield* Session.Service
     const background = yield* BackgroundJob.Service
     const flags = yield* RuntimeFlags.Service
@@ -202,6 +208,46 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("worktree", worktree)
       .handle("worktreeOptions", () => mapWorktreeError(worktreeSvc.options()))
       .handle("worktreeStatus", (ctx) => mapWorktreeError(worktreeSvc.lifecycleStatus(ctx.params.sessionID)))
+      .handle("worktreeMergePreview", (ctx) =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          return yield* mapWorktreeError(worktreeMerge.preview({ ...ctx.payload, root: instance.directory }))
+        }),
+      )
+      .handle("worktreeManaged", () =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          return yield* mapWorktreeError(
+            worktreeManager.list({ root: instance.directory, projectID: instance.project.id }),
+          )
+        }),
+      )
+      .handle("worktreeDetails", (ctx) =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          return yield* mapWorktreeError(
+            worktreeManager.details({
+              ...ctx.payload,
+              root: instance.directory,
+              projectID: instance.project.id,
+            }),
+          )
+        }),
+      )
+      .handle("worktreeAdopt", (ctx) =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          return yield* mapWorktreeError(
+            worktreeManager.adopt({ ...ctx.payload, root: instance.directory, projectID: instance.project.id }),
+          )
+        }),
+      )
+      .handle("worktreeMergeApply", (ctx) =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          return yield* mapWorktreeError(worktreeMerge.apply({ ...ctx.payload, root: instance.directory }))
+        }),
+      )
       .handle("worktreeCreate", worktreeCreate)
       .handle("worktreeRemove", worktreeRemove)
       .handle("worktreeReset", worktreeReset)

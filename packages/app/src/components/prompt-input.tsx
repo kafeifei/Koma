@@ -1,3 +1,4 @@
+import { REVIEW_TAB } from "@/pages/session/side-panel-tabs"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import {
@@ -228,16 +229,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
 
     const wantsReview = item.commentOrigin === "review" || (item.commentOrigin !== "file" && commentInReview(item.path))
+    const panel = props.controls.session.workspacePanel ?? props.controls.session.reviewPanel
     if (wantsReview) {
-      if (!props.controls.session.reviewPanel.opened()) props.controls.session.reviewPanel.open()
-      layout.fileTree.setTab("changes")
-      tabs().setActive("review")
+      panel.open()
+      if (props.controls.session.workspacePanel) void tabs().open(REVIEW_TAB)
+      if (!props.controls.session.workspacePanel) {
+        layout.fileTree.setTab("changes")
+        tabs().setActive("review")
+      }
       queueCommentFocus()
       return
     }
 
-    if (!props.controls.session.reviewPanel.opened()) props.controls.session.reviewPanel.open()
-    layout.fileTree.setTab("all")
+    panel.open()
+    if (!props.controls.session.workspacePanel) layout.fileTree.setTab("all")
     const tab = files.tab(item.path)
     void tabs().open(tab)
     tabs().setActive(tab)

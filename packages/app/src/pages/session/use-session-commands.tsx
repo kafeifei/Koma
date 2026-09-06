@@ -33,6 +33,7 @@ export type SessionCommandContext = {
   onToggleTerminal?: () => void
   onNewTerminal?: () => void
   onCloseTab?: (tab: string) => void
+  onToggleFiles?: () => void
 }
 
 const withCategory = (category: string) => {
@@ -115,6 +116,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const showAllFiles = () => {
+    if (actions.sidePanel?.()) return
     if (layout.fileTree.tab() !== "changes") return
     layout.fileTree.setTab("all")
   }
@@ -510,7 +512,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "session.archive",
       title: language.t("command.session.archive"),
       keybind: "mod+shift+backspace",
-      disabled: !params.id,
+      disabled: !params.id || !sessionArchive.canArchive(),
       onSelect: () => {
         const id = params.id
         if (id) void sessionArchive.archive(id)
@@ -571,7 +573,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "review.toggle",
       title: language.t("command.review.toggle"),
       keybind: "mod+shift+r",
-      onSelect: () => view().reviewPanel.toggle(),
+      onSelect: () => (actions.sidePanel?.() ? view().workspacePanel.toggle() : view().reviewPanel.toggle()),
     }),
     ...(shown()
       ? [
@@ -579,7 +581,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
             id: "fileTree.toggle",
             title: language.t("command.fileTree.toggle"),
             keybind: "mod+\\",
-            onSelect: () => layout.fileTree.toggle(),
+            onSelect: () =>
+              actions.sidePanel?.() && actions.onToggleFiles ? actions.onToggleFiles() : layout.fileTree.toggle(),
           }),
         ]
       : []),

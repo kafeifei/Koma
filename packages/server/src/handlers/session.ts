@@ -1,3 +1,4 @@
+import { SessionLifecycle } from "../session-lifecycle"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
@@ -19,8 +20,19 @@ const DefaultSessionHistoryLimit = 50
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* SessionV2.Service
+    const lifecycle = yield* SessionLifecycle.Service
 
     return handlers
+      .handle("session.capabilities", () => Effect.succeed({ data: lifecycle.capabilities }))
+      .handle("session.archive", (ctx) =>
+        lifecycle.archive(ctx.params.sessionID).pipe(Effect.as(HttpApiSchema.NoContent.make())),
+      )
+      .handle("session.restore", (ctx) =>
+        lifecycle.restore(ctx.params.sessionID).pipe(Effect.as(HttpApiSchema.NoContent.make())),
+      )
+      .handle("session.remove", (ctx) =>
+        lifecycle.remove(ctx.params.sessionID).pipe(Effect.as(HttpApiSchema.NoContent.make())),
+      )
       .handle(
         "session.list",
         Effect.fn(function* (ctx) {
@@ -67,15 +79,15 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.create",
         Effect.fn(function* (ctx) {
-          return {
-            data: yield* session.create({
-              id: ctx.payload.id,
-              agent: ctx.payload.agent,
-              model: ctx.payload.model,
-              location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
-              permissionMode: ctx.payload.permissionMode,
-            }),
-          }
+          const created = yield* session.create({
+            id: ctx.payload.id,
+            agent: ctx.payload.agent,
+            model: ctx.payload.model,
+            location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
+            permissionMode: ctx.payload.permissionMode,
+          })
+          yield* lifecycle.claim(created)
+          return { data: created }
         }),
       )
       .handle(

@@ -88,6 +88,15 @@ for (const scenario of scenarios) {
       onMessages: () => legacyMessageReads++,
       pageMessages: () => ({ items: [] }),
     })
+    await page.route("**/api/session/capabilities", (route) =>
+      json(route, {
+        archive: true,
+        restore: true,
+        delete: true,
+        managedWorktree: true,
+        occupancy: { pty: true, v2: true, externalProcesses: false },
+      }),
+    )
     await page.route("**/lab/**", async (route) => {
       const url = new URL(route.request().url())
       if (url.origin !== server) return route.fallback()
@@ -134,6 +143,13 @@ for (const scenario of scenarios) {
     await page.goto(`/server/${base64Encode(server)}/session/${sessionID}`)
     await transport.waitForConnection()
     await expectSessionTitle(page, title)
+    const task = page.locator('[data-slot="workspace-task-row"]', {
+      has: page.locator(`[data-session-id="${sessionID}"]`),
+    })
+    await task.hover()
+    await task.getByRole("button", { name: "More options", exact: true }).click()
+    await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeDisabled()
+    await page.keyboard.press("Escape")
 
     const finalHistoryPartID = assistantPartID(historyTurns - 1)
     await expect(page.locator(`[data-timeline-part-id="${finalHistoryPartID}"]`)).toBeVisible()
@@ -212,6 +228,8 @@ for (const scenario of scenarios) {
 
     await page.getByRole("button", { name: "View context usage", exact: true }).click()
     await page.getByRole("button", { name: "Toggle review", exact: true }).click()
+    await page.getByRole("button", { name: "Open panel", exact: true }).click()
+    await page.getByRole("menuitem", { name: "Review", exact: true }).click()
     await page.getByRole("button", { name: "Git changes", exact: true }).click()
     await page.getByText("Last turn changes", { exact: true }).click()
     await expect(page.getByText("Codex did not provide a diff for this turn.", { exact: true })).toBeVisible()

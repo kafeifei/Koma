@@ -51,22 +51,24 @@ export function NewSessionView(props: {
                   <Show
                     when={props.workspace.bar.visible()}
                     fallback={
-                      <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
+                      <>
+                        <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
+                        <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
+                      </>
                     }
                   >
                     <PromptWorkspaceSelector
-                      value={props.workspace.selection.value()}
-                      projectRoot={props.workspace.project.root()}
-                      workspaces={props.workspace.project.workspaces()}
+                      isolated={props.workspace.selection.isolated()}
                       branch={props.workspace.bar.branch()}
+                      currentBranch={props.workspace.bar.currentBranch()}
                       baseBranch={props.workspace.bar.baseBranch()}
                       branches={props.workspace.project.branches()}
                       worktreeDisabled={props.workspace.selection.disabled()}
                       optionsLoading={props.workspace.selection.loading()}
                       optionsFailed={props.workspace.selection.failed()}
                       onRetry={props.workspace.selection.retry}
-                      onUseLocal={() => props.workspace.selection.set("main")}
-                      onChange={props.workspace.selection.set}
+                      onUseLocal={props.workspace.selection.useLocal}
+                      onIsolationChange={props.workspace.selection.setIsolated}
                       onBaseBranchChange={props.workspace.selection.setBaseBranch}
                       onDone={props.input.restoreFocus}
                     />

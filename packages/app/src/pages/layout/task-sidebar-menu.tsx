@@ -21,6 +21,8 @@ export type TaskSidebarMenuProps = {
   cleanupStatus: () => Promise<{ managed: boolean; operation?: string; state?: string; message?: string }>
   onDelete: () => Promise<void>
   canMutate: boolean
+  canDelete: boolean
+  onRetryCapabilities?: () => void
   onPin: () => void
   onRename: (title: string) => Promise<void>
   onArchive: () => Promise<void>
@@ -32,7 +34,9 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
   const language = useLanguage()
   const [cleanup, setCleanup] = createStore({ retry: false, message: undefined as string | undefined })
   const inspect = (open: boolean) => {
-    if (!open || !props.archived || !props.canMutate) return
+    if (!open) return
+    if (!props.canMutate) props.onRetryCapabilities?.()
+    if (!props.archived || !props.canMutate) return
     void props.cleanupStatus().then(
       (status) =>
         setCleanup({
@@ -98,7 +102,7 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
                   <DropdownMenu.ItemLabel>{language.t("workspace.task.cleanup.retry")}</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
               </Show>
-              <DropdownMenu.Item disabled={!props.canMutate || props.busy || props.running} onSelect={openDelete}>
+              <DropdownMenu.Item disabled={!props.canDelete || props.busy || props.running} onSelect={openDelete}>
                 <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
               </DropdownMenu.Item>
             </DropdownMenu.Content>
@@ -121,7 +125,7 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
               <ContextMenu.ItemLabel>{language.t("workspace.task.cleanup.retry")}</ContextMenu.ItemLabel>
             </ContextMenu.Item>
           </Show>
-          <ContextMenu.Item disabled={!props.canMutate || props.busy || props.running} onSelect={openDelete}>
+          <ContextMenu.Item disabled={!props.canDelete || props.busy || props.running} onSelect={openDelete}>
             <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
         </ContextMenu.Content>

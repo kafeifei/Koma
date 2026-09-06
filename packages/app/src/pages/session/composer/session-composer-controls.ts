@@ -1,3 +1,5 @@
+import { createMediaQuery } from "@solid-primitives/media"
+import { useSettings } from "@/context/settings"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { createQuery } from "@tanstack/solid-query"
 import { useNavigate, useSearchParams } from "@solidjs/router"
@@ -24,6 +26,8 @@ export function createPromptInputController(input: {
   model?: ModelSelection
 }) {
   const layout = useLayout()
+  const settings = useSettings()
+  const desktop = createMediaQuery("(min-width: 768px)")
   const local = useLocal()
   const sdk = useSDK()
   const sync = useSync()
@@ -55,6 +59,8 @@ export function createPromptInputController(input: {
         id: input.sessionID(),
         tabs: layout.tabs(input.sessionKey),
         reviewPanel: view.reviewPanel,
+        workspacePanel:
+          settings.general.newLayoutDesigns() && desktop() && input.sessionID() ? view.workspacePanel : undefined,
       },
     }
   })

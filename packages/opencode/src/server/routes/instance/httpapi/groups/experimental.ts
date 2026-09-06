@@ -4,6 +4,8 @@ import { MCP } from "@/mcp"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { Worktree } from "@/worktree"
+import { WorktreeMerge } from "@/worktree/merge"
+import { WorktreeManager } from "@/worktree/manager"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
@@ -69,6 +71,8 @@ const WorktreeErrorName = Schema.Union([
   Schema.Literal("WorktreeRemoveFailedError"),
   Schema.Literal("WorktreeResetFailedError"),
   Schema.Literal("WorktreeListFailedError"),
+  Schema.Literal("WorktreeMergeFailedError"),
+  Schema.Literal("WorktreeManagerFailedError"),
 ])
 export class WorktreeApiError extends Schema.ErrorClass<WorktreeApiError>("WorktreeError")(
   {
@@ -219,6 +223,55 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "worktree.status",
             summary: "Get session worktree status",
             description: "Inspect an explicitly managed session worktree's archive or recovery state.",
+          }),
+        ),
+        HttpApiEndpoint.post("worktreeMergePreview", "/experimental/worktree/merge/preview", {
+          query: WorkspaceRoutingQuery,
+          payload: WorktreeMerge.Input,
+          success: WorktreeMerge.Preview,
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "worktree.mergePreview",
+            summary: "Preview worktree merge",
+            description:
+              "Compare linked worktree results with the clean primary checkout without changing either checkout.",
+          }),
+        ),
+        HttpApiEndpoint.get("worktreeManaged", "/experimental/worktree/managed", {
+          query: WorkspaceRoutingQuery,
+          success: WorktreeManager.ListResult,
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "worktree.managed", summary: "List worktree ownership and usage" }),
+        ),
+        HttpApiEndpoint.post("worktreeDetails", "/experimental/worktree/details", {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({ directory: Schema.String }),
+          success: WorktreeManager.DetailsResult,
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "worktree.details", summary: "Inspect worktree files and space" }),
+        ),
+        HttpApiEndpoint.post("worktreeAdopt", "/experimental/worktree/adopt", {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({ directory: Schema.String, sessionID: Schema.optional(Schema.String) }),
+          success: WorktreeManager.AdoptResult,
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "worktree.adopt", summary: "Explicitly adopt a linked worktree" }),
+        ),
+        HttpApiEndpoint.post("worktreeMergeApply", "/experimental/worktree/merge/apply", {
+          query: WorkspaceRoutingQuery,
+          payload: WorktreeMerge.ApplyInput,
+          success: Schema.Boolean,
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "worktree.mergeApply",
+            summary: "Apply reviewed worktree merge",
+            description:
+              "Stage a conflict-free, unchanged preview in the primary checkout. Does not commit or move branch references.",
           }),
         ),
         HttpApiEndpoint.post("worktreeCreate", ExperimentalPaths.worktree, {

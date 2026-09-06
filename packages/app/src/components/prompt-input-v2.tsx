@@ -1,3 +1,4 @@
+import { REVIEW_TAB } from "@/pages/session/side-panel-tabs"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
@@ -651,14 +652,18 @@ function openComment(
   const diffs = props.controls.session.id ? sync().data.session_diff[props.controls.session.id] : undefined
   const review =
     item.commentOrigin === "review" || (item.commentOrigin !== "file" && diffs?.some((diff) => diff.file === item.path))
-  if (!props.controls.session.reviewPanel.opened()) props.controls.session.reviewPanel.open()
+  const panel = props.controls.session.workspacePanel ?? props.controls.session.reviewPanel
+  panel.open()
   if (review) {
-    layout.fileTree.setTab("changes")
-    props.controls.session.tabs.setActive("review")
+    if (props.controls.session.workspacePanel) void props.controls.session.tabs.open(REVIEW_TAB)
+    if (!props.controls.session.workspacePanel) {
+      layout.fileTree.setTab("changes")
+      props.controls.session.tabs.setActive("review")
+    }
     queueFocus()
     return
   }
-  layout.fileTree.setTab("all")
+  if (!props.controls.session.workspacePanel) layout.fileTree.setTab("all")
   const tab = files.tab(item.path)
   void props.controls.session.tabs.open(tab)
   props.controls.session.tabs.setActive(tab)

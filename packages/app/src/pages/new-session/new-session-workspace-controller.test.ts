@@ -1,50 +1,49 @@
 import { describe, expect, test } from "bun:test"
 import {
-  normalizeNewSessionWorktree,
   resolveNewSessionBaseBranch,
   resolveNewSessionBranch,
+  resolveNewSessionIsolation,
   resolveNewSessionWorktree,
 } from "./new-session-workspace-controller"
 
 describe("new session workspace selection", () => {
-  test("uses main when the workspace bar is unavailable", () => {
+  test("keeps the last isolation preference while options load or fail", () => {
     expect(
-      resolveNewSessionWorktree({
-        enabled: false,
-        selected: "/project/feature",
-        directory: "/project/feature",
-        projectWorktree: "/project",
-      }),
-    ).toBe("main")
-  })
-
-  test("derives an existing worktree from the current directory", () => {
+      resolveNewSessionIsolation({ visible: true, preferred: true, hasHead: false, loading: true, failed: false }),
+    ).toBe(true)
     expect(
-      resolveNewSessionWorktree({ enabled: true, directory: "/project/feature", projectWorktree: "/project" }),
-    ).toBe("/project/feature")
-    expect(resolveNewSessionWorktree({ enabled: true, directory: "/project", projectWorktree: "/project" })).toBe(
-      "create",
-    )
+      resolveNewSessionIsolation({ visible: true, preferred: true, hasHead: false, loading: false, failed: true }),
+    ).toBe(true)
   })
 
-  test("normalizes main to the project root outside the main worktree", () => {
-    expect(normalizeNewSessionWorktree("main", "/project/feature", "/project")).toBe("/project")
-    expect(normalizeNewSessionWorktree("main", "/project", "/project")).toBe("main")
+  test("disables isolation when the selected source cannot create a worktree", () => {
+    expect(
+      resolveNewSessionIsolation({ visible: true, preferred: true, hasHead: false, loading: false, failed: false }),
+    ).toBe(false)
+    expect(
+      resolveNewSessionIsolation({ visible: false, preferred: true, hasHead: true, loading: false, failed: false }),
+    ).toBe(false)
   })
 
-  test("falls back to the local branch for main, create, and unknown worktrees", () => {
-    const branch = (worktree: string) => (worktree === "/project/feature" ? "feature" : undefined)
-    expect(resolveNewSessionBranch({ worktree: "main", local: "dev", worktreeBranch: branch })).toBe("dev")
-    expect(resolveNewSessionBranch({ worktree: "create", local: "dev", worktreeBranch: branch })).toBe("dev")
-    expect(resolveNewSessionBranch({ worktree: "/project/feature", local: "dev", worktreeBranch: branch })).toBe(
-      "feature",
-    )
-    expect(resolveNewSessionBranch({ worktree: "/missing", local: "dev", worktreeBranch: branch })).toBe("dev")
+  test("uses the last valid isolation choice when worktrees are available", () => {
+    expect(
+      resolveNewSessionIsolation({ visible: true, preferred: true, hasHead: true, loading: false, failed: false }),
+    ).toBe(true)
+    expect(
+      resolveNewSessionIsolation({ visible: true, preferred: false, hasHead: true, loading: false, failed: false }),
+    ).toBe(false)
+    expect(resolveNewSessionWorktree(true)).toBe("create")
+    expect(resolveNewSessionWorktree(false)).toBe("main")
   })
 
-  test("uses the selected base branch only for a new worktree", () => {
-    expect(resolveNewSessionBaseBranch({ worktree: "create", selected: "feature", fallback: "dev" })).toBe("feature")
-    expect(resolveNewSessionBaseBranch({ worktree: "create", fallback: "dev" })).toBe("dev")
-    expect(resolveNewSessionBaseBranch({ worktree: "main", selected: "feature", fallback: "dev" })).toBeUndefined()
+  test("shows the chosen starting branch only in isolation mode", () => {
+    expect(resolveNewSessionBranch({ isolated: true, current: "feature", base: "dev" })).toBe("dev")
+    expect(resolveNewSessionBranch({ isolated: false, current: "feature", base: "dev" })).toBe("feature")
+  })
+
+  test("starts from the current directory branch before falling back to the repository default", () => {
+    expect(resolveNewSessionBaseBranch({ selected: "release", current: "feature", fallback: "dev" })).toBe("release")
+    expect(resolveNewSessionBaseBranch({ current: "feature", fallback: "dev" })).toBe("feature")
+    expect(resolveNewSessionBaseBranch({ fallback: "dev" })).toBe("dev")
   })
 })

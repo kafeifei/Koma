@@ -4,6 +4,7 @@ import { makeLocationNode } from "./effect/app-node"
 import type { Disp, Proc } from "#pty"
 import { Context, Effect, Layer, Schema, Types } from "effect"
 import { Pty } from "@opencode-ai/schema/pty"
+import { DirectoryLease } from "./directory-lease"
 import { Config } from "./config"
 import { EventV2 } from "./event"
 import { Location } from "./location"
@@ -33,6 +34,7 @@ type Active = {
   bufferCursor: number
   cursor: number
   subscribers: Map<object, Subscriber>
+  release: Effect.Effect<void>
   listeners: Disp[]
 }
 
@@ -80,7 +82,7 @@ export class ExitedError extends Schema.TaggedErrorClass<ExitedError>()("Pty.Exi
 export interface Interface {
   readonly list: () => Effect.Effect<Info[]>
   readonly get: (id: PtyID) => Effect.Effect<Info, NotFoundError>
-  readonly create: (input: CreateInput) => Effect.Effect<Info>
+  readonly create: (input: CreateInput) => Effect.Effect<Info, DirectoryLease.UnavailableError>
   readonly update: (id: PtyID, input: UpdateInput) => Effect.Effect<Info, NotFoundError>
   readonly remove: (id: PtyID) => Effect.Effect<void, NotFoundError>
   readonly write: (id: PtyID, data: string) => Effect.Effect<void, NotFoundError>
@@ -95,6 +97,7 @@ const layer = Layer.effect(
     const events = yield* EventV2.Service
     const location = yield* Location.Service
     const config = yield* Config.Service
+    const leases = yield* DirectoryLease.Service
     const context = yield* Effect.context()
     const runFork = Effect.runForkWith(context)
     const sessions = new Map<PtyID, Active>()
@@ -125,8 +128,11 @@ const layer = Layer.effect(
     }
 
     yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        for (const session of sessions.values()) teardown(session)
+      Effect.gen(function* () {
+        for (const session of sessions.values()) {
+          teardown(session)
+          yield* session.release
+        }
         sessions.clear()
         exitOrder.length = 0
       }),
@@ -146,6 +152,7 @@ const layer = Layer.effect(
       if (index !== -1) exitOrder.splice(index, 1)
       yield* Effect.logInfo("removing session", { id })
       teardown(session)
+      yield* session.release
       yield* events.publish(Event.Deleted, { id: session.info.id })
     })
 
@@ -162,86 +169,95 @@ const layer = Layer.effect(
       return (yield* requireSession(id)).info
     })
 
-    const create = Effect.fn("Pty.create")(function* (input: CreateInput) {
-      const id = PtyID.ascending()
-      const command = input.command || Shell.preferred(Config.latest(yield* config.entries(), "shell"))
-      const args = Shell.login(command) ? [...(input.args ?? []), "-l"] : [...(input.args ?? [])]
-      const cwd = input.cwd || location.directory
-      const env = {
-        ...process.env,
-        ...input.env,
-        TERM: "xterm-256color",
-        OPENCODE_TERMINAL: "1",
-      } as Record<string, string>
-      if (process.platform === "win32") {
-        env.LC_ALL = "C.UTF-8"
-        env.LC_CTYPE = "C.UTF-8"
-        env.LANG = "C.UTF-8"
-      }
-      yield* Effect.logInfo("creating session", { id, cmd: command, args, cwd })
-      const { spawn } = yield* Effect.promise(() => pty())
-      const proc = yield* Effect.sync(() => spawn(command, args, { name: "xterm-256color", cwd, env }))
-      const info: Info = {
-        id,
-        title: input.title || `Terminal ${id.slice(-4)}`,
-        command,
-        args,
-        cwd,
-        status: "running",
-        pid: proc.pid,
-      }
-      const session: Active = {
-        info,
-        process: proc,
-        buffer: "",
-        bufferCursor: 0,
-        cursor: 0,
-        subscribers: new Map(),
-        listeners: [],
-      }
-      sessions.set(id, session)
-      session.listeners.push(
-        proc.onData((chunk) => {
-          session.cursor += chunk.length
-          for (const [token, subscriber] of session.subscribers.entries()) {
-            if (!subscriber.active) {
-              subscriber.pending.push(chunk)
-              continue
-            }
-            try {
-              subscriber.onData(chunk)
-            } catch {
-              session.subscribers.delete(token)
-            }
+    const create = Effect.fn("Pty.create")((input: CreateInput) =>
+      Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const id = PtyID.ascending()
+          const command = input.command || Shell.preferred(Config.latest(yield* config.entries(), "shell"))
+          const args = Shell.login(command) ? [...(input.args ?? []), "-l"] : [...(input.args ?? [])]
+          const cwd = input.cwd || location.directory
+          const env = {
+            ...process.env,
+            ...input.env,
+            TERM: "xterm-256color",
+            OPENCODE_TERMINAL: "1",
+          } as Record<string, string>
+          if (process.platform === "win32") {
+            env.LC_ALL = "C.UTF-8"
+            env.LC_CTYPE = "C.UTF-8"
+            env.LANG = "C.UTF-8"
           }
-          session.buffer += chunk
-          if (session.buffer.length <= BUFFER_LIMIT) return
-          const excess = session.buffer.length - BUFFER_LIMIT
-          session.buffer = session.buffer.slice(excess)
-          session.bufferCursor += excess
-        }),
-        proc.onExit(({ exitCode }) => {
-          if (session.info.status === "exited") return
-          session.info.status = "exited"
-          session.info.exitCode = exitCode
-          notifyEnd(session, { exitCode })
-          exitOrder.push(id)
-          runFork(
-            Effect.gen(function* () {
-              yield* Effect.logInfo("session exited", { id, exitCode })
-              yield* events.publish(Event.Exited, { id, exitCode })
-              while (exitOrder.length > EXITED_LIMIT) {
-                const oldest = exitOrder[0]
-                if (!oldest) break
-                yield* removeSession(oldest)
+          yield* Effect.logInfo("creating session", { id, cmd: command, args, cwd })
+          const { spawn } = yield* Effect.promise(() => pty())
+          const release = yield* leases.acquire({ directory: cwd, ownerID: `pty:${id}` })
+          const proc = yield* Effect.sync(() => spawn(command, args, { name: "xterm-256color", cwd, env })).pipe(
+            Effect.onError(() => release),
+          )
+          const info: Info = {
+            id,
+            title: input.title || `Terminal ${id.slice(-4)}`,
+            command,
+            args,
+            cwd,
+            status: "running",
+            pid: proc.pid,
+          }
+          const session: Active = {
+            info,
+            process: proc,
+            buffer: "",
+            bufferCursor: 0,
+            cursor: 0,
+            subscribers: new Map(),
+            listeners: [],
+            release,
+          }
+          sessions.set(id, session)
+          session.listeners.push(
+            proc.onData((chunk) => {
+              session.cursor += chunk.length
+              for (const [token, subscriber] of session.subscribers.entries()) {
+                if (!subscriber.active) {
+                  subscriber.pending.push(chunk)
+                  continue
+                }
+                try {
+                  subscriber.onData(chunk)
+                } catch {
+                  session.subscribers.delete(token)
+                }
               }
+              session.buffer += chunk
+              if (session.buffer.length <= BUFFER_LIMIT) return
+              const excess = session.buffer.length - BUFFER_LIMIT
+              session.buffer = session.buffer.slice(excess)
+              session.bufferCursor += excess
+            }),
+            proc.onExit(({ exitCode }) => {
+              if (session.info.status === "exited") return
+              session.info.status = "exited"
+              session.info.exitCode = exitCode
+              notifyEnd(session, { exitCode })
+              exitOrder.push(id)
+              runFork(
+                Effect.gen(function* () {
+                  yield* release
+                  yield* Effect.logInfo("session exited", { id, exitCode })
+                  yield* events.publish(Event.Exited, { id, exitCode })
+                  while (exitOrder.length > EXITED_LIMIT) {
+                    const oldest = exitOrder[0]
+                    if (!oldest) break
+                    yield* removeSession(oldest)
+                  }
+                }),
+              )
             }),
           )
+          yield* restore(events.publish(Event.Created, { info })).pipe(Effect.onError(() => removeSession(id)))
+          return info
         }),
-      )
-      yield* events.publish(Event.Created, { info })
-      return info
-    })
+      ),
+    )
 
     const update = Effect.fn("Pty.update")(function* (id: PtyID, input: UpdateInput) {
       const session = yield* requireSession(id)
@@ -313,6 +329,10 @@ const layer = Layer.effect(
   }),
 )
 
-export const locationLayer = layer.pipe(Layer.provide(Config.locationLayer))
+export const locationLayer = layer.pipe(Layer.provide([Config.locationLayer, DirectoryLease.layer]))
 
-export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node, Location.node, Config.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [EventV2.node, Location.node, Config.node, DirectoryLease.node],
+})

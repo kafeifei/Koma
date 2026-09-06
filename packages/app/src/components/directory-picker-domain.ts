@@ -321,8 +321,14 @@ export function displayPickerPath(path: string, input: string, home: string) {
   return pickerTilde(value, home) || value
 }
 
-export function createDirectorySearch(args: { sdk: ServerSDK; base: () => string | undefined; home: () => string }) {
-  const cache = new Map<string, Promise<Array<{ name: string; absolute: string }>>>()
+export function createDirectorySearch(args: {
+  sdk: ServerSDK
+  base: () => string | undefined
+  home: () => string
+  type?: "directory" | "file"
+  onError?: (error: unknown) => void
+}) {
+  const cache = new Map<string, Promise<Array<{ name: string; absolute: string; type: "directory" | "file" }>>>()
   let current = 0
 
   const scoped = (value: string) => {
@@ -342,24 +348,26 @@ export function createDirectorySearch(args: { sdk: ServerSDK; base: () => string
     const key = trimPickerPath(directory)
     const existing = cache.get(key)
     if (existing) return existing
-    const request = args.sdk.api.file
-      .list({ location: { directory: key } })
-      .then((result) => result.data)
-      .catch(() => [])
+    const request = args.sdk.api.directory
+      .list({ path: key })
       .then((nodes) =>
-        nodes
-          .filter((node) => node.type === "directory")
-          .map((node) => {
-            const relative = trimPickerPath(normalizePickerDrive(node.path))
-            return { name: getFilename(relative), absolute: joinPickerPath(key, relative) }
-          }),
+        nodes.map((node) => ({
+          name: node.name,
+          absolute: trimPickerPath(normalizePickerDrive(node.path)),
+          type: node.type,
+        })),
       )
+      .catch((error) => {
+        cache.delete(key)
+        args.onError?.(error)
+        return []
+      })
     cache.set(key, request)
     return request
   }
 
-  const match = async (directory: string, query: string, limit: number) => {
-    const items = await directories(directory)
+  const match = async (directory: string, query: string, limit: number, type = args.type ?? "directory") => {
+    const items = (await directories(directory)).filter((item) => item.type === type)
     if (!query) return items.slice(0, limit).map((item) => item.absolute)
     return fuzzysort.go(query, items, { key: "name", limit }).map((item) => item.obj.absolute)
   }
@@ -374,19 +382,10 @@ export function createDirectorySearch(args: { sdk: ServerSDK; base: () => string
     const pathInput = raw.startsWith("~") || !!pickerRoot(raw) || raw.includes("/")
     const query = normalizePickerDrive(input.path)
     if (!pathInput) {
-      const results = await args.sdk.api.file
-        .find({ location: { directory: input.directory }, query, type: "directory", limit: 50 })
-        .then((result) => result.data.map((entry) => entry.path))
-        .catch(() => [])
+      // Browsing must not initialize a project or recursively index a parent directory.
+      const results = await match(input.directory, query, query ? 50 : Number.POSITIVE_INFINITY)
       if (!active()) return []
-      if (results.length) {
-        return results.map((path) => joinPickerPath(input.directory, path)).slice(0, 50)
-      }
-      const fallback = query
-        ? await match(input.directory, query, 50)
-        : (await directories(input.directory)).map((item) => item.absolute)
-      if (!active()) return []
-      return fallback
+      return results
     }
     const segments = query.replace(/^\/+/, "").split("/")
     const head = segments.slice(0, -1).filter((part) => part && part !== ".")
@@ -398,11 +397,14 @@ export function createDirectorySearch(args: { sdk: ServerSDK; base: () => string
         paths = paths.map(pickerParent)
         continue
       }
-      paths = Array.from(new Set((await Promise.all(paths.map((path) => match(path, part, 4)))).flat())).slice(0, 12)
+      paths = Array.from(
+        new Set((await Promise.all(paths.map((path) => match(path, part, 4, "directory")))).flat()),
+      ).slice(0, 12)
       if (!active() || paths.length === 0) return []
     }
     const matches = Array.from(new Set((await Promise.all(paths.map((path) => match(path, tail, 50)))).flat()))
     if (!active()) return []
+    if (args.type === "file") return matches.slice(0, 50)
     const base = raw.startsWith("~") ? trimPickerPath(input.directory) : ""
     if (raw.endsWith("/") || !tail) return Array.from(new Set([base, ...matches].filter(Boolean))).slice(0, 50)
     const target = matches.find((path) => getFilename(path).toLowerCase() === tail.toLowerCase())

@@ -2,7 +2,7 @@ import { createMemo, createSignal, createUniqueId, Show } from "solid-js"
 import { createQuery, keepPreviousData } from "@tanstack/solid-query"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionFilePanelV2, SessionFilePanelV2Empty } from "@opencode-ai/session-ui/v2/session-file-panel-v2"
-import { SessionReviewV2Sidebar } from "@opencode-ai/session-ui/v2/session-review-v2"
+import { SessionReviewV2Sidebar, SessionReviewV2SidebarToggle } from "@opencode-ai/session-ui/v2/session-review-v2"
 import FileTreeV2, { type Kind } from "@/components/file-tree-v2"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -10,6 +10,7 @@ import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
 import { displayName } from "@/pages/layout/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { FilePanelToolbar } from "@/pages/session/file-panel-toolbar"
 import { SessionFileView } from "@/pages/session/file-tabs"
 import { applyFileListKeyDown, SessionFileListV2 } from "@/pages/session/v2/session-file-list-v2"
 import { pathKey } from "@/utils/path-key"
@@ -94,7 +95,24 @@ export function SessionFileBrowserTab(props: {
   // unmounts the whole panel on every file-tab switch and resets sidebar scroll.
   return (
     <SessionFilePanelV2
-      toolbar={false}
+      toolbar
+      toolbarStart={
+        <>
+          <SessionReviewV2SidebarToggle
+            opened={sidebarOpened()}
+            disabled={props.placeholder}
+            onToggle={props.state.toggleSidebar}
+          />
+          <span class="min-w-0 truncate" title={props.active}>
+            {props.active ?? language.t("command.file.open")}
+          </span>
+        </>
+      }
+      toolbarEnd={
+        <Show when={!props.placeholder && props.active}>
+          {(path) => <FilePanelToolbar directory={() => sdk().directory} file={path} />}
+        </Show>
+      }
       sidebar={
         <SessionReviewV2Sidebar
           open={sidebarOpened()}

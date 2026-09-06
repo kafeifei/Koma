@@ -38,9 +38,12 @@ function openSessionContext(args: {
   view: ReturnType<ReturnType<typeof useLayout>["view"]>
   layout: ReturnType<typeof useLayout>
   tabs: ReturnType<ReturnType<typeof useLayout>["tabs"]>
+  workspace: boolean
 }) {
-  args.view.reviewPanel.open(args.view.reviewPanel.opened() ? "other" : "context-button")
-  if (args.layout.fileTree.opened() && args.layout.fileTree.tab() !== "all") args.layout.fileTree.setTab("all")
+  const panel = args.workspace ? args.view.workspacePanel : args.view.reviewPanel
+  panel.open(panel.opened() ? "other" : "context-button")
+  if (!args.workspace && args.layout.fileTree.opened() && args.layout.fileTree.tab() !== "all")
+    args.layout.fileTree.setTab("all")
   void args.tabs.open("context")
   args.tabs.setActive("context")
 }
@@ -91,7 +94,9 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     external()
       ? (native().current?.toLocaleString(language.intl()) ?? "—")
       : (context()?.total.toLocaleString(language.intl()) ?? "0")
-  const contextVisible = createMemo(() => view().reviewPanel.opened() && tabState.activeTab() === "context")
+  const workspace = () => settings.general.newLayoutDesigns() && isDesktop() && !!params.id
+  const panel = () => (workspace() ? view().workspacePanel : view().reviewPanel)
+  const contextVisible = createMemo(() => panel().opened() && tabState.activeTab() === "context")
   const hasOtherTabs = createMemo(() =>
     tabs()
       .all()
@@ -104,7 +109,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     const sessionView = view()
     if (contextVisible()) {
       tabs().close("context")
-      if (sessionView.reviewPanel.source() === "context-button" && !hasOtherTabs()) sessionView.reviewPanel.close()
+      if (panel().source() === "context-button" && !hasOtherTabs()) panel().close()
       return
     }
 
@@ -112,6 +117,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
       view: sessionView,
       layout,
       tabs: tabs(),
+      workspace: workspace(),
     })
   }
 

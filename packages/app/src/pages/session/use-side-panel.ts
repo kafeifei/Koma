@@ -1,20 +1,25 @@
+import { useFile } from "@/context/file"
+import { SESSION_OPEN_FILE_TAB } from "@/context/layout-tabs"
 import { useLayout } from "@/context/layout"
 import { useTerminal } from "@/context/terminal"
 import { createSessionOwnership } from "./session-ownership"
 import { useSessionLayout } from "./session-layout"
-import { BACKGROUND_TASKS_TAB, childSessionTab, sidePanelTab, terminalTab, toolDetailTab } from "./side-panel-tabs"
+import { REVIEW_TAB, childSessionTab, sidePanelTab, terminalTab, toolDetailTab } from "./side-panel-tabs"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 
 export function useSidePanel() {
   const layout = useLayout()
+  const file = useFile()
   const terminal = useTerminal()
   const { sessionKey, tabs, view, params } = useSessionLayout()
   const ownership = createSessionOwnership(sessionKey)
 
   const activate = (tab: string) => {
     const target = sidePanelTab(tab)
+    const path = file.pathFromTab(tab)
+    if (path) void file.load(path)
     tabs().setActive(tab)
-    view().reviewPanel.open()
+    view().workspacePanel.open()
     if (target?.type === "terminal" && terminal.all().some((pty) => pty.id === target.id)) {
       terminal.open(target.id)
       terminal.requestFocus(target.id)
@@ -60,17 +65,18 @@ export function useSidePanel() {
     },
     toggleTerminal: () => {
       const target = sidePanelTab(tabs().active())
-      if (target?.type === "terminal" && view().reviewPanel.opened()) {
+      if (target?.type === "terminal" && view().workspacePanel.opened()) {
         terminal.cancelFocus()
-        view().reviewPanel.close()
+        view().workspacePanel.close()
         return
       }
       void openTerminal()
     },
-    openBackground: () => {
-      void tabs().open(BACKGROUND_TASKS_TAB)
-      activate(BACKGROUND_TASKS_TAB)
+    openReview: () => {
+      void tabs().open(REVIEW_TAB)
+      activate(REVIEW_TAB)
     },
+    openFile: () => preview(SESSION_OPEN_FILE_TAB),
     inspectTool: (part: ToolPart) => {
       preview(toolDetailTab(part))
     },
@@ -83,7 +89,7 @@ export function useSidePanel() {
           sessionID: params.id,
           targetSessionID: sessionID,
           selected: tabs().active() === childSessionTab(sessionID),
-          opened: view().reviewPanel.opened(),
+          opened: view().workspacePanel.opened(),
         }),
       )
     },

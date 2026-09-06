@@ -231,27 +231,34 @@ const layer: Layer.Layer<
       const root = pathSvc.join(Global.Path.data, "worktree", ctx.project.id)
       yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
-      return yield* candidate({ root, name: input?.name ? slugify(input.name) : "", detached: input?.detached })
+      return yield* candidate({
+        root: yield* fs.resolve(root),
+        name: input?.name ? slugify(input.name) : "",
+        detached: input?.detached,
+      })
     })
 
     const options = Effect.fn("Worktree.options")(function* () {
       const ctx = yield* InstanceState.context
-      if (ctx.project.vcs !== "git" || !(yield* gitSvc.hasHead(ctx.worktree))) {
+      if (ctx.project.vcs !== "git" || !(yield* gitSvc.hasHead(ctx.directory))) {
         return { hasHead: false, branches: [] }
       }
-      const result = yield* git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], {
-        cwd: ctx.worktree,
+      const result = yield* git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], {
+        cwd: ctx.directory,
       })
       if (result.code !== 0) return yield* new ListFailedError({ message: result.stderr || result.text })
       const branches = result.text
         .trim()
         .split("\n")
         .filter((ref) => ref && !ref.endsWith("/HEAD"))
-      const currentBranch = yield* gitSvc.branch(ctx.worktree)
-      const base = yield* gitSvc.defaultBranch(ctx.worktree)
+      const currentBranch = yield* gitSvc.branch(ctx.directory)
+      const base = yield* gitSvc.defaultBranch(ctx.directory)
       // Prefer the local default branch: an unfetched remote ref may omit local work.
-      const defaultBranch = base && branches.includes(base.name) ? base.name : (base?.ref ?? currentBranch)
-      return { hasHead: true, currentBranch, defaultBranch, branches }
+      const defaultBranch = base && branches.includes(base.name) ? base.name : currentBranch
+      const ordered = [...new Set([currentBranch, defaultBranch, ...branches.sort()])].filter(
+        (branch): branch is string => !!branch,
+      )
+      return { hasHead: true, currentBranch, defaultBranch, branches: ordered }
     })
 
     const lifecycleStatus = Effect.fn("Worktree.lifecycleStatus")(function* (sessionID: string) {
@@ -501,6 +508,9 @@ const layer: Layer.Layer<
         if (directoryExists) {
           return yield* new RemoveFailedError({ message: "Directory is not a registered Git worktree" })
         }
+        yield* lifecycle
+          .forgetUnclaimed(directory)
+          .pipe(Effect.mapError((error) => new RemoveFailedError({ message: error.message })))
         return true
       }
 
@@ -531,7 +541,8 @@ const layer: Layer.Layer<
       const owner = yield* lifecycle
         .getDirectory(directory)
         .pipe(Effect.mapError((error) => new RemoveFailedError({ message: error.message })))
-      const branchOwned = owner?.branch === branch && owner?.projectID === ctx.project.id
+      const branchOwned =
+        owner?.branch === branch && owner?.projectID === ctx.project.id && owner?.branchOwned !== false
       const upstream = branch
         ? yield* git(["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`], { cwd: ctx.worktree })
         : undefined
@@ -543,7 +554,9 @@ const layer: Layer.Layer<
           })
         }
       }
-
+      yield* lifecycle
+        .forgetUnclaimed(directory)
+        .pipe(Effect.mapError((error) => new RemoveFailedError({ message: error.message })))
       return true
     })
 

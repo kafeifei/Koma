@@ -121,7 +121,7 @@ const showRequestError = (language: ReturnType<typeof useLanguage>, err: unknown
   })
 }
 
-export function useOpenInApp(input: { directory: () => string }) {
+export function useOpenInApp(input: { directory: () => string; file?: () => string }) {
   const platform = usePlatform()
   const server = useServer()
   const language = useLanguage()
@@ -169,7 +169,13 @@ export function useOpenInApp(input: { directory: () => string }) {
     app: undefined as OpenApp | undefined,
   })
 
-  const canOpen = createMemo(() => platform.platform === "desktop" && !!platform.openPath && server.isLocal())
+  const canOpen = createMemo(
+    () =>
+      platform.platform === "desktop" &&
+      !!platform.openPath &&
+      (!input.file || !!platform.revealPath) &&
+      server.isLocal(),
+  )
   const current = createMemo(
     () =>
       options().find((o) => o.id === prefs.app) ??
@@ -185,14 +191,19 @@ export function useOpenInApp(input: { directory: () => string }) {
 
   const openDir = (app: OpenApp | "finder") => {
     if (opening() || !canOpen() || !platform.openPath) return
-    const directory = input.directory()
-    if (!directory) return
+    const path = input.file?.() || input.directory()
+    if (!path) return
 
     const item = options().find((o) => o.id === app)
     const openWith = item && "openWith" in item ? item.openWith : undefined
     setOpenRequest("app", app)
-    platform
-      .openPath(directory, openWith)
+    const request =
+      input.file && app === "finder" && platform.revealPath
+        ? platform.revealPath(path).then((revealed) => {
+            if (!revealed) throw new Error(path)
+          })
+        : platform.openPath(path, openWith)
+    request
       .catch((err: unknown) => showRequestError(language, err))
       .finally(() => {
         setOpenRequest("app", undefined)
@@ -200,16 +211,16 @@ export function useOpenInApp(input: { directory: () => string }) {
   }
 
   const copyPath = () => {
-    const directory = input.directory()
-    if (!directory) return
+    const path = input.file?.() || input.directory()
+    if (!path) return
     navigator.clipboard
-      .writeText(directory)
+      .writeText(path)
       .then(() => {
         showToast({
           variant: "success",
           icon: "circle-check",
           title: language.t("session.share.copy.copied"),
-          description: directory,
+          description: path,
         })
       })
       .catch((err: unknown) => showRequestError(language, err))

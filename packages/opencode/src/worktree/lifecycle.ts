@@ -22,6 +22,7 @@ export const Owner = Schema.Struct({
   directory: Schema.String,
   root: Schema.String,
   branch: Schema.String,
+  branchOwned: Schema.optional(Schema.Boolean),
   projectID: Schema.String,
   sessionID: Schema.optional(Schema.String),
   intent: Schema.optional(Schema.Literals(["archive", "restore", "delete"])),
@@ -46,6 +47,8 @@ export type RegisterInput = {
   readonly directory: string
   readonly root: string
   readonly branch: string
+  readonly branchOwned?: boolean
+  readonly sessionID?: string
   readonly projectID: string
 }
 
@@ -60,6 +63,15 @@ export type ManagedResult = {
 }
 
 export interface Interface {
+  readonly list: (input?: {
+    readonly projectID?: string
+    readonly root?: string
+  }) => Effect.Effect<Owner[], LifecycleFailedError>
+  readonly forgetUnclaimed: (directory: string) => Effect.Effect<void, LifecycleFailedError>
+  readonly usage: (
+    directory: string,
+  ) => Effect.Effect<{ directory: string; ownerIDs: string[]; blocked: boolean }, LifecycleFailedError>
+  readonly leaseDirectory: (directory: string) => Effect.Effect<string, LifecycleFailedError>
   readonly register: (input: RegisterInput) => Effect.Effect<void, LifecycleFailedError>
   readonly claim: (input: ClaimInput) => Effect.Effect<boolean, LifecycleFailedError>
   readonly get: (sessionID: string) => Effect.Effect<Owner | undefined, LifecycleFailedError>
@@ -73,6 +85,10 @@ export interface Interface {
   readonly finalizeDelete: (sessionID: string) => Effect.Effect<void, LifecycleFailedError>
   readonly acquire: (input: ClaimInput) => Effect.Effect<void, LifecycleFailedError>
   readonly release: (input: ClaimInput) => Effect.Effect<void>
+  readonly withIdleDirectory: <A, E, R>(
+    directory: string,
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | LifecycleFailedError, R>
   readonly withExclusive: <A, E, R>(
     input: { readonly directory: string },
     effect: Effect.Effect<A, E, R>,
@@ -139,12 +155,46 @@ const layer = Layer.effect(
       ).pipe(Effect.map((items) => items.flatMap((item) => (Option.isSome(item) ? [item.value] : []))))
     })
 
+    const list: Interface["list"] = Effect.fn("WorktreeLifecycle.list")(function* (input) {
+      const root = input?.root ? yield* fs.resolve(input.root) : undefined
+      return (yield* Effect.forEach(yield* records(), refreshRoot)).filter(
+        (owner) => (!input?.projectID || owner.projectID === input.projectID) && (!root || owner.root === root),
+      )
+    })
+
+    const leaseDirectory = Effect.fn("WorktreeLifecycle.leaseDirectory")(function* (input: string) {
+      const directory = yield* fs.resolve(input)
+      const owners = yield* records()
+      return (
+        owners
+          .filter((owner) => directory === owner.directory || directory.startsWith(owner.directory + path.sep))
+          .sort((a, b) => b.directory.length - a.directory.length)[0]?.directory ?? directory
+      )
+    })
+
+    const usage: Interface["usage"] = Effect.fn("WorktreeLifecycle.usage")(function* (input) {
+      const directory = yield* leaseDirectory(input)
+      return {
+        directory,
+        ownerIDs: [
+          ...new Set(
+            [...gates]
+              .filter(([candidate]) => overlaps(candidate, directory))
+              .flatMap(([, current]) => [...current.leases.keys()]),
+          ),
+        ],
+        blocked: blocked(directory),
+      }
+    })
+
     const get = Effect.fn("WorktreeLifecycle.get")(function* (sessionID: string) {
-      return (yield* records()).find((owner) => owner.sessionID === sessionID)
+      const owner = (yield* records()).find((owner) => owner.sessionID === sessionID)
+      return owner ? yield* refreshRoot(owner) : undefined
     })
 
     const getDirectory = Effect.fn("WorktreeLifecycle.getDirectory")(function* (directory: string) {
-      return yield* readDirectory(yield* fs.resolve(directory))
+      const owner = yield* readDirectory(yield* fs.resolve(directory))
+      return owner ? yield* refreshRoot(owner) : undefined
     })
 
     const write = Effect.fnUntraced(function* (owner: Owner) {
@@ -182,25 +232,33 @@ const layer = Layer.effect(
         gate(directory).blocked = false
       })
 
-    const busy = Effect.fnUntraced(function* (owner: Owner) {
-      if ([...gate(owner.directory).leases.values()].some((count) => count > 0)) return true
-      // Native execution does not own OpenCode runner leases after a backend restart.
-      // A persisted binding or an empty inbox is not evidence that its worktree is idle.
+    const contains = (directory: string, candidate: string) =>
+      candidate === directory || candidate.startsWith(directory + path.sep)
+    const overlaps = (left: string, right: string) => contains(left, right) || contains(right, left)
+    const blocked = (directory: string) =>
+      [...gates].some(([candidate, current]) => overlaps(candidate, directory) && current.blocked)
+    const occupied = (directory: string) =>
+      [...gates].some(
+        ([candidate, current]) =>
+          overlaps(candidate, directory) && [...current.leases.values()].some((count) => count > 0),
+      )
+    const busyDirectory = Effect.fnUntraced(function* (directory: string) {
+      if (occupied(directory)) return true
+      // Native ownership survives the loss of in-memory leases on backend restart.
+      // Every directory mutation needs confirmed idle evidence, including manager operations.
       const external = yield* db
         .select({ id: SessionTable.id, directory: SessionTable.directory })
         .from(SessionTable)
-        .where(
-          and(eq(SessionTable.project_id, ProjectV2.ID.make(owner.projectID)), ne(SessionTable.engine, "opencode")),
-        )
+        .where(ne(SessionTable.engine, "opencode"))
         .all()
         .pipe(Effect.orDie)
       for (const session of external) {
-        const directory = yield* fs.resolve(session.directory)
-        if (directory !== owner.directory && !directory.startsWith(`${owner.directory}${path.sep}`)) continue
+        if (!overlaps(directory, yield* fs.resolve(session.directory))) continue
         if (!(yield* externalOwnership.isIdle(session.id))) return true
       }
-      return false
+      return occupied(directory)
     })
+    const busy = (owner: Owner) => busyDirectory(owner.directory)
 
     const familyShared = Effect.fnUntraced(function* (owner: Owner) {
       if (!owner.sessionID) return false
@@ -214,7 +272,7 @@ const layer = Layer.effect(
         candidates,
         (row) => fs.resolve(row.directory).pipe(Effect.map((directory) => ({ ...row, directory }))),
         { concurrency: "unbounded" },
-      )).filter((row) => row.directory === owner.directory)
+      )).filter((row) => contains(owner.directory, row.directory))
       const parents = new Map(candidates.map((row) => [row.id, row.parentID] as const))
       const root = (id: SessionID) => {
         const seen = new Set<SessionID>()
@@ -234,6 +292,47 @@ const layer = Layer.effect(
       if (result.exitCode === 0) return result.text().trim()
       const message = result.stderr.toString("utf8").trim() || result.text().trim() || `exit ${result.exitCode}`
       return yield* fail("git", `git ${args[0]} failed: ${message}`, owner)
+    })
+
+    // Older records could retain the first opened linked checkout as their root.
+    // Repair only when this repository proves the checkout branch or saved archive identity.
+    const refreshRoot = Effect.fnUntraced(function* (owner: Owner) {
+      if (yield* fs.isDir(path.join(owner.root, ".git"))) return owner
+      const cwd = (yield* fs.existsSafe(owner.root)) ? owner.root : owner.directory
+      if (!(yield* fs.existsSafe(cwd))) return owner
+      const result = yield* git.run(["worktree", "list", "--porcelain", "-z"], { cwd })
+      if (result.exitCode !== 0 || result.truncated) return owner
+      const root = result
+        .text()
+        .split("\0")
+        .find((line) => line.startsWith("worktree "))
+        ?.slice(9)
+      if (!root) return owner
+      const canonical = yield* fs.resolve(root)
+      if (canonical === owner.root || canonical === owner.directory) return owner
+      const entries = result.text().split("\0\0")
+      const checkout = yield* Effect.forEach(entries, (entry) =>
+        Effect.gen(function* () {
+          const directory = entry
+            .split("\0")
+            .find((line) => line.startsWith("worktree "))
+            ?.slice(9)
+          return (
+            directory &&
+            (yield* fs.resolve(directory)) === owner.directory &&
+            entry.split("\0").includes(`branch refs/heads/${owner.branch}`)
+          )
+        }),
+      )
+      const saved =
+        owner.sessionID && owner.oid
+          ? yield* git.run(["rev-parse", "--verify", `refs/opencode/worktree-archive/${owner.sessionID}`], {
+              cwd: canonical,
+            })
+          : undefined
+      if (!checkout.some(Boolean) && !(saved?.exitCode === 0 && saved.text().trim() === owner.oid)) return owner
+      // Read paths may race a lifecycle transaction. Its next write persists the repaired root under its existing lock.
+      return { ...owner, root: canonical }
     })
 
     const ref = (owner: Owner) => `refs/opencode/worktree-archive/${owner.sessionID}`
@@ -321,31 +420,95 @@ const layer = Layer.effect(
 
     const register = Effect.fn("WorktreeLifecycle.register")(function* (input: RegisterInput) {
       const directory = yield* fs.resolve(input.directory)
-      const root = yield* fs.resolve(input.root)
+      const suppliedRoot = yield* fs.resolve(input.root)
+      const listing = yield* git.run(["worktree", "list", "--porcelain", "-z"], { cwd: suppliedRoot })
+      if (listing.exitCode !== 0 || listing.truncated)
+        return yield* fail("git", "cannot resolve the primary Git worktree", { directory })
+      const entries = yield* Effect.forEach(listing.text().split("\0\0").filter(Boolean), (entry) =>
+        Effect.gen(function* () {
+          const lines = entry.split("\0")
+          const found = lines.find((line) => line.startsWith("worktree "))?.slice(9)
+          return found
+            ? {
+                directory: yield* fs.resolve(found),
+                branch: lines.find((line) => line.startsWith("branch refs/heads/"))?.slice(18),
+              }
+            : undefined
+        }),
+      )
+      const root = entries[0]?.directory
+      if (!root || root === directory)
+        return yield* fail("conflict", "the primary worktree cannot be registered for task cleanup", { directory })
+      if (!entries.some((entry) => entry?.directory === directory && entry.branch === input.branch))
+        return yield* fail("conflict", "worktree directory and branch must belong to the supplied Git repository", {
+          directory,
+        })
+      const common = yield* git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: directory })
+      const primaryCommon = yield* git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root })
+      if (
+        common.exitCode !== 0 ||
+        primaryCommon.exitCode !== 0 ||
+        (yield* fs.resolve(common.text().trim())) !== (yield* fs.resolve(primaryCommon.text().trim()))
+      )
+        return yield* fail("conflict", "worktree directory belongs to a different Git repository", { directory })
       yield* mutate(
         directory,
         Effect.gen(function* () {
-          if (gate(directory).blocked)
+          if (blocked(directory) || (yield* busyDirectory(directory)))
             return yield* fail("busy", "worktree directory is currently in use", { directory })
-          const existing = yield* readDirectory(directory)
-          if (existing) {
-            if (existing.root === root && existing.branch === input.branch && existing.projectID === input.projectID)
-              return
-            return yield* fail(
-              "conflict",
-              "worktree directory is already registered to another lifecycle owner",
-              existing,
-            )
-          }
-          yield* write({
-            version: VERSION,
-            directory,
-            root,
-            branch: input.branch,
-            projectID: input.projectID,
-            phase: "registered",
-            updated: Date.now(),
-          })
+          yield* block(directory)
+          return yield* Effect.gen(function* () {
+            if (input.sessionID) {
+              const session = yield* db
+                .select({ directory: SessionTable.directory, parentID: SessionTable.parent_id })
+                .from(SessionTable)
+                .where(eq(SessionTable.id, SessionID.make(input.sessionID)))
+                .get()
+                .pipe(Effect.orDie)
+              if (!session || session.parentID || (yield* fs.resolve(session.directory)) !== directory) {
+                return yield* fail("conflict", "worktree owner must be an existing root session in this directory", {
+                  directory,
+                  sessionID: input.sessionID,
+                })
+              }
+            }
+            const recorded = yield* readDirectory(directory)
+            const existing = recorded ? yield* refreshRoot(recorded) : undefined
+            if (existing) {
+              if (
+                existing.root === root &&
+                existing.branch === input.branch &&
+                existing.projectID === input.projectID
+              ) {
+                if (!input.sessionID || existing.sessionID === input.sessionID) return
+                if (existing.sessionID)
+                  return yield* fail("conflict", "worktree already belongs to another session", existing)
+                yield* write({
+                  ...existing,
+                  sessionID: input.sessionID,
+                  phase: "resident",
+                  branchOwned: input.branchOwned ?? existing.branchOwned,
+                })
+                return
+              }
+              return yield* fail(
+                "conflict",
+                "worktree directory is already registered to another lifecycle owner",
+                existing,
+              )
+            }
+            yield* write({
+              version: VERSION,
+              directory,
+              root,
+              branch: input.branch,
+              branchOwned: input.branchOwned,
+              projectID: input.projectID,
+              sessionID: input.sessionID,
+              phase: input.sessionID ? "resident" : "registered",
+              updated: Date.now(),
+            })
+          }).pipe(Effect.ensuring(unblock(directory)))
         }),
       )
     })
@@ -355,24 +518,17 @@ const layer = Layer.effect(
       return yield* mutate(
         directory,
         Effect.gen(function* () {
-          if (gate(directory).blocked)
-            return yield* fail("busy", "worktree directory is currently in use", { directory })
+          if (blocked(directory)) return yield* fail("busy", "worktree directory is currently in use", { directory })
           const owner = yield* readDirectory(directory)
           if (!owner) return false
           if (owner.sessionID) return owner.sessionID === input.sessionID
           const session = yield* db
-            .select({ id: SessionTable.id })
+            .select({ id: SessionTable.id, directory: SessionTable.directory })
             .from(SessionTable)
-            .where(
-              and(
-                eq(SessionTable.id, SessionID.make(input.sessionID)),
-                eq(SessionTable.directory, directory),
-                isNull(SessionTable.parent_id),
-              ),
-            )
+            .where(and(eq(SessionTable.id, SessionID.make(input.sessionID)), isNull(SessionTable.parent_id)))
             .get()
             .pipe(Effect.orDie)
-          if (!session) return false
+          if (!session || (yield* fs.resolve(session.directory)) !== directory) return false
           yield* write({ ...owner, sessionID: input.sessionID, phase: "resident", lastError: undefined })
           return true
         }),
@@ -421,6 +577,11 @@ const layer = Layer.effect(
           return yield* Effect.gen(function* () {
             const captured = (yield* directoryExists(current)) ? yield* capture(current) : current
             yield* verifyArchive(captured)
+            if (yield* directoryExists(captured)) {
+              yield* archive
+                .verify({ directory: captured.directory, branch: captured.branch, sessionID, oid: captured.oid! })
+                .pipe(Effect.mapError((error) => fail("git", error.message, captured)))
+            }
             yield* removeCheckout(captured)
             yield* write({ ...captured, phase: "removed", lastError: undefined })
             return { managed: true }
@@ -560,7 +721,7 @@ const layer = Layer.effect(
               "--format=%(upstream)",
               `refs/heads/${current.branch}`,
             ])
-            if (!upstream) {
+            if (!upstream && current.branchOwned !== false) {
               const branch = yield* git.run(["show-ref", "--verify", "--quiet", `refs/heads/${current.branch}`], {
                 cwd: current.root,
               })
@@ -577,12 +738,12 @@ const layer = Layer.effect(
     })
 
     const acquire = Effect.fn("WorktreeLifecycle.acquire")(function* (input: ClaimInput) {
-      const directory = yield* fs.resolve(input.directory)
+      const directory = yield* leaseDirectory(input.directory)
       yield* mutate(
         directory,
         Effect.gen(function* () {
           const current = gate(directory)
-          if (current.blocked) {
+          if (blocked(directory)) {
             return yield* fail("busy", "worktree has a pending archive, restore, or delete request", {
               directory,
               sessionID: input.sessionID,
@@ -594,7 +755,7 @@ const layer = Layer.effect(
     })
 
     const release = Effect.fn("WorktreeLifecycle.release")(function* (input: ClaimInput) {
-      const directory = yield* fs.resolve(input.directory)
+      const directory = yield* leaseDirectory(input.directory).pipe(Effect.catch(() => fs.resolve(input.directory)))
       const retry = yield* mutate(
         directory,
         Effect.gen(function* () {
@@ -616,6 +777,53 @@ const layer = Layer.effect(
       }).pipe(Effect.forkIn(scope))
     })
 
+    const forgetUnclaimed = Effect.fn("WorktreeLifecycle.forgetUnclaimed")(function* (input: string) {
+      const directory = yield* fs.resolve(input)
+      yield* mutate(
+        directory,
+        Effect.gen(function* () {
+          const owner = yield* readDirectory(directory)
+          if (!owner) return
+          if (owner.sessionID || owner.intent || (yield* busyDirectory(directory)))
+            return yield* fail("conflict", "worktree still has an owner or active usage", owner)
+          if (yield* directoryExists(owner)) return yield* fail("conflict", "worktree directory still exists", owner)
+          const rows = yield* db
+            .select({ directory: SessionTable.directory })
+            .from(SessionTable)
+            .all()
+            .pipe(Effect.orDie)
+          const directories = yield* Effect.forEach(rows, (row) => fs.resolve(row.directory))
+          if (directories.some((candidate) => contains(directory, candidate)))
+            return yield* fail("shared", "worktree still belongs to a session", owner)
+          yield* remove(owner)
+        }),
+      )
+    })
+
+    const withIdleDirectory: Interface["withIdleDirectory"] = (input, effect) =>
+      Effect.acquireUseRelease(
+        Effect.gen(function* () {
+          const directory = yield* leaseDirectory(input)
+          return yield* mutate(
+            directory,
+            Effect.gen(function* () {
+              const current = gate(directory)
+              if (blocked(directory) || (yield* busyDirectory(directory))) {
+                return yield* fail("busy", "worktree directory is currently in use", { directory })
+              }
+              const owner = yield* readDirectory(directory)
+              if (owner?.intent) return yield* fail("busy", "worktree has a pending lifecycle request", owner)
+              if (blocked(directory) || (yield* busyDirectory(directory)))
+                return yield* fail("busy", "worktree directory is currently in use", { directory })
+              current.blocked = true
+              return directory
+            }),
+          )
+        }),
+        () => effect,
+        (directory) => mutate(directory, unblock(directory)),
+      )
+
     const withExclusive: Interface["withExclusive"] = (input, effect) =>
       Effect.acquireUseRelease(
         Effect.gen(function* () {
@@ -624,9 +832,13 @@ const layer = Layer.effect(
             directory,
             Effect.gen(function* () {
               const current = gate(directory)
-              if (current.blocked || [...current.leases.values()].some((value) => value > 0)) {
+              if (blocked(directory) || (yield* busyDirectory(directory))) {
                 return yield* fail("busy", "worktree directory is currently in use", { directory })
               }
+              const owner = yield* readDirectory(directory)
+              if (owner?.intent) return yield* fail("busy", "worktree has a pending lifecycle request", owner)
+              if (blocked(directory) || (yield* busyDirectory(directory)))
+                return yield* fail("busy", "worktree directory is currently in use", { directory })
               current.blocked = true
               return directory
             }),
@@ -641,7 +853,7 @@ const layer = Layer.effect(
               .pipe(Effect.orDie)
             const session = (yield* Effect.forEach(rows, (row) => fs.resolve(row.directory), {
               concurrency: "unbounded",
-            })).some((candidate) => candidate === directory)
+            })).some((candidate) => contains(directory, candidate))
             if (!session) return yield* effect
             return yield* fail(
               "shared",
@@ -708,6 +920,9 @@ const layer = Layer.effect(
     )
 
     return Service.of({
+      list,
+      usage,
+      leaseDirectory,
       register,
       claim,
       get,
@@ -721,6 +936,8 @@ const layer = Layer.effect(
       finalizeDelete,
       acquire,
       release,
+      forgetUnclaimed,
+      withIdleDirectory,
       withExclusive,
     })
   }),

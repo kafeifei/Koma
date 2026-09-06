@@ -130,111 +130,95 @@ test("scopes file autocomplete to the current browser root", () => {
   expect(pickerFileSearchQuery("/home/luke", "~/repos/op", "/home/luke")).toBe("repos/op")
 })
 
-test("resolves directory autocomplete from the current browser root", async () => {
-  const directories: string[] = []
-  const sdk = {
-    api: {
-      file: {
-        find: (input: { location?: { directory?: string } }) => {
-          directories.push(input.location?.directory ?? "")
-          return Promise.resolve({ data: [] })
-        },
-        list: () => Promise.resolve({ data: [] }),
-      },
-    },
+function browseSDK(
+  list: (input: {
+    path: string
+  }) => Promise<{ data: Array<{ name: string; path: string; type: "directory" | "file" }> }>,
+) {
+  return {
+    api: { directory: { list: (input: { path: string }) => list(input).then((result) => result.data) } },
   } as unknown as Parameters<typeof createDirectorySearch>[0]["sdk"]
+}
+
+test("lists only the current browser directory without project file APIs", async () => {
+  const calls: string[] = []
+  const sdk = browseSDK(async ({ path }) => {
+    calls.push(path)
+    return { data: [{ name: "components", path: path + "/components", type: "directory" }] }
+  })
   let base = "/repo"
   const search = createDirectorySearch({ sdk, home: () => "/home/luke", base: () => base })
-
-  await search("components")
+  expect(await search("components")).toEqual(["/repo/components"])
   base = "/repo/src"
-  await search("components")
-
-  expect(directories).toEqual(["/repo", "/repo/src"])
+  expect(await search("components")).toEqual(["/repo/src/components"])
+  expect(calls).toEqual(["/repo", "/repo/src"])
 })
 
-test("keeps indexed directory results for servers that support empty search", async () => {
-  const sdk = {
-    api: {
-      file: {
-        find: () => Promise.resolve({ data: [{ path: "projects/", type: "directory" }] }),
-        list: () => Promise.reject(new Error("listing should not run when search returns results")),
-      },
-    },
-  } as unknown as Parameters<typeof createDirectorySearch>[0]["sdk"]
-  const search = createDirectorySearch({ sdk, home: () => "/home/luke", base: () => "/home/luke" })
-
-  expect(await search("")).toEqual(["/home/luke/projects"])
-})
-
-test("lists the default directory when empty search is unsupported", async () => {
+test("keeps all immediate directories for the idle folder list and filters files", async () => {
   const calls: string[] = []
-  const directories = Array.from({ length: 60 }, (_, index) => ({
-    path: `project-${index}/`,
-    type: "directory" as const,
-  }))
-  const sdk = {
-    api: {
-      file: {
-        find: () => Promise.resolve({ data: [] }),
-        list: (input: { location?: { directory?: string } }) => {
-          calls.push(input.location?.directory ?? "")
-          return Promise.resolve({
-            data: [...directories, { path: "README.md", type: "file" }],
-          })
-        },
-      },
-    },
-  } as unknown as Parameters<typeof createDirectorySearch>[0]["sdk"]
+  const sdk = browseSDK(async ({ path }) => {
+    calls.push(path)
+    return {
+      data: [
+        ...Array.from({ length: 60 }, (_, index) => ({
+          name: `project-${index}`,
+          path: `${path}/project-${index}`,
+          type: "directory" as const,
+        })),
+        { name: "README.md", path: `${path}/README.md`, type: "file" },
+      ],
+    }
+  })
   const search = createDirectorySearch({ sdk, home: () => "/home/luke", base: () => "/home/luke" })
-
   const results = await search("")
   expect(results).toHaveLength(60)
   expect(results.at(-1)).toBe("/home/luke/project-59")
   expect(calls).toEqual(["/home/luke"])
 })
 
-test("matches the default directory listing when typed search is unsupported", async () => {
-  const sdk = {
-    api: {
-      file: {
-        find: () => Promise.resolve({ data: [] }),
-        list: () =>
-          Promise.resolve({
-            data: [
-              { path: "Documents/", type: "directory" },
-              { path: "Downloads/", type: "directory" },
-            ],
-          }),
-      },
-    },
-  } as unknown as Parameters<typeof createDirectorySearch>[0]["sdk"]
-  const search = createDirectorySearch({ sdk, home: () => "/home/luke", base: () => "/home/luke" })
-
-  expect(await search("documents")).toEqual(["/home/luke/Documents"])
+test("searches a typed parent path with shallow listings and no recursive index", async () => {
+  const calls: string[] = []
+  const sdk = browseSDK(async ({ path }) => {
+    calls.push(path)
+    if (path === "/") return { data: [{ name: "repos", path: "/repos", type: "directory" }] }
+    if (path === "/repos") return { data: [{ name: "demo", path: "/repos/demo", type: "directory" }] }
+    if (path === "/repos/demo") return { data: [{ name: "src", path: "/repos/demo/src", type: "directory" }] }
+    throw new Error("Unexpected recursive listing")
+  })
+  const search = createDirectorySearch({ sdk, home: () => "", base: () => undefined })
+  expect(await search("/repos/demo")).toEqual(["/repos/demo", "/repos/demo/src"])
+  expect(calls).toEqual(["/", "/repos", "/repos/demo"])
 })
 
-test("searches from an absolute root without a default base", async () => {
-  const directories: string[] = []
-  const sdk = {
-    api: {
-      file: {
-        list: (input: { location?: { directory?: string } }) => {
-          directories.push(input.location?.directory ?? "")
-          return Promise.resolve({
-            data: [
-              { path: "Users/", type: "directory" },
-              { path: "tmp/", type: "directory" },
-            ],
-          })
-        },
-      },
-    },
-  } as unknown as Parameters<typeof createDirectorySearch>[0]["sdk"]
-  const search = createDirectorySearch({ sdk, home: () => "", base: () => undefined })
+test("uses the same stateless browser for file suggestions", async () => {
+  const sdk = browseSDK(async () => ({
+    data: [
+      { name: "notes", path: "/repo/notes", type: "directory" },
+      { name: "notes.md", path: "/repo/notes.md", type: "file" },
+    ],
+  }))
+  const search = createDirectorySearch({ sdk, home: () => "/repo", base: () => "/repo", type: "file" })
+  expect(await search("notes")).toEqual(["/repo/notes.md"])
+})
 
-  expect(await search("/")).toEqual(["/Users", "/tmp"])
-  expect(directories).toEqual(["/"])
+test("reports failed browsing and retries without a cached failure", async () => {
+  const errors: unknown[] = []
+  let calls = 0
+  const sdk = browseSDK(async () => {
+    calls++
+    if (calls === 1) throw new Error("Temporary failure")
+    return { data: [{ name: "project", path: "/repo/project", type: "directory" }] }
+  })
+  const search = createDirectorySearch({
+    sdk,
+    home: () => "/repo",
+    base: () => "/repo",
+    onError: (error) => errors.push(error),
+  })
+  expect(await search("project")).toEqual([])
+  expect(errors).toHaveLength(1)
+  expect(await search("project")).toEqual(["/repo/project"])
+  expect(calls).toBe(2)
 })
 
 test("identifies the next directory level to preload", () => {

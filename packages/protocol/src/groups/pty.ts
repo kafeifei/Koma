@@ -3,7 +3,7 @@ import { PtyTicket } from "@opencode-ai/schema/pty-ticket"
 import { Location } from "@opencode-ai/schema/location"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
-import { ForbiddenError, PtyNotFoundError } from "../errors"
+import { ConflictError, ForbiddenError, PtyNotFoundError } from "../errors"
 import { LocationQuery, locationQueryOpenApi } from "./location"
 
 export const PTY_CONNECT_TICKET_QUERY = "ticket"
@@ -37,6 +37,7 @@ export const PtyGroup = HttpApiGroup.make("server.pty")
     HttpApiEndpoint.post("pty.create", "/api/pty", {
       query: LocationQuery,
       payload: Pty.CreateInput,
+      error: ConflictError,
       success: Location.response(Pty.Info),
     })
       .annotateMerge(locationQueryOpenApi)

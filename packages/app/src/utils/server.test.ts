@@ -77,3 +77,24 @@ describe("permission mode transport", () => {
     expect(await requests[0]!.json()).toEqual({ permissionMode: "auto" })
   })
 })
+
+describe("directory transport", () => {
+  test("lists an absolute path through the authenticated global endpoint", async () => {
+    const requests: Request[] = []
+    const api = createApiForServer({
+      server: { url: "http://localhost:4096", username: "kit", password: "secret" },
+      fetch: Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          requests.push(new Request(input, init))
+          return Response.json({ data: [{ name: "src", path: "/repo/src", type: "directory" }] })
+        },
+        { preconnect: globalThis.fetch.preconnect },
+      ),
+    })
+
+    expect(await api.directory.list({ path: "/repo" })).toEqual([{ name: "src", path: "/repo/src", type: "directory" }])
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/directory")
+    expect(new URL(requests[0]!.url).searchParams.get("path")).toBe("/repo")
+    expect(requests[0]!.headers.get("authorization")).toBe(`Basic ${btoa("kit:secret")}`)
+  })
+})

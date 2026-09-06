@@ -1,3 +1,17 @@
+import { createHash } from "node:crypto"
+import { EventV2 } from "@opencode-ai/core/event"
+import { Config } from "@opencode-ai/core/config"
+import { Location } from "@opencode-ai/core/location"
+import { Pty } from "@opencode-ai/core/pty"
+import { DirectoryLease } from "@opencode-ai/core/directory-lease"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { LocationServiceMap, buildLocationServiceMap } from "@opencode-ai/core/location-services"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
+import { SessionRunner } from "@opencode-ai/core/session/runner"
+import { node } from "@opencode-ai/core/session/runner/llm"
+import { SessionStore } from "@opencode-ai/core/session/store"
+import { WorktreeRuntime } from "../../src/worktree/runtime"
 import { $ } from "bun"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -10,7 +24,7 @@ import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
 import fs from "fs/promises"
 import path from "path"
-import { Effect, Exit } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { InstanceDisposal } from "../../src/project/instance-disposal"
 import { SessionID } from "../../src/session/schema"
 import { Storage } from "../../src/storage/storage"
@@ -24,6 +38,7 @@ const it = testEffect(
   LayerNode.compile(
     LayerNode.group([
       WorktreeLifecycle.node,
+      SessionStore.node,
       WorktreeArchive.node,
       InstanceDisposal.node,
       Storage.node,
@@ -148,6 +163,42 @@ describe("WorktreeLifecycle", () => {
       yield* ownership.confirmIdle({ runtimeScope: "home", generation: "new-host:1", sessionID: input.sessionID })
       expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true })
       expect(yield* exists(input.directory)).toBe(false)
+    }),
+  )
+
+  it.live("directory manager gates retain external ownership across backend generations", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const ownership = yield* SessionExternalOwnership.Service
+      const nested = `${input.directory}/nested`
+      yield* Effect.promise(() => fs.mkdir(nested))
+      yield* input.db
+        .update(SessionTable)
+        .set({ engine: "codex" })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+      const unknown = yield* input.lifecycle.withIdleDirectory(nested, Effect.void).pipe(Effect.flip)
+      expect(unknown.reason).toBe("busy")
+      const exclusive = yield* input.lifecycle.withExclusive({ directory: nested }, Effect.void).pipe(Effect.flip)
+      expect(exclusive.reason).toBe("busy")
+      yield* ownership.beginGeneration("manager-home", "old-host:1")
+      yield* ownership.confirmIdle({
+        runtimeScope: "manager-home",
+        generation: "old-host:1",
+        sessionID: input.sessionID,
+      })
+      yield* ownership.beginGeneration("manager-home", "new-host:1")
+      const recovered = yield* input.lifecycle.withIdleDirectory(input.directory, Effect.void).pipe(Effect.flip)
+      expect(recovered.reason).toBe("busy")
+      yield* ownership.confirmIdle({
+        runtimeScope: "manager-home",
+        generation: "new-host:1",
+        sessionID: input.sessionID,
+      })
+      yield* input.lifecycle.withIdleDirectory(nested, Effect.void)
+      yield* input.lifecycle.withExclusive({ directory: nested }, Effect.void)
     }),
   )
 
@@ -428,3 +479,179 @@ describe("WorktreeLifecycle", () => {
     }),
   )
 })
+
+it.live("protects the complete V2 drain and rejects startup while a lifecycle operation owns the directory", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const store = yield* SessionStore.Service
+    const started = yield* Deferred.make<void>()
+    const leases = WorktreeRuntime.leases(input.lifecycle)
+    const locations = buildLocationServiceMap([
+      [DirectoryLease.node, leases],
+      [
+        node,
+        Layer.succeed(
+          SessionRunner.Service,
+          SessionRunner.Service.of({
+            run: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+          }),
+        ),
+      ],
+    ])
+    const execution = AppNodeBuilder.build(SessionExecutionLocal.node, [
+      [DirectoryLease.node, leases],
+      [SessionStore.node, Layer.succeed(SessionStore.Service, store)],
+      [LocationServiceMap.node, locations],
+    ])
+    yield* Effect.gen(function* () {
+      const runtime = yield* SessionExecution.Service
+      yield* input.lifecycle.withIdleDirectory(
+        input.directory,
+        Effect.gen(function* () {
+          const rejected = yield* runtime.resume(input.sessionID).pipe(Effect.flip)
+          expect(rejected._tag).toBe("DirectoryLease.UnavailableError")
+          expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+        }),
+      )
+      const run = yield* runtime.resume(input.sessionID).pipe(Effect.forkScoped)
+      yield* Deferred.await(started).pipe(Effect.timeout("10 seconds"))
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toContain(input.sessionID)
+      expect((yield* runtime.active).has(input.sessionID)).toBe(true)
+      const blocked = yield* input.lifecycle.withIdleDirectory(input.directory, Effect.void).pipe(Effect.flip)
+      expect(blocked.reason).toBe("busy")
+      yield* runtime.interrupt(input.sessionID)
+      yield* Fiber.await(run)
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+      expect((yield* runtime.active).has(input.sessionID)).toBe(false)
+    }).pipe(Effect.provide(execution))
+  }),
+)
+
+it.live("releases PTY leases after exit, removal, rejected creation and Location disposal", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const layer = AppNodeBuilder.build(LayerNode.group([Pty.node, EventV2.node]), [
+      [DirectoryLease.node, WorktreeRuntime.leases(input.lifecycle)],
+      [Location.node, Location.boundNode({ directory: AbsolutePath.make(input.directory) })],
+      [Config.node, Layer.mock(Config.Service)({ entries: () => Effect.succeed([]) })],
+    ])
+    yield* Effect.gen(function* () {
+      const pty = yield* Pty.Service
+      const created = yield* pty.create({ command: "/bin/cat" })
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([`pty:${created.id}`])
+      yield* pty.remove(created.id)
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+      const exited = yield* pty.create({ command: "/bin/sh", args: ["-c", "exit 0"] })
+      yield* pollWithTimeout(
+        input.lifecycle
+          .usage(input.directory)
+          .pipe(Effect.map((value) => (value.ownerIDs.length === 0 ? true : undefined))),
+        "PTY exit retained its lease",
+      )
+      expect((yield* pty.get(exited.id)).status).toBe("exited")
+      const events = yield* EventV2.Service
+      const unsubscribe = yield* events.listen((event) =>
+        event.type === Pty.Event.Created.type ? Effect.die(new Error("failed PTY creation notification")) : Effect.void,
+      )
+      const failure = yield* pty.create({ command: "/bin/cat" }).pipe(Effect.exit)
+      yield* unsubscribe
+      expect(Exit.isFailure(failure)).toBe(true)
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+      yield* input.lifecycle.withIdleDirectory(
+        input.directory,
+        Effect.gen(function* () {
+          const failed = yield* pty.create({ command: "/bin/cat" }).pipe(Effect.flip)
+          expect(failed._tag).toBe("DirectoryLease.UnavailableError")
+        }),
+      )
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+      yield* pty.create({ command: "/bin/cat" })
+      expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toHaveLength(1)
+    }).pipe(Effect.provide(layer), Effect.scoped)
+    expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([])
+  }),
+)
+
+it.live("allows explicit work with historical sessions while protecting parent and child directory leases", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const subdir = `${input.root}/nested`
+    yield* Effect.promise(() => fs.mkdir(subdir))
+    yield* input.lifecycle.acquire({ directory: subdir, sessionID: "pty:child" })
+    const parent = yield* input.lifecycle.withIdleDirectory(input.root, Effect.void).pipe(Effect.flip)
+    expect(parent.reason).toBe("busy")
+    expect((yield* input.lifecycle.usage(input.root)).ownerIDs).toContain("pty:child")
+    yield* input.lifecycle.release({ directory: subdir, sessionID: "pty:child" })
+    yield* input.lifecycle.withIdleDirectory(
+      input.root,
+      Effect.gen(function* () {
+        const child = yield* input.lifecycle.acquire({ directory: subdir, sessionID: "pty:child" }).pipe(Effect.flip)
+        expect(child.reason).toBe("busy")
+      }),
+    )
+    expect(
+      yield* input.lifecycle.withIdleDirectory(input.directory, Effect.succeed("historical session is allowed")),
+    ).toBe("historical session is allowed")
+  }),
+)
+
+it.live("preserves files changed externally after a persisted archive capture", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const archive = yield* WorktreeArchive.Service
+    const storage = yield* Storage.Service
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    const saved = yield* archive.capture({
+      directory: input.directory,
+      branch: input.branch,
+      sessionID: input.sessionID,
+    })
+    const owner = yield* input.lifecycle.get(input.sessionID)
+    yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+      ...owner,
+      phase: "captured",
+      oid: saved.oid,
+    })
+    yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "external writer after capture"))
+    const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
+    expect(failed.reason).toBe("git")
+    expect(yield* Effect.promise(() => fs.readFile(`${input.directory}/tracked.txt`, "utf8"))).toBe(
+      "external writer after capture",
+    )
+    expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
+  }),
+)
+
+it.live("repairs a proven legacy linked root before removing its checkout", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const storage = yield* Storage.Service
+    const key = ["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")]
+    const owner = yield* input.lifecycle.get(input.sessionID)
+    yield* storage.writeAtomic(key, { ...owner, root: input.directory })
+    expect((yield* input.lifecycle.get(input.sessionID))?.root).toBe(input.root)
+    expect((yield* storage.read<WorktreeLifecycle.Owner>(key)).root).toBe(input.directory)
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    expect((yield* storage.read<WorktreeLifecycle.Owner>(key)).root).toBe(input.root)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* input.lifecycle.continueArchive(input.sessionID)
+    expect(yield* exists(input.directory)).toBe(false)
+    yield* input.lifecycle.prepareRestore(input.sessionID)
+    expect(yield* exists(input.directory)).toBe(true)
+    const forbidden = yield* input.lifecycle
+      .register({ directory: input.root, root: input.root, branch: "main", projectID: input.projectID })
+      .pipe(Effect.flip)
+    expect(forbidden.reason).toBe("conflict")
+  }),
+)

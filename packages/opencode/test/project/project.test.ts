@@ -2,6 +2,7 @@ import { describe, expect } from "bun:test"
 import { Project } from "@/project/project"
 import { $ } from "bun"
 import path from "path"
+import fs from "node:fs/promises"
 import { tmpdirScoped } from "../fixture/fixture"
 import { GlobalBus } from "../../src/bus/global"
 import { Database } from "@opencode-ai/core/database/database"
@@ -677,6 +678,34 @@ describe("Project.setInitialized", () => {
 })
 
 describe("Project.addSandbox and Project.removeSandbox", () => {
+  it.live("canonicalizes aliases for a real Git worktree and clears the removed checkout", () =>
+    Effect.gen(function* () {
+      const project = yield* Project.Service
+      const tmp = yield* tmpdirScoped({ git: true })
+      const result = yield* project.fromDirectory(tmp)
+      const worktree = path.join(tmp, "..", path.basename(tmp) + "-sandbox-alias")
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => $`git worktree remove --force ${worktree}`.cwd(tmp).quiet().nothrow()).pipe(Effect.asVoid),
+      )
+      yield* Effect.promise(() => $`git worktree add ${worktree} -b sandbox-alias-${Date.now()}`.cwd(tmp).quiet())
+      const canonical = yield* Effect.promise(() => fs.realpath(worktree))
+      const systemAlias = canonical.startsWith("/private/") ? canonical.slice("/private".length) : undefined
+      const alias = systemAlias ?? `${worktree}-link`
+      if (!systemAlias) {
+        yield* Effect.promise(() => fs.symlink(canonical, alias, process.platform === "win32" ? "junction" : "dir"))
+        yield* Effect.addFinalizer(() => Effect.promise(() => fs.unlink(alias).catch(() => undefined)))
+      }
+
+      yield* project.addSandbox(result.project.id, canonical)
+      yield* project.addSandbox(result.project.id, alias)
+
+      expect((yield* project.get(result.project.id))?.sandboxes).toEqual([canonical])
+
+      yield* Effect.promise(() => $`git worktree remove --force ${worktree}`.cwd(tmp).quiet())
+      expect((yield* project.fromDirectory(tmp)).project.sandboxes).toEqual([])
+    }),
+  )
+
   it.live("addSandbox adds directory and removeSandbox removes it", () =>
     Effect.gen(function* () {
       const project = yield* Project.Service
