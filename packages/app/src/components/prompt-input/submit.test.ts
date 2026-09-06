@@ -7,6 +7,8 @@ let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
+const worktreeCreateInputs: unknown[] = []
+let promptSent: (() => void) | undefined
 const sessionCreateInputs: Array<{
   agent?: string
   model?: { id: string; providerID: string; variant?: string }
@@ -40,6 +42,7 @@ let selected = "/repo/worktree-a"
 let variant: string | undefined
 let permissionServer = "server-a"
 let createSessionGate: Promise<void> | undefined
+let createWorktreeGate: Promise<void> | undefined
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 const [promptStore, setPromptStore] = createStore<PromptStore>({
@@ -95,6 +98,7 @@ const clientFor = (directory: string) => {
         prompt: async (input: unknown) => {
           sentPrompts.push(directory)
           promptInputs.push(input)
+          promptSent?.()
           return { data: undefined }
         },
         command: async (input: unknown) => {
@@ -110,7 +114,11 @@ const clientFor = (directory: string) => {
       abort: async () => ({ data: undefined }),
     },
     worktree: {
-      create: async () => ({ data: { directory: `${directory}/new` } }),
+      create: async (input: unknown) => {
+        worktreeCreateInputs.push(input)
+        await createWorktreeGate
+        return { data: { directory: `${directory}/new` } }
+      },
     },
   }
 }
@@ -134,6 +142,7 @@ beforeAll(async () => {
 
   mock.module("@opencode-ai/ui/toast", () => ({
     Toast: { Region: () => null },
+    toaster: { dismiss: () => undefined },
     showToast: () => 0,
   }))
 
@@ -281,6 +290,8 @@ beforeAll(async () => {
 beforeEach(() => {
   createdClients.length = 0
   createdSessions.length = 0
+  worktreeCreateInputs.length = 0
+  promptSent = undefined
   sessionCreateInputs.length = 0
   enabledAutoAccept.length = 0
   optimistic.length = 0
@@ -300,11 +311,57 @@ beforeEach(() => {
   variant = undefined
   permissionServer = "server-a"
   createSessionGate = undefined
+  createWorktreeGate = undefined
   serverSessionSyncs = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
 describe("prompt submit worktree selection", () => {
+  test("preserves an unready draft and sends its first prompt after synchronous worktree readiness without an event", async () => {
+    const state = { ready: false }
+    const sent = Promise.withResolvers<void>()
+    promptSent = sent.resolve
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: () => 2,
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => "create",
+      newSessionBaseBranch: () => "dev",
+      newSessionWorktreeReady: () => state.ready,
+      onSubmit: () => undefined,
+    })
+    await submit.handleSubmit(new Event("submit"))
+    expect(createdSessions).toEqual([])
+    expect(worktreeCreateInputs).toEqual([])
+    expect(promptValue).toEqual([{ type: "text", content: "ls", start: 0, end: 2 }])
+    state.ready = true
+    const gate = Promise.withResolvers<void>()
+    createWorktreeGate = gate.promise
+    const pending = submit.handleSubmit(new Event("submit"))
+    await submit.handleSubmit(new Event("submit"))
+    expect(worktreeCreateInputs).toHaveLength(1)
+    expect(createdSessions).toEqual([])
+    gate.resolve()
+    await pending
+    await sent.promise
+    expect(worktreeCreateInputs).toEqual([
+      { directory: "/repo/main", worktreeCreateInput: { baseBranch: "dev", wait: true } },
+    ])
+    expect(createdSessions).toEqual(["/repo/main/new"])
+    expect(promptInputs).toHaveLength(1)
+  })
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       prompt,

@@ -160,6 +160,7 @@ function planWorkspaceRequest(
 function planRequest(
   request: HttpServerRequest.HttpServerRequest,
   session?: Session.Info,
+  lifecycleDirectory?: string,
 ): Effect.Effect<RequestPlan, never, Workspace.Service> {
   return Effect.gen(function* () {
     const url = requestURL(request)
@@ -179,7 +180,7 @@ function planRequest(
     }
 
     return RequestPlan.Local({
-      directory: session?.directory || defaultDirectory(request, url),
+      directory: lifecycleDirectory || session?.directory || defaultDirectory(request, url),
       workspaceID: envWorkspaceID ?? workspaceID,
     })
   })
@@ -229,7 +230,14 @@ function routeHttpApiWorkspace<E>(
           Effect.catchDefect(() => Effect.succeed(undefined)),
         )
       : undefined
-    const plan = yield* planRequest(request, session)
+    const lifecycleDirectory = sessionID
+      ? yield* Session.Service.use((svc) => svc.routingDirectory(sessionID)).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to resolve managed worktree route", error).pipe(Effect.as(undefined)),
+          ),
+        )
+      : undefined
+    const plan = yield* planRequest(request, session, lifecycleDirectory)
     return yield* routeWorkspace(client, effect, plan)
   })
 }

@@ -59,7 +59,15 @@ export function NewSessionView(props: {
                       projectRoot={props.workspace.project.root()}
                       workspaces={props.workspace.project.workspaces()}
                       branch={props.workspace.bar.branch()}
+                      baseBranch={props.workspace.bar.baseBranch()}
+                      branches={props.workspace.project.branches()}
+                      worktreeDisabled={props.workspace.selection.disabled()}
+                      optionsLoading={props.workspace.selection.loading()}
+                      optionsFailed={props.workspace.selection.failed()}
+                      onRetry={props.workspace.selection.retry}
+                      onUseLocal={() => props.workspace.selection.set("main")}
                       onChange={props.workspace.selection.set}
+                      onBaseBranchChange={props.workspace.selection.setBaseBranch}
                       onDone={props.input.restoreFocus}
                     />
                   </Show>

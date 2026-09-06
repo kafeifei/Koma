@@ -55,6 +55,7 @@ export interface Interface {
   readonly read: <T>(key: string[]) => Effect.Effect<T, Error>
   readonly update: <T>(key: string[], fn: (draft: T) => void) => Effect.Effect<T, Error>
   readonly write: <T>(key: string[], content: T) => Effect.Effect<void, FSUtil.Error>
+  readonly writeAtomic: <T>(key: string[], content: T) => Effect.Effect<void, FSUtil.Error>
   readonly list: (prefix: string[]) => Effect.Effect<string[][], FSUtil.Error>
 }
 
@@ -252,6 +253,13 @@ const layer = Layer.effect(
       yield* fs.writeWithDirs(target, JSON.stringify(content, null, 2))
     })
 
+    const writeJsonAtomic = Effect.fnUntraced(function* (target: string, content: unknown) {
+      const temp = `${target}.${crypto.randomUUID()}.tmp`
+      yield* fs
+        .writeWithDirs(temp, JSON.stringify(content, null, 2))
+        .pipe(Effect.andThen(fs.rename(temp, target)), Effect.ensuring(fs.remove(temp).pipe(Effect.ignore)))
+    })
+
     const withResolved = <A, E>(
       key: string[],
       fn: (target: string, rw: TxReentrantLock.TxReentrantLock) => Effect.Effect<A, E>,
@@ -298,6 +306,11 @@ const layer = Layer.effect(
         yield* withResolved(key, (target, rw) => TxReentrantLock.withWriteLock(rw, writeJson(target, content)))
       })
 
+    const writeAtomic: Interface["writeAtomic"] = (key: string[], content: unknown) =>
+      Effect.gen(function* () {
+        yield* withResolved(key, (target, rw) => TxReentrantLock.withWriteLock(rw, writeJsonAtomic(target, content)))
+      })
+
     const list: Interface["list"] = Effect.fn("Storage.list")(function* (prefix: string[]) {
       const dir = (yield* state).dir
       const cwd = path.join(dir, ...prefix)
@@ -317,6 +330,7 @@ const layer = Layer.effect(
       read,
       update,
       write,
+      writeAtomic,
       list,
     })
   }),

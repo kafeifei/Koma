@@ -2167,8 +2167,24 @@ export type WorktreeError = {
   }
 }
 
+export type WorktreeOptions = {
+  hasHead: boolean
+  currentBranch?: string
+  defaultBranch?: string
+  branches: Array<string>
+}
+
+export type WorktreeLifecycleStatus = {
+  managed: boolean
+  operation?: "archive" | "restore" | "delete"
+  state?: "resident" | "pending" | "archived" | "failed"
+  message?: string
+}
+
 export type WorktreeCreateInput = {
   name?: string
+  baseBranch?: string
+  wait?: boolean
   /**
    * Additional startup script to run after the project's start command
    */
@@ -2561,6 +2577,12 @@ export type NotFoundError = {
   }
 }
 
+export type SessionBusyError = {
+  _tag: "SessionBusyError"
+  sessionID: string
+  message: string
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -2607,12 +2629,6 @@ export type SubtaskPartInput = {
     modelID: string
   }
   command?: string
-}
-
-export type SessionBusyError = {
-  _tag: "SessionBusyError"
-  sessionID: string
-  message: string
 }
 
 export type EventTuiPromptAppend = {
@@ -7778,6 +7794,64 @@ export type WorktreeCreateResponses = {
 
 export type WorktreeCreateResponse = WorktreeCreateResponses[keyof WorktreeCreateResponses]
 
+export type WorktreeOptionsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/options"
+}
+
+export type WorktreeOptionsErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeOptionsError = WorktreeOptionsErrors[keyof WorktreeOptionsErrors]
+
+export type WorktreeOptionsResponses = {
+  /**
+   * Worktree creation options
+   */
+  200: WorktreeOptions
+}
+
+export type WorktreeOptionsResponse = WorktreeOptionsResponses[keyof WorktreeOptionsResponses]
+
+export type WorktreeStatusData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/session/{sessionID}/worktree"
+}
+
+export type WorktreeStatusErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeStatusError = WorktreeStatusErrors[keyof WorktreeStatusErrors]
+
+export type WorktreeStatusResponses = {
+  /**
+   * Session worktree lifecycle status
+   */
+  200: WorktreeLifecycleStatus
+}
+
+export type WorktreeStatusResponse = WorktreeStatusResponses[keyof WorktreeStatusResponses]
+
 export type WorktreeResetData = {
   body?: WorktreeResetInput
   path?: never
@@ -9610,6 +9684,10 @@ export type SessionDeleteErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * SessionBusyError
+   */
+  409: SessionBusyError
 }
 
 export type SessionDeleteError = SessionDeleteErrors[keyof SessionDeleteErrors]
@@ -9687,6 +9765,10 @@ export type SessionUpdateErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * SessionBusyError
+   */
+  409: SessionBusyError
 }
 
 export type SessionUpdateError = SessionUpdateErrors[keyof SessionUpdateErrors]
@@ -10172,6 +10254,10 @@ export type SessionSummarizeErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * SessionBusyError
+   */
+  409: SessionBusyError
 }
 
 export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]

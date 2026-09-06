@@ -533,6 +533,21 @@ const scenarios: Scenario[] = [
     .json(200, array, "status"),
   http.protected.get("/experimental/tool/ids", "tool.ids").json(200, array),
   http.protected.get("/experimental/worktree", "worktree.list").json(200, array),
+  http.protected.get("/experimental/worktree/options", "worktree.options").json(200, (body) => {
+    object(body)
+    check(typeof body.hasHead === "boolean", "worktree options should include HEAD availability")
+    check(Array.isArray(body.branches), "worktree options should include available branches")
+  }),
+  http.protected
+    .get("/experimental/session/{sessionID}/worktree", "worktree.status")
+    .at((ctx) => ({
+      path: route("/experimental/session/{sessionID}/worktree", { sessionID: "ses_unmanaged" }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.managed === false, "an unowned session must not claim a managed worktree")
+    }),
   http.protected
     .post("/experimental/worktree", "worktree.create")
     .mutating()

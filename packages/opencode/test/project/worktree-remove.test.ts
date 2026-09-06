@@ -81,7 +81,8 @@ describe("Worktree.remove", () => {
         const ref = yield* Effect.promise(() =>
           $`git show-ref --verify --quiet refs/heads/${branch}`.cwd(root).quiet().nothrow(),
         )
-        expect(ref.exitCode).not.toBe(0)
+        // This checkout was created outside OpenCode; its branch is not ours to delete.
+        expect(ref.exitCode).toBe(0)
       }),
     { git: true },
   )
@@ -121,7 +122,7 @@ describe("Worktree.remove", () => {
         const ref = yield* Effect.promise(() =>
           $`git show-ref --verify --quiet refs/heads/${branch}`.cwd(root).quiet().nothrow(),
         )
-        expect(ref.exitCode).not.toBe(0)
+        expect(ref.exitCode).toBe(0)
       }),
     { git: true },
   )

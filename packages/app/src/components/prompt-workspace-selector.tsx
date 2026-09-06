@@ -11,7 +11,15 @@ export function PromptWorkspaceSelector(props: {
   projectRoot: string
   workspaces: string[]
   branch?: string
+  baseBranch?: string
+  branches?: string[]
+  worktreeDisabled?: boolean
+  optionsLoading?: boolean
+  optionsFailed?: boolean
+  onRetry?: () => void
+  onUseLocal?: () => void
   onChange: (value: string) => void
+  onBaseBranchChange?: (value: string) => void
   onDone: () => void
 }) {
   const language = useLanguage()
@@ -33,10 +41,11 @@ export function PromptWorkspaceSelector(props: {
     props.onDone()
   }
   const label = () => {
-    if (selected() === "main") return language.t("session.new.workspace.triggerLocal")
-    if (props.value === "create") return language.t("workspace.new")
+    if (selected() === "main") return language.t("session.new.worktree.main")
+    if (props.value === "create") return language.t("session.new.worktree.create")
     return getFilename(props.value)
   }
+  const worktreeChecked = () => selected() !== "main"
 
   return (
     <>
@@ -48,23 +57,63 @@ export function PromptWorkspaceSelector(props: {
           <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
         </MenuV2.Trigger>
         <MenuV2.Portal>
-          <MenuV2.Content class="w-[180px]">
+          <MenuV2.Content class="w-[240px]">
             <MenuV2.Group>
-              <MenuV2.GroupLabel>{language.t("session.new.workspace.runIn")}</MenuV2.GroupLabel>
-              <MenuV2.Item onSelect={() => select("main")}>
-                <IconV2 name="monitor" />
-                <span class="min-w-0 flex-1 truncate">{language.t("session.new.workspace.local")}</span>
-                <Show when={selected() === "main"}>
-                  <Icon name="check" size="small" class="shrink-0" />
-                </Show>
-              </MenuV2.Item>
-              <MenuV2.Item onSelect={() => select("create")}>
+              <MenuV2.GroupLabel>{language.t("session.new.worktree.label")}</MenuV2.GroupLabel>
+              <MenuV2.CheckboxItem
+                checked={worktreeChecked()}
+                closeOnSelect
+                disabled={props.worktreeDisabled}
+                onChange={(checked) => select(checked ? "create" : "main")}
+              >
                 <IconV2 name="workspace-new" />
-                <span class="min-w-0 flex-1 truncate">{language.t("workspace.new")}</span>
-                <Show when={selected() === "create"}>
-                  <Icon name="check" size="small" class="shrink-0" />
-                </Show>
-              </MenuV2.Item>
+                <span class="min-w-0 flex-1 truncate">{language.t("session.new.worktree.label")}</span>
+              </MenuV2.CheckboxItem>
+              <Show when={props.optionsLoading}>
+                <div class="px-2 py-1 text-v2-text-text-faint" role="status">
+                  {language.t("common.loading")}
+                </div>
+              </Show>
+              <Show when={props.optionsFailed}>
+                <div class="px-2 py-1 text-v2-text-text-danger" role="alert">
+                  {language.t("session.new.worktree.optionsFailed")}
+                </div>
+                <MenuV2.Item onSelect={() => props.onRetry?.()}>
+                  <span class="min-w-0 flex-1 truncate">{language.t("workspace.retry")}</span>
+                </MenuV2.Item>
+                <MenuV2.Item
+                  onSelect={() => {
+                    props.onUseLocal?.()
+                    props.onDone()
+                  }}
+                >
+                  <span class="min-w-0 flex-1 truncate">{language.t("session.new.worktree.useLocal")}</span>
+                </MenuV2.Item>
+              </Show>
+              <Show when={worktreeChecked() && (props.branches?.length ?? 0) > 0}>
+                <MenuV2.Sub gutter={0} overlap overflowPadding={8}>
+                  <MenuV2.SubTrigger>
+                    <IconV2 name="branch" />
+                    <span class="min-w-0 flex-1 truncate">{language.t("session.new.worktree.baseBranch")}</span>
+                    <span class="max-w-[92px] truncate text-v2-text-text-faint">{props.baseBranch}</span>
+                  </MenuV2.SubTrigger>
+                  <MenuV2.Portal>
+                    <MenuV2.SubContent class="max-w-[220px]">
+                      <For each={props.branches ?? []}>
+                        {(branch) => (
+                          <MenuV2.Item onSelect={() => props.onBaseBranchChange?.(branch)}>
+                            <IconV2 name="branch" />
+                            <span class="min-w-0 flex-1 truncate">{branch}</span>
+                            <Show when={props.baseBranch === branch}>
+                              <Icon name="check" size="small" class="shrink-0" />
+                            </Show>
+                          </MenuV2.Item>
+                        )}
+                      </For>
+                    </MenuV2.SubContent>
+                  </MenuV2.Portal>
+                </MenuV2.Sub>
+              </Show>
             </MenuV2.Group>
             <Show when={props.workspaces.length > 0}>
               <MenuV2.Separator />

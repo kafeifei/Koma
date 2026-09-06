@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { LocalProject } from "@/context/layout"
-import { taskProjectGroups, visibleTaskSessions } from "./task-sidebar-data"
+import {
+  filterClosedSessionDirectories,
+  taskProjectGroups,
+  taskSessionProjectDirectory,
+  visibleTaskSessions,
+} from "./task-sidebar-data"
 
 const projects: LocalProject[] = [
   { id: "app", name: "App", worktree: "/app", expanded: true, sandboxes: ["/worktrees/app"] },
@@ -13,6 +18,24 @@ function session(id: string, directory = "/app", updated = 1): Session {
 }
 
 describe("task sidebar project groups", () => {
+  test("keeps reclaimed archived checkouts under their project and respects project removal", () => {
+    const known = [{ id: "app", worktree: "/app", expanded: true, sandboxes: [] }]
+    const directory = taskSessionProjectDirectory(session("archived", "/worktrees/reclaimed"), known)
+    expect(directory).toBe("/app")
+    expect(filterClosedSessionDirectories([directory], ["/app"], known)).toEqual([])
+    expect(taskSessionProjectDirectory({ projectID: "global", directory: "/separate" }, known)).toBe("/separate")
+  })
+
+  test("does not recreate recently closed projects from session directories", () => {
+    expect(
+      filterClosedSessionDirectories(
+        ["/app", "/closed", "/other", "/worktrees/closed"],
+        ["/closed"],
+        [...projects, { worktree: "/closed", sandboxes: ["/worktrees/closed"] }],
+      ),
+    ).toEqual(["/app", "/other"])
+  })
+
   test("does not merge unrelated non-Git directories through the shared global project ID", () => {
     const project = { id: "global", worktree: "/opened", expanded: true }
     const groups = taskProjectGroups(

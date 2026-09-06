@@ -107,6 +107,8 @@ export const ExperimentalPaths = {
   toolIDs: "/experimental/tool/ids",
   worktree: "/experimental/worktree",
   worktreeReset: "/experimental/worktree/reset",
+  worktreeOptions: "/experimental/worktree/options",
+  worktreeStatus: "/experimental/session/:sessionID/worktree",
   session: "/experimental/session",
   sessionSearch: "/experimental/session/search",
   sessionBackground: "/experimental/session/:sessionID/background",
@@ -194,6 +196,29 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "worktree.list",
             summary: "List worktrees",
             description: "List all sandbox worktrees for the current project.",
+          }),
+        ),
+        HttpApiEndpoint.get("worktreeOptions", ExperimentalPaths.worktreeOptions, {
+          query: WorkspaceRoutingQuery,
+          success: described(Worktree.Options, "Worktree creation options"),
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "worktree.options",
+            summary: "Get worktree options",
+            description: "Get local branch choices and the default base without fetching or changing the repository.",
+          }),
+        ),
+        HttpApiEndpoint.get("worktreeStatus", ExperimentalPaths.worktreeStatus, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Worktree.LifecycleStatus, "Session worktree lifecycle status"),
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "worktree.status",
+            summary: "Get session worktree status",
+            description: "Inspect an explicitly managed session worktree's archive or recovery state.",
           }),
         ),
         HttpApiEndpoint.post("worktreeCreate", ExperimentalPaths.worktree, {

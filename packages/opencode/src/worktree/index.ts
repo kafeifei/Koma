@@ -17,6 +17,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AppProcess } from "@opencode-ai/core/process"
 import { InstanceState } from "@/effect/instance-state"
 import { WorktreeEvent } from "@opencode-ai/schema/worktree-event"
+import { WorktreeLifecycle } from "./lifecycle"
 
 export const Event = WorktreeEvent
 
@@ -29,11 +30,29 @@ export type Info = Schema.Schema.Type<typeof Info>
 
 export const CreateInput = Schema.Struct({
   name: Schema.optional(Schema.String),
+  baseBranch: Schema.optional(Schema.String),
+  wait: Schema.optional(Schema.Boolean),
   startCommand: Schema.optional(
     Schema.String.annotate({ description: "Additional startup script to run after the project's start command" }),
   ),
 }).annotate({ identifier: "WorktreeCreateInput" })
 export type CreateInput = Schema.Schema.Type<typeof CreateInput>
+
+export const Options = Schema.Struct({
+  hasHead: Schema.Boolean,
+  currentBranch: Schema.optional(Schema.String),
+  defaultBranch: Schema.optional(Schema.String),
+  branches: Schema.Array(Schema.String),
+}).annotate({ identifier: "WorktreeOptions" })
+export type Options = Schema.Schema.Type<typeof Options>
+
+export const LifecycleStatus = Schema.Struct({
+  managed: Schema.Boolean,
+  operation: Schema.optional(Schema.Literals(["archive", "restore", "delete"])),
+  state: Schema.optional(Schema.Literals(["resident", "pending", "archived", "failed"])),
+  message: Schema.optional(Schema.String),
+}).annotate({ identifier: "WorktreeLifecycleStatus" })
+export type LifecycleStatus = Schema.Schema.Type<typeof LifecycleStatus>
 
 export const RemoveInput = Schema.Struct({
   directory: Schema.String,
@@ -117,6 +136,8 @@ function failedRemoves(...chunks: string[]) {
 // ---------------------------------------------------------------------------
 
 export interface Interface {
+  readonly options: () => Effect.Effect<Options, Error>
+  readonly lifecycleStatus: (sessionID: string) => Effect.Effect<LifecycleStatus, Error>
   readonly makeWorktreeInfo: (options?: { name?: string; detached?: boolean }) => Effect.Effect<Info, Error>
   readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void, Error>
   readonly create: (input?: CreateInput) => Effect.Effect<Info, Error>
@@ -139,6 +160,7 @@ const layer: Layer.Layer<
   | Project.Service
   | InstanceStore.Service
   | Database.Service
+  | WorktreeLifecycle.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -150,6 +172,7 @@ const layer: Layer.Layer<
     const gitSvc = yield* Git.Service
     const project = yield* Project.Service
     const store = yield* InstanceStore.Service
+    const lifecycle = yield* WorktreeLifecycle.Service
 
     const git = Effect.fnUntraced(
       function* (args: string[], opts?: { cwd?: string }) {
@@ -211,18 +234,68 @@ const layer: Layer.Layer<
       return yield* candidate({ root, name: input?.name ? slugify(input.name) : "", detached: input?.detached })
     })
 
-    const setup = Effect.fnUntraced(function* (info: Info) {
+    const options = Effect.fn("Worktree.options")(function* () {
       const ctx = yield* InstanceState.context
+      if (ctx.project.vcs !== "git" || !(yield* gitSvc.hasHead(ctx.worktree))) {
+        return { hasHead: false, branches: [] }
+      }
+      const result = yield* git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], {
+        cwd: ctx.worktree,
+      })
+      if (result.code !== 0) return yield* new ListFailedError({ message: result.stderr || result.text })
+      const branches = result.text
+        .trim()
+        .split("\n")
+        .filter((ref) => ref && !ref.endsWith("/HEAD"))
+      const currentBranch = yield* gitSvc.branch(ctx.worktree)
+      const base = yield* gitSvc.defaultBranch(ctx.worktree)
+      // Prefer the local default branch: an unfetched remote ref may omit local work.
+      const defaultBranch = base && branches.includes(base.name) ? base.name : (base?.ref ?? currentBranch)
+      return { hasHead: true, currentBranch, defaultBranch, branches }
+    })
+
+    const lifecycleStatus = Effect.fn("Worktree.lifecycleStatus")(function* (sessionID: string) {
+      const owner = yield* lifecycle
+        .get(sessionID)
+        .pipe(Effect.mapError((error) => new ListFailedError({ message: error.message })))
+      if (!owner) return { managed: false }
+      if (owner.lastError)
+        return { managed: true, operation: owner.intent, state: "failed" as const, message: owner.lastError }
+      if (owner.intent === "archive" && owner.phase === "removed") return { managed: true, state: "archived" as const }
+      return {
+        managed: true,
+        operation: owner.intent,
+        state: owner.intent ? ("pending" as const) : ("resident" as const),
+      }
+    })
+
+    const setup = Effect.fnUntraced(function* (info: Info, baseBranch?: string) {
+      const ctx = yield* InstanceState.context
+      const base = baseBranch
+        ? yield* git(["rev-parse", "--verify", "--end-of-options", `${baseBranch}^{commit}`], { cwd: ctx.worktree })
+        : undefined
+      if (base && base.code !== 0) return yield* new CreateFailedError({ message: base.stderr || base.text })
       const created = yield* git(
         info.branch
-          ? ["worktree", "add", "--no-checkout", "-b", info.branch, info.directory]
-          : ["worktree", "add", "--no-checkout", "--detach", info.directory, "HEAD"],
+          ? ["worktree", "add", "--no-checkout", "-b", info.branch, info.directory, base?.text.trim() ?? "HEAD"]
+          : ["worktree", "add", "--no-checkout", "--detach", info.directory, base?.text.trim() ?? "HEAD"],
         { cwd: ctx.worktree },
       )
       if (created.code !== 0) {
         return yield* new CreateFailedError({
           message: created.stderr || created.text || "Failed to create git worktree",
         })
+      }
+
+      if (info.branch) {
+        yield* lifecycle
+          .register({
+            directory: info.directory,
+            branch: info.branch,
+            root: ctx.project.worktree,
+            projectID: ctx.project.id,
+          })
+          .pipe(Effect.mapError((error) => new CreateFailedError({ message: error.message })))
       }
 
       yield* project.addSandbox(ctx.project.id, info.directory).pipe(Effect.catch(() => Effect.void))
@@ -244,7 +317,7 @@ const layer: Layer.Layer<
           workspace: workspaceID,
           payload: { type: Event.Failed.type, properties: { message } },
         })
-        return
+        return yield* new CreateFailedError({ message })
       }
 
       const booted = yield* store.load({ directory: info.directory }).pipe(
@@ -263,7 +336,18 @@ const layer: Layer.Layer<
           }),
         ),
       )
-      if (!booted) return
+      if (!booted) return yield* new CreateFailedError({ message: "Failed to bootstrap worktree" })
+
+      if (!(yield* runStartScripts(info.directory, { projectID, extra }))) {
+        const message = "Failed to run worktree startup scripts"
+        GlobalBus.emit("event", {
+          directory: info.directory,
+          project: ctx.project.id,
+          workspace: workspaceID,
+          payload: { type: Event.Failed.type, properties: { message } },
+        })
+        return yield* new StartCommandFailedError({ message })
+      }
 
       GlobalBus.emit("event", {
         directory: info.directory,
@@ -274,8 +358,6 @@ const layer: Layer.Layer<
           properties: { name: info.name, ...(info.branch ? { branch: info.branch } : {}) },
         },
       })
-
-      yield* runStartScripts(info.directory, { projectID, extra })
     })
 
     const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
@@ -288,7 +370,15 @@ const layer: Layer.Layer<
 
     const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
       const info = yield* makeWorktreeInfo({ name: input?.name })
-      yield* createFromInfo(info, input?.startCommand)
+      yield* setup(info, input?.baseBranch)
+      if (input?.wait) {
+        yield* boot(info, input.startCommand)
+        return info
+      }
+      yield* boot(info, input?.startCommand).pipe(
+        Effect.catchCause((cause) => Effect.logError("worktree bootstrap failed", { cause })),
+        Effect.forkIn(scope),
+      )
       return info
     })
 
@@ -385,16 +475,13 @@ const layer: Layer.Layer<
       })
     }
 
-    const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
+    const removeUnclaimed = Effect.fn("Worktree.removeUnclaimed")(function* (input: RemoveInput) {
       const ctx = yield* InstanceState.context
       if (ctx.project.vcs !== "git") {
         return yield* new NotGitError({ message: "Worktrees are only supported for git projects" })
       }
 
       const directory = yield* canonical(input.directory)
-
-      // Preserve the loaded path casing for the store cache; `directory` is lowercased on Windows.
-      if (directory !== (yield* canonical(ctx.worktree))) yield* store.disposeDirectory(input.directory)
 
       const list = yield* git(["worktree", "list", "--porcelain"], { cwd: ctx.worktree })
       if (list.code !== 0) {
@@ -404,11 +491,15 @@ const layer: Layer.Layer<
       const entries = parseWorktreeList(list.text)
       const entry = yield* locateWorktree(entries, directory)
 
+      // The first Git entry is the primary checkout, even when the request came from a linked worktree.
+      if (entries[0]?.path && directory === (yield* canonical(entries[0].path))) {
+        return yield* new RemoveFailedError({ message: "Cannot remove the primary workspace" })
+      }
+
       if (!entry?.path) {
         const directoryExists = yield* fs.exists(directory).pipe(Effect.orDie)
         if (directoryExists) {
-          yield* stopFsmonitor(directory)
-          yield* cleanDirectory(directory)
+          return yield* new RemoveFailedError({ message: "Directory is not a registered Git worktree" })
         }
         return true
       }
@@ -436,7 +527,15 @@ const layer: Layer.Layer<
       yield* cleanDirectory(entry.path)
 
       const branch = entry.branch?.replace(/^refs\/heads\//, "")
-      if (branch) {
+      // A linked checkout may use a user branch or a published branch. Removing the checkout does not grant ownership of it.
+      const owner = yield* lifecycle
+        .getDirectory(directory)
+        .pipe(Effect.mapError((error) => new RemoveFailedError({ message: error.message })))
+      const branchOwned = owner?.branch === branch && owner?.projectID === ctx.project.id
+      const upstream = branch
+        ? yield* git(["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`], { cwd: ctx.worktree })
+        : undefined
+      if (branch && branchOwned && upstream?.code === 0 && !upstream.text.trim()) {
         const deleted = yield* git(["branch", "-D", branch], { cwd: ctx.worktree })
         if (deleted.code !== 0) {
           return yield* new RemoveFailedError({
@@ -446,6 +545,18 @@ const layer: Layer.Layer<
       }
 
       return true
+    })
+
+    const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
+      return yield* lifecycle
+        .withExclusive({ directory: yield* canonical(input.directory) }, removeUnclaimed(input))
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof WorktreeLifecycle.LifecycleFailedError
+              ? new RemoveFailedError({ message: error.message })
+              : error,
+          ),
+        )
     })
 
     const gitExpect = Effect.fnUntraced(function* (
@@ -492,8 +603,7 @@ const layer: Layer.Layer<
       const startup = project?.commands?.start?.trim() ?? ""
       const ok = yield* runStartScript(directory, startup, "project")
       if (!ok) return false
-      yield* runStartScript(directory, input.extra ?? "", "worktree")
-      return true
+      return yield* runStartScript(directory, input.extra ?? "", "worktree")
     })
 
     const prune = Effect.fnUntraced(function* (root: string, entries: string[]) {
@@ -522,7 +632,7 @@ const layer: Layer.Layer<
       return yield* git(["clean", "-ffdx"], { cwd: root })
     })
 
-    const reset = Effect.fn("Worktree.reset")(function* (input: ResetInput) {
+    const resetUnclaimed = Effect.fn("Worktree.resetUnclaimed")(function* (input: ResetInput) {
       const ctx = yield* InstanceState.context
       if (ctx.project.vcs !== "git") {
         return yield* new NotGitError({ message: "Worktrees are only supported for git projects" })
@@ -539,7 +649,11 @@ const layer: Layer.Layer<
         return yield* new ResetFailedError({ message: list.stderr || list.text || "Failed to read git worktrees" })
       }
 
-      const entry = yield* locateWorktree(parseWorktreeList(list.text), directory)
+      const entries = parseWorktreeList(list.text)
+      if (entries[0]?.path && directory === (yield* canonical(entries[0].path))) {
+        return yield* new ResetFailedError({ message: "Cannot reset the primary workspace" })
+      }
+      const entry = yield* locateWorktree(entries, directory)
       if (!entry?.path) {
         return yield* new ResetFailedError({ message: "Worktree not found" })
       }
@@ -610,14 +724,35 @@ const layer: Layer.Layer<
       return true
     })
 
-    return Service.of({ makeWorktreeInfo, createFromInfo, create, list, remove, reset })
+    const reset = Effect.fn("Worktree.reset")(function* (input: ResetInput) {
+      return yield* lifecycle
+        .withExclusive({ directory: yield* canonical(input.directory) }, resetUnclaimed(input))
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof WorktreeLifecycle.LifecycleFailedError
+              ? new ResetFailedError({ message: error.message })
+              : error,
+          ),
+        )
+    })
+
+    return Service.of({ options, lifecycleStatus, makeWorktreeInfo, createFromInfo, create, list, remove, reset })
   }),
 )
 
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [FSUtil.node, path, AppProcess.node, Git.node, Project.node, InstanceStore.node, Database.node],
+  deps: [
+    FSUtil.node,
+    path,
+    AppProcess.node,
+    Git.node,
+    Project.node,
+    InstanceStore.node,
+    Database.node,
+    WorktreeLifecycle.node,
+  ],
 })
 
 export * as Worktree from "."

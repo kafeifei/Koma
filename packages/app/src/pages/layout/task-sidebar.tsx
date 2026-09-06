@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/v2/icon"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { useCommand } from "@/context/command"
 import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
@@ -19,7 +20,12 @@ import { sessionTitle } from "@/utils/session-title"
 import { getRelativeTime } from "@/utils/time"
 import { displayName } from "./helpers"
 import { useSessionTabAvatarState } from "./project-avatar-state"
-import { taskProjectGroups, visibleTaskSessions } from "./task-sidebar-data"
+import {
+  filterClosedSessionDirectories,
+  taskProjectGroups,
+  taskSessionProjectDirectory,
+  visibleTaskSessions,
+} from "./task-sidebar-data"
 import { TaskSidebarMenu } from "./task-sidebar-menu"
 import { createTaskSearch } from "./task-search"
 import { pathKey } from "@/utils/path-key"
@@ -160,6 +166,18 @@ function TaskServer(props: {
   const sessions = createHomeSessionQuery(context)
   const search = createTaskSearch({ context, query: () => props.query, archived: () => props.archived })
   const snippets = createMemo(() => new Map(search.hits().map((hit) => [hit.sessionID, hit.snippet])))
+  const activeSessionDirectory = createMemo(() => {
+    const route = layout.route()
+    if (route.type !== "session" || route.server !== key()) return
+    const lineage = context().sync.session.lineage.peek(route.sessionId)
+    const info = context().sync.session.get(route.sessionId)
+    const directory = lineage?.root.directory ?? info?.directory
+    if (!directory) return
+    return taskSessionProjectDirectory(
+      { directory, projectID: info?.projectID ?? "global" },
+      context().sync.data.project,
+    )
+  })
   const activeID = createMemo(() => {
     const route = layout.route()
     if (route.type !== "session" || route.server !== key()) return
@@ -168,7 +186,15 @@ function TaskServer(props: {
   const projects = createMemo(() => {
     const opened = context().projects.list()
     if (!props.archived && !props.query.trim()) return opened
-    const directories = (props.archived ? sessions.archived() : sessions.sessions()).map((session) => session.directory)
+    const directories = filterClosedSessionDirectories(
+      (props.archived ? sessions.archived() : sessions.sessions()).map((session) =>
+        taskSessionProjectDirectory(session, context().sync.data.project),
+      ),
+      context()
+        .projects.recentlyClosed()
+        .map((project) => project.worktree),
+      context().sync.data.project,
+    )
     return [
       ...opened,
       ...[...new Set(directories)]
@@ -256,6 +282,14 @@ function TaskServer(props: {
               context={context()}
               server={key()}
               activeID={activeID()}
+              activeProject={(() => {
+                const directory = activeSessionDirectory()
+                return (
+                  directory !== undefined &&
+                  (pathKey(group().project.worktree) === pathKey(directory) ||
+                    group().project.sandboxes?.some((sandbox) => pathKey(sandbox) === pathKey(directory)) === true)
+                )
+              })()}
               searching={!!props.query.trim()}
               archived={props.archived}
               snippets={snippets()}
@@ -295,6 +329,7 @@ function TaskProject(props: {
   context: ServerCtx
   server: ServerConnection.Key
   activeID?: string
+  activeProject: boolean
   searching: boolean
   archived: boolean
   snippets: Map<string, string>
@@ -302,9 +337,14 @@ function TaskProject(props: {
   onNewTask: () => void
 }) {
   const language = useLanguage()
+  const navigate = useNavigate()
   const [state, setState] = createStore({ collapsed: false, limit: 8 })
   const open = () => props.searching || !state.collapsed
   const visible = createMemo(() => visibleTaskSessions(props.sessions, state.limit, props.activeID))
+  const remove = () => {
+    if (props.activeProject) navigate("/")
+    props.context.projects.close(props.project.worktree)
+  }
   return (
     <section data-slot="workspace-project" data-directory={props.project.worktree}>
       <div data-slot="workspace-project-heading">
@@ -329,18 +369,36 @@ function TaskProject(props: {
             <Icon name="plus" />
           </button>
         </Show>
+        <DropdownMenu placement="bottom-end" gutter={4}>
+          <DropdownMenu.Trigger
+            as="button"
+            type="button"
+            data-action="project-remove"
+            aria-label={language.t("workspace.removeProject")}
+            title={language.t("workspace.removeProject")}
+          >
+            …
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content>
+              <DropdownMenu.Item onSelect={remove}>
+                <DropdownMenu.ItemLabel>{language.t("workspace.removeProject")}</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu>
       </div>
       <div hidden={!open()}>
-        <For each={visible()}>
-          {(session) => (
+        <For each={visible().map((session) => session.id)}>
+          {(id) => (
             <TaskSession
-              session={session}
+              session={visible().find((session) => session.id === id)!}
               context={props.context}
               projectDirectory={props.project.worktree}
               server={props.server}
-              active={session.id === props.activeID}
+              active={id === props.activeID}
               archived={props.archived}
-              snippet={props.snippets.get(session.id)}
+              snippet={props.snippets.get(id)}
               onNavigate={props.onNavigate}
             />
           )}
@@ -396,7 +454,7 @@ function TaskSession(props: {
     await context.sdk.client.session
       .update({
         sessionID: props.session.id,
-        directory: props.session.directory,
+        directory,
         ...input,
       })
       .then((result) => {
@@ -419,7 +477,35 @@ function TaskSession(props: {
       title={title()}
       pinned={props.context.tasks.pinned().includes(props.session.id)}
       archived={props.archived}
-      busy={mutation.pending || state.loading()}
+      busy={mutation.pending}
+      running={state.loading()}
+      cleanupStatus={async () => {
+        const result = await props.context.sdk.client.worktree.status({
+          sessionID: props.session.id,
+          directory: props.projectDirectory,
+        })
+        return result.data!
+      }}
+      onDelete={async () => {
+        if (mutation.pending) return
+        const context = props.context
+        const info = props.session
+        const target = tab()
+        const active = props.active
+        setMutation("pending", true)
+        await context.sdk.client.session
+          .delete({ sessionID: info.id, directory: props.projectDirectory })
+          .then(() => {
+            context.sync.homeSessions.apply({ type: "session.deleted", properties: { sessionID: info.id, info } })
+            const [, setChild] = context.sync.child(info.directory, { bootstrap: false })
+            setChild("session", (sessions) => sessions.filter((session) => session.id !== info.id))
+            if (context.tasks.pinned().includes(info.id)) context.tasks.togglePin(info.id)
+            void context.queryClient.invalidateQueries({ queryKey: ["task-search", context.sdk.scope] })
+            if (active) navigate("/")
+            notifySessionTabsRemoved({ server: target.server, directory: info.directory, sessionIDs: [info.id] })
+          })
+          .finally(() => setMutation("pending", false))
+      }}
       canMutate={props.context.sdk.protocolKind() === "v1"}
       onPin={() => props.context.tasks.togglePin(props.session.id)}
       onRename={async (title) => {

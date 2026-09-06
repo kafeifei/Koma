@@ -2,13 +2,14 @@ import { describe, expect } from "bun:test"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { EventV2 } from "@opencode-ai/core/event"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { Deferred, Effect, Exit, Layer } from "effect"
+import { Deferred, Effect, Exit, Layer, Ref } from "effect"
+import { Fiber } from "effect"
 import { Session as SessionNs } from "@/session/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideInstance, tmpdirScoped } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { GlobalBus } from "@/bus/global"
@@ -16,6 +17,21 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { InstanceStore } from "@/project/instance-store"
 import { InstanceBootstrap } from "@/project/bootstrap"
+import { InstanceState } from "@/effect/instance-state"
+import { SessionRunState } from "@/session/run-state"
+import { WorktreeLifecycle } from "@/worktree/lifecycle"
+import { WorktreeArchive } from "@/worktree/archive"
+import { $ } from "bun"
+import fs from "fs/promises"
+import path from "path"
+
+const exists = (target: string) =>
+  Effect.promise(() =>
+    fs
+      .stat(target)
+      .then(() => true)
+      .catch(() => false),
+  )
 
 const it = testEffect(
   AppNodeBuilder.build(
@@ -25,6 +41,9 @@ const it = testEffect(
       SessionProjector.node,
       CrossSpawnSpawner.node,
       InstanceStore.node,
+      SessionRunState.node,
+      WorktreeLifecycle.node,
+      WorktreeArchive.node,
     ]),
     [
       [RuntimeFlags.node, RuntimeFlags.layer({ experimentalWorkspaces: false })],
@@ -206,6 +225,115 @@ describe("step-finish token propagation via event", () => {
 })
 
 describe("Session", () => {
+  it.live(
+    "finishes a pending archive after the active runner becomes idle and restores through the project root",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* tmpdirScoped({ git: true })
+        yield* Effect.promise(() => Bun.write(path.join(root, "tracked.txt"), "base\n"))
+        yield* Effect.promise(() =>
+          $`git add tracked.txt && git commit -m ${"session lifecycle base"}`.cwd(root).quiet(),
+        )
+        const branch = `opencode/session-${crypto.randomUUID().slice(0, 8)}`
+        const directory = path.join(path.dirname(root), `opencode-session-${crypto.randomUUID()}`)
+        yield* Effect.promise(() => $`git worktree add -b ${branch} ${directory} HEAD`.cwd(root).quiet())
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            await $`git worktree remove --force ${directory}`.cwd(root).quiet().nothrow()
+            await fs.rm(directory, { recursive: true, force: true })
+          }),
+        )
+
+        const session = yield* SessionNs.Service
+        const lifecycle = yield* WorktreeLifecycle.Service
+        const created = yield* provideInstance(directory)(
+          Effect.gen(function* () {
+            const ctx = yield* InstanceState.context
+            if (!ctx.project.id) return yield* Effect.die("managed lifecycle test requires a project ID")
+            yield* lifecycle.register({
+              directory,
+              root,
+              branch,
+              projectID: ctx.project.id,
+            })
+            const info = yield* session.create({ title: "managed lifecycle" })
+            yield* Effect.promise(() => Bun.write(path.join(directory, "tracked.txt"), "working\n"))
+
+            const runState = yield* SessionRunState.Service
+            const started = yield* Deferred.make<void>()
+            const finish = yield* Deferred.make<void>()
+            const runs = yield* Ref.make(0)
+            const answer = { info: { sessionID: info.id }, parts: [] } as unknown as SessionV1.WithParts
+            const work = Ref.update(runs, (count) => count + 1).pipe(
+              Effect.andThen(Deferred.succeed(started, undefined)),
+              Effect.andThen(Deferred.await(finish)),
+              Effect.as(answer),
+            )
+            const fibers = yield* Effect.all(
+              [
+                runState.ensureRunning(info.id, Effect.succeed(answer), work),
+                runState.ensureRunning(info.id, Effect.succeed(answer), work),
+              ],
+              { concurrency: "unbounded" },
+            ).pipe(Effect.forkChild)
+            yield* Deferred.await(started)
+            expect(yield* Ref.get(runs)).toBe(1)
+
+            yield* session.setArchived({ sessionID: info.id, time: Date.now() })
+            expect(yield* exists(directory)).toBe(true)
+            expect(yield* lifecycle.get(info.id)).toMatchObject({ intent: "archive", phase: "resident" })
+
+            yield* Deferred.succeed(finish, undefined)
+            yield* Fiber.join(fibers)
+            yield* pollWithTimeout(
+              lifecycle.get(info.id).pipe(Effect.map((owner) => (owner?.phase === "removed" ? owner : undefined))),
+              "runner idle did not release the managed checkout for archive",
+            )
+            return info
+          }),
+        )
+
+        expect(yield* exists(directory)).toBe(false)
+        const archived = yield* lifecycle.get(created.id)
+        expect(archived?.root).toBe(root)
+        if (!archived?.oid) return yield* Effect.die("managed lifecycle test requires an archive oid")
+        expect(yield* session.routingDirectory(created.id)).toBe(root)
+        expect(
+          yield* Effect.promise(() =>
+            $`git rev-parse --verify refs/opencode/worktree-archive/${created.id}`.cwd(root).quiet().nothrow(),
+          ).pipe(Effect.map((result) => result.text().trim())),
+        ).toBe(archived?.oid)
+        yield* lifecycle.prepareRestore(created.id)
+        yield* (yield* WorktreeArchive.Service).clear({
+          directory: root,
+          sessionID: created.id,
+          oid: archived.oid,
+        })
+        expect(yield* lifecycle.get(created.id)).toMatchObject({ intent: "restore", phase: "restored" })
+        yield* provideInstance(root)(session.setArchived({ sessionID: created.id }))
+        expect(yield* session.routingDirectory(created.id)).toBeUndefined()
+        expect(yield* Effect.promise(() => Bun.file(path.join(directory, "tracked.txt")).text())).toBe("working\n")
+        expect(yield* lifecycle.get(created.id)).toMatchObject({ phase: "resident" })
+
+        const events = yield* EventV2Bridge.Service
+        const stop = yield* events.listen((event) => {
+          if (event.type !== SessionNs.Event.Deleted.type) return Effect.void
+          const data = event.data as typeof SessionNs.Event.Deleted.data.Type
+          if (data.sessionID !== created.id) return Effect.void
+          return Effect.promise(() => $`git branch -m lifecycle-retry-blocker`.cwd(directory).quiet())
+        })
+        const firstRemove = yield* provideInstance(root)(session.remove(created.id)).pipe(Effect.exit)
+        yield* stop
+        expect(Exit.isFailure(firstRemove)).toBe(true)
+        expect(yield* lifecycle.get(created.id)).toMatchObject({ intent: "delete" })
+        yield* Effect.promise(() => $`git branch -m ${branch}`.cwd(directory).quiet())
+        yield* provideInstance(root)(session.remove(created.id))
+        expect(yield* lifecycle.get(created.id)).toBeUndefined()
+        expect(yield* exists(directory)).toBe(false)
+      }),
+    { timeout: 30000 },
+  )
+
   it.live("remove works without an instance", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service

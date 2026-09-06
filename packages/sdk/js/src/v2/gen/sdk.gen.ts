@@ -402,12 +402,16 @@ import type {
   WorktreeCreateResponses,
   WorktreeListErrors,
   WorktreeListResponses,
+  WorktreeOptionsErrors,
+  WorktreeOptionsResponses,
   WorktreeRemoveErrors,
   WorktreeRemoveInput,
   WorktreeRemoveResponses,
   WorktreeResetErrors,
   WorktreeResetInput,
   WorktreeResetResponses,
+  WorktreeStatusErrors,
+  WorktreeStatusResponses,
 } from "./types.gen.js"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -1725,6 +1729,68 @@ export class Worktree extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get worktree options
+   *
+   * Get local branch choices and the default base without fetching or changing the repository.
+   */
+  public options<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorktreeOptionsResponses, WorktreeOptionsErrors, ThrowOnError>({
+      url: "/experimental/worktree/options",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session worktree status
+   *
+   * Inspect an explicitly managed session worktree's archive or recovery state.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorktreeStatusResponses, WorktreeStatusErrors, ThrowOnError>({
+      url: "/experimental/session/{sessionID}/worktree",
+      ...options,
+      ...params,
     })
   }
 

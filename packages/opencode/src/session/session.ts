@@ -45,6 +45,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
+import { LifecycleFailedError, WorktreeLifecycle } from "@/worktree/lifecycle"
 
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
@@ -462,8 +463,9 @@ export interface Interface {
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
+  readonly routingDirectory: (sessionID: SessionID) => Effect.Effect<string | undefined, LifecycleFailedError>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
-  readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
+  readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void, LifecycleFailedError>
   readonly setMetadata: (input: typeof SetMetadataInput.Type) => Effect.Effect<void>
   readonly setAgentModel: (input: {
     sessionID: SessionID
@@ -484,7 +486,7 @@ export interface Interface {
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<SessionV1.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
-  readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
+  readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound | LifecycleFailedError>
   readonly updateMessage: <T extends SessionV1.Info>(msg: T) => Effect.Effect<T>
   readonly removeMessage: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID>
   readonly removePart: (input: { sessionID: SessionID; messageID: MessageID; partID: PartID }) => Effect.Effect<PartID>
@@ -520,11 +522,7 @@ export type Patch = Omit<Partial<Info>, "time" | "share" | "summary" | "revert" 
   permission?: Info["permission"] | null
 }
 
-const layer: Layer.Layer<
-  Service,
-  never,
-  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service
-> = Layer.effect(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const { db } = yield* Database.Service
@@ -532,6 +530,7 @@ const layer: Layer.Layer<
     const background = yield* BackgroundJob.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const lifecycle = yield* WorktreeLifecycle.Service
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -570,6 +569,9 @@ const layer: Layer.Layer<
       yield* Effect.logInfo("created", result)
 
       yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
+      yield* lifecycle
+        .claim({ directory: result.directory, sessionID: result.id })
+        .pipe(Effect.catch((error) => Effect.logWarning("worktree lifecycle claim failed", error)))
 
       return result
     })
@@ -578,6 +580,11 @@ const layer: Layer.Layer<
       const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
       return fromRow(row)
+    })
+
+    const routingDirectory = Effect.fn("Session.routingDirectory")(function* (sessionID: SessionID) {
+      const owner = yield* lifecycle.get(sessionID)
+      if (owner?.phase === "removed") return owner.root
     })
 
     const list = Effect.fn("Session.list")(function* (input?: ListInput) {
@@ -690,26 +697,31 @@ const layer: Layer.Layer<
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
-      const session = yield* get(sessionID)
-      try {
-        // `remove` needs to work in all cases, such as broken sessions that
-        // run cleanup without instance state.
-        const hasInstance = yield* InstanceState.directory.pipe(
-          Effect.as(true),
-          Effect.catchCause(() => Effect.succeed(false)),
-        )
-
-        if (hasInstance) yield* cancelBackgroundJobs(background, sessionID)
-        const kids = yield* children(sessionID)
-        for (const child of kids) {
-          yield* remove(child.id)
+      const owner = yield* lifecycle.get(sessionID)
+      const current = yield* get(sessionID).pipe(Effect.option)
+      if (Option.isNone(current)) {
+        if (owner?.intent === "delete") {
+          yield* lifecycle.finalizeDelete(sessionID)
+          return
         }
-
-        yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
-        yield* events.remove(sessionID)
-      } catch (error) {
-        yield* Effect.logError("failed to remove session", { sessionID, error })
+        return yield* get(sessionID)
       }
+      const session = current.value
+      const managed = yield* lifecycle.prepareDelete(sessionID)
+      const hasInstance = yield* InstanceState.directory.pipe(
+        Effect.as(true),
+        Effect.catchCause(() => Effect.succeed(false)),
+      )
+      if (!managed.managed && hasInstance) yield* cancelBackgroundJobs(background, sessionID)
+
+      const kids = yield* children(sessionID)
+      for (const child of kids) {
+        yield* remove(child.id)
+      }
+
+      yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
+      yield* events.remove(sessionID)
+      if (managed.managed) yield* lifecycle.finalizeDelete(sessionID)
     })
 
     const updateMessage = <T extends SessionV1.Info>(msg: T): Effect.Effect<T> =>
@@ -841,7 +853,19 @@ const layer: Layer.Layer<
     })
 
     const setArchived = Effect.fn("Session.setArchived")(function* (input: { sessionID: SessionID; time?: number }) {
-      yield* patch(input.sessionID, { time: { archived: input.time } }).pipe(Effect.orDie)
+      if (input.time !== undefined) {
+        const managed = yield* lifecycle.prepareArchive(input.sessionID)
+        yield* patch(input.sessionID, { time: { archived: input.time } }).pipe(
+          Effect.onError(() => lifecycle.abortArchive(input.sessionID)),
+          Effect.orDie,
+        )
+        if (managed.managed) yield* lifecycle.continueArchive(input.sessionID)
+        return
+      }
+
+      const managed = yield* lifecycle.prepareRestore(input.sessionID)
+      yield* patch(input.sessionID, { time: { archived: undefined } }).pipe(Effect.orDie)
+      if (managed.managed) yield* lifecycle.finalizeRestore(input.sessionID)
     })
 
     const setMetadata = Effect.fn("Session.setMetadata")(function* (input: typeof SetMetadataInput.Type) {
@@ -997,6 +1021,7 @@ const layer: Layer.Layer<
       fork,
       touch,
       get,
+      routingDirectory,
       setTitle,
       setArchived,
       setMetadata,
@@ -1097,7 +1122,7 @@ function listByProject(
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
+  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node, WorktreeLifecycle.node],
 })
 
 export * as Session from "./session"

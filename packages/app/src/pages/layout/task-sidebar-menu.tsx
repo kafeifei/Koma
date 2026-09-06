@@ -1,4 +1,4 @@
-import { splitProps, type JSX, type ParentProps } from "solid-js"
+import { Show, splitProps, type JSX, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { ContextMenu } from "@opencode-ai/ui/context-menu"
@@ -17,6 +17,9 @@ export type TaskSidebarMenuProps = {
   pinned: boolean
   archived: boolean
   busy: boolean
+  running: boolean
+  cleanupStatus: () => Promise<{ managed: boolean; operation?: string; state?: string; message?: string }>
+  onDelete: () => Promise<void>
   canMutate: boolean
   onPin: () => void
   onRename: (title: string) => Promise<void>
@@ -27,6 +30,32 @@ export type TaskSidebarMenuProps = {
 export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
   const dialog = useDialog()
   const language = useLanguage()
+  const [cleanup, setCleanup] = createStore({ retry: false, message: undefined as string | undefined })
+  const inspect = (open: boolean) => {
+    if (!open || !props.archived || !props.canMutate) return
+    void props.cleanupStatus().then(
+      (status) =>
+        setCleanup({
+          retry:
+            status.managed &&
+            status.operation === "archive" &&
+            (status.state === "pending" || status.state === "failed"),
+          message: status.message,
+        }),
+      () => setCleanup({ retry: false, message: undefined }),
+    )
+  }
+  const openDelete = () => dialog.show(() => <TaskDeleteDialog title={props.title} onDelete={props.onDelete} />)
+  const retryCleanup = () =>
+    void props
+      .onArchive()
+      .then(() => inspect(true))
+      .catch((cause) =>
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(cause, language.t("common.requestFailed")),
+        }),
+      )
   const pinLabel = () => language.t(props.pinned ? "workspace.task.unpin" : "workspace.task.pin")
   const archiveLabel = () => language.t(props.archived ? "workspace.task.restore" : "common.archive")
   const archiveDisabled = () => !props.canMutate || props.busy
@@ -40,10 +69,10 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
     )
 
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={inspect}>
       <ContextMenu.Trigger as={TaskRow} class="task-sidebar-menu">
         {props.children}
-        <DropdownMenu placement="bottom-end" gutter={4}>
+        <DropdownMenu placement="bottom-end" gutter={4} onOpenChange={inspect}>
           <DropdownMenu.Trigger
             as="button"
             type="button"
@@ -64,6 +93,14 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
               <DropdownMenu.Item disabled={archiveDisabled()} onSelect={toggleArchive}>
                 <DropdownMenu.ItemLabel>{archiveLabel()}</DropdownMenu.ItemLabel>
               </DropdownMenu.Item>
+              <Show when={cleanup.retry}>
+                <DropdownMenu.Item disabled={archiveDisabled()} onSelect={retryCleanup} title={cleanup.message}>
+                  <DropdownMenu.ItemLabel>{language.t("workspace.task.cleanup.retry")}</DropdownMenu.ItemLabel>
+                </DropdownMenu.Item>
+              </Show>
+              <DropdownMenu.Item disabled={!props.canMutate || props.busy || props.running} onSelect={openDelete}>
+                <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu>
@@ -78,6 +115,14 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
           </ContextMenu.Item>
           <ContextMenu.Item disabled={archiveDisabled()} onSelect={toggleArchive}>
             <ContextMenu.ItemLabel>{archiveLabel()}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
+          <Show when={cleanup.retry}>
+            <ContextMenu.Item disabled={archiveDisabled()} onSelect={retryCleanup} title={cleanup.message}>
+              <ContextMenu.ItemLabel>{language.t("workspace.task.cleanup.retry")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+          </Show>
+          <ContextMenu.Item disabled={!props.canMutate || props.busy || props.running} onSelect={openDelete}>
+            <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -134,6 +179,38 @@ function TaskRenameDialog(props: { title: string; onRename: (title: string) => P
           </Button>
         </div>
       </form>
+    </Dialog>
+  )
+}
+
+function TaskDeleteDialog(props: { title: string; onDelete: () => Promise<void> }) {
+  const dialog = useDialog()
+  const language = useLanguage()
+  const [state, setState] = createStore({ pending: false, error: undefined as string | undefined })
+  const remove = () => {
+    if (state.pending) return
+    setState({ pending: true, error: undefined })
+    void props.onDelete().then(
+      () => dialog.close(),
+      (cause) => setState({ pending: false, error: errorMessage(cause, language.t("common.requestFailed")) }),
+    )
+  }
+  return (
+    <Dialog title={language.t("workspace.task.delete.title")} class="w-full max-w-[420px] mx-auto">
+      <div class="flex flex-col gap-6 p-6 pt-0">
+        <p>{language.t("workspace.task.delete.description", { title: props.title })}</p>
+        <Show when={state.error}>
+          <p role="alert">{state.error}</p>
+        </Show>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" size="large" disabled={state.pending} onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="large" disabled={state.pending} onClick={remove}>
+            {language.t("common.delete")}
+          </Button>
+        </div>
+      </div>
     </Dialog>
   )
 }
