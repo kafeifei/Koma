@@ -23,6 +23,7 @@ import { SessionInputTable, SessionMessageTable, SessionTable } from "@opencode-
 import { testEffect } from "./lib/effect"
 import { Snapshot } from "@opencode-ai/core/snapshot"
 import { Location } from "@opencode-ai/core/location"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node, SessionProjector.node])))
 const sessionsLayer = AppNodeBuilder.build(SessionV2.node, [[SessionExecution.node, SessionExecution.noopLayer]])
@@ -45,6 +46,61 @@ const assistantRow = (
 }
 
 describe("SessionProjector", () => {
+  it.effect("preserves archive restoration when legacy session events are replayed", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      const events = yield* EventV2.Service
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .run()
+        .pipe(Effect.orDie)
+
+      const base = SessionV1.SessionInfo.make({
+        id: sessionID,
+        slug: "archive-replay",
+        projectID: Project.ID.global,
+        directory: "/project",
+        title: "archive replay",
+        version: "test",
+        time: { created: 1, updated: 1 },
+      })
+      yield* events.publish(SessionV1.Event.Created, { sessionID, info: base })
+      yield* events.publish(SessionV1.Event.Updated, {
+        sessionID,
+        info: SessionV1.SessionInfo.make({ ...base, time: { ...base.time, updated: 2, archived: 2 } }),
+      })
+      expect((yield* db.select({ archived: SessionTable.time_archived }).from(SessionTable).get())?.archived).toBe(2)
+
+      yield* events.publish(SessionV1.Event.Updated, {
+        sessionID,
+        info: SessionV1.SessionInfo.make({ ...base, time: { ...base.time, updated: 3 } }),
+      })
+      expect((yield* db.select({ archived: SessionTable.time_archived }).from(SessionTable).get())?.archived).toBeNull()
+
+      const stored = yield* db
+        .select()
+        .from(EventTable)
+        .where(eq(EventTable.aggregate_id, sessionID))
+        .orderBy(asc(EventTable.seq))
+        .all()
+        .pipe(Effect.orDie)
+      yield* events.remove(sessionID)
+      yield* db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run().pipe(Effect.orDie)
+      yield* events.replayAll(
+        stored.map((event) => ({
+          id: event.id,
+          aggregateID: event.aggregate_id,
+          seq: event.seq,
+          type: event.type,
+          data: event.data,
+        })),
+      )
+
+      expect((yield* db.select({ archived: SessionTable.time_archived }).from(SessionTable).get())?.archived).toBeNull()
+    }),
+  )
+
   it.effect("projects moved sessions without the transitional context epoch table", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service

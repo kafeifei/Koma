@@ -6,6 +6,8 @@ import { ServerConnection } from "./server"
 import type { WslServersPlatform } from "../wsl/types"
 import type { UpdaterPlatform } from "../updater"
 import type { DraftStore } from "@/utils/draft-store"
+import type { BuildInfo } from "../build-info"
+import type { WebEntryPlatform } from "../web-entry"
 
 type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
@@ -31,6 +33,15 @@ export type FatalRendererErrorLog = {
 type PlatformBase = {
   /** App version */
   version?: string
+
+  /** Immutable identity of the installed desktop build. */
+  buildInfo?: BuildInfo
+
+  /** Enable the performance diagnostics in packaged development builds. */
+  debugTools?: boolean
+
+  /** Browser access to this desktop's local backend. */
+  webEntry?: WebEntryPlatform
 
   /** Open a web or mail URL in the default system application */
   openExternal(url: string): void

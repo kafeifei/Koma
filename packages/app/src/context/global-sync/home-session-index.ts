@@ -88,6 +88,7 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
   const removed = new Set<string>()
 
   return {
+    queryClient,
     indexKey,
     eventsKey,
     eventSequence() {
@@ -97,11 +98,16 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
       // Keep events received after the fetch began so its response cannot overwrite them.
       queryClient.setQueryData<HomeSessionEvents>(eventsKey, (current) => trimHomeSessionEvents(current, sequence))
     },
-    sessions(index: HomeSessionIndex | undefined, events: HomeSessionEvents | undefined) {
-      const sessions = homeSessionIndexSessions(index, events)
-      return removed.size === 0 ? sessions : sessions.filter((session) => !removed.has(session.id))
+    sessions(index: HomeSessionIndex | undefined, events: HomeSessionEvents | undefined, archived = false) {
+      return homeSessionIndexSessions(index, events).filter((session) =>
+        archived
+          ? typeof session.time.archived === "number"
+          : typeof session.time.archived !== "number" && !removed.has(session.id),
+      )
     },
     apply(event: HomeSessionEvent) {
+      // A confirmed update can restore a task hidden by an earlier archive action.
+      if (event.type !== "session.deleted") removed.delete(event.properties.info.id)
       if (!queryClient.getQueryState(indexKey)) return
       const next = appendHomeSessionEvent(queryClient.getQueryData<HomeSessionEvents>(eventsKey), event)
       if (queryClient.isFetching({ queryKey: indexKey, exact: true }) > 0) {
@@ -125,6 +131,8 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
         if (!index) return index
         const at = index.sessions.findIndex((session) => session.id === sessionID)
         if (at === -1) return index
+        // Archive events retain the summary for the archive browser.
+        if (typeof index.sessions[at].time.archived === "number") return index
         return { ...index, sessions: index.sessions.toSpliced(at, 1) }
       })
     },
@@ -144,7 +152,7 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
 // parentID: null, order: "desc" }), then remove this adapter and its V1 fields.
 export function parseHomeSessionIndex(sessions: SessionV2Info[]): Session[] {
   return sessions.flatMap((item) => {
-    if (item.parentID || typeof item.time.archived === "number") return []
+    if (item.parentID) return []
     return [toLegacySummary(item)]
   })
 }
@@ -157,7 +165,7 @@ export function retainHomeSessions(sessions: Session[], limit: number, now: numb
 export function applyHomeSessionEvent(sessions: Session[], event: HomeSessionEvent) {
   const info = event.properties.info
   const index = sessions.findIndex((session) => session.id === info.id)
-  if (event.type === "session.deleted" || info.parentID || typeof info.time.archived === "number") {
+  if (event.type === "session.deleted" || info.parentID) {
     if (index === -1) return sessions
     return sessions.toSpliced(index, 1)
   }

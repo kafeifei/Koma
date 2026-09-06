@@ -1,0 +1,48 @@
+.task-sidebar-menu {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.task-sidebar-menu > [data-slot="workspace-task"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-sidebar-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--v2-text-text-muted);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.task-sidebar-menu:hover .task-sidebar-menu-trigger,
+.task-sidebar-menu:focus-within .task-sidebar-menu-trigger,
+.task-sidebar-menu-trigger[data-expanded] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.task-sidebar-menu-trigger:hover {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+
+@media (pointer: coarse) {
+  .task-sidebar-menu-trigger {
+    width: 44px;
+    min-height: 44px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

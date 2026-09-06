@@ -2,15 +2,15 @@ import { $ } from "bun"
 import { chmod, copyFile, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { resolveDesktopChannel, type DesktopChannel } from "../src/main/channel"
 
 const CLI_VERSION = "0.0.0-next-16350"
 
-export type Channel = "dev" | "beta" | "prod"
+export type Channel = DesktopChannel
 
-export function resolveChannel(): Channel {
-  const raw = Bun.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
+export function resolveChannel(value?: string): Channel {
+  if (value === "dev" || value === "lab" || value === "beta" || value === "prod") return value
+  return resolveDesktopChannel(Bun.env.OPENCODE_CHANNEL)
 }
 
 export const CLI_BINARIES: Array<{ rustTarget: string; package: string; os: string; cpu: string }> = [

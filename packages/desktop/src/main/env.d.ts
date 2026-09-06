@@ -1,5 +1,6 @@
 interface ImportMetaEnv {
-  readonly OPENCODE_CHANNEL: string
+  readonly OPENCODE_CHANNEL: "dev" | "lab" | "beta" | "prod"
+  readonly OPENCODE_BUILD: import("@opencode-ai/app/build-info").BuildInfo
 }
 
 interface ImportMeta {

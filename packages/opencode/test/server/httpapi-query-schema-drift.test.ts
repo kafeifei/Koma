@@ -14,6 +14,7 @@ import {
 import {
   ExperimentalPaths,
   SessionListQuery as ExperimentalSessionListQuery,
+  SessionSearchQuery,
   ToolListQuery,
 } from "../../src/server/routes/instance/httpapi/groups/experimental"
 import { InstancePaths, VcsDiffQuery } from "../../src/server/routes/instance/httpapi/groups/instance"
@@ -52,6 +53,7 @@ const openApiDriftRoutes = [
   { method: "get", path: FilePaths.findText, query: FindTextQuery },
   { method: "get", path: FilePaths.list, query: FileQuery },
   { method: "get", path: ExperimentalPaths.session, query: ExperimentalSessionListQuery },
+  { method: "get", path: ExperimentalPaths.sessionSearch, query: SessionSearchQuery },
   { method: "get", path: ExperimentalPaths.tool, query: ToolListQuery },
   { method: "get", path: InstancePaths.vcsDiff, query: VcsDiffQuery },
   { method: "get", path: "/api/session/:sessionID/message", query: SessionMessagesQuery },
@@ -61,6 +63,12 @@ const numericSdkQueryParams = [
   { method: "get", path: ExperimentalPaths.session, name: "start", schema: { type: "number" } },
   { method: "get", path: ExperimentalPaths.session, name: "cursor", schema: { type: "number" } },
   { method: "get", path: ExperimentalPaths.session, name: "limit", schema: { type: "number" } },
+  {
+    method: "get",
+    path: ExperimentalPaths.sessionSearch,
+    name: "limit",
+    schema: { type: "integer", minimum: 1, maximum: 100 },
+  },
   { method: "get", path: FilePaths.findFile, name: "limit", schema: { type: "integer", minimum: 1, maximum: 200 } },
   { method: "get", path: SessionPaths.list, name: "start", schema: { type: "number" } },
   { method: "get", path: SessionPaths.list, name: "limit", schema: { type: "number" } },
@@ -76,6 +84,7 @@ const numericSdkQueryParams = [
 const booleanSdkQueryParams = [
   { method: "get", path: ExperimentalPaths.session, name: "roots" },
   { method: "get", path: ExperimentalPaths.session, name: "archived" },
+  { method: "get", path: ExperimentalPaths.sessionSearch, name: "archived" },
   { method: "get", path: SessionPaths.list, name: "roots" },
 ] satisfies Array<{ method: Method; path: string; name: string }>
 

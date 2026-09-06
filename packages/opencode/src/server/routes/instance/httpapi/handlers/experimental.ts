@@ -15,7 +15,13 @@ import { Effect, Option } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
+import {
+  ConsoleSwitchPayload,
+  SessionListQuery,
+  SessionSearchQuery,
+  ToolListQuery,
+  WorktreeApiError,
+} from "../groups/experimental"
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
@@ -156,6 +162,17 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       })
     })
 
+    const sessionSearch = Effect.fn("ExperimentalHttpApi.sessionSearch")(function* (ctx: {
+      query: typeof SessionSearchQuery.Type
+    }) {
+      return yield* sessions.searchGlobal({
+        query: ctx.query.query,
+        archived: ctx.query.archived,
+        cursor: ctx.query.cursor,
+        limit: ctx.query.limit,
+      })
+    })
+
     const sessionBackground = Effect.fn("ExperimentalHttpApi.sessionBackground")(function* (ctx: {
       params: { sessionID: SessionID }
     }) {
@@ -187,6 +204,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("worktreeRemove", worktreeRemove)
       .handle("worktreeReset", worktreeReset)
       .handle("session", session)
+      .handle("sessionSearch", sessionSearch)
       .handle("sessionBackground", sessionBackground)
       .handle("resource", resource)
   }),

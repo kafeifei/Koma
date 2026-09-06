@@ -62,6 +62,8 @@ const QueryParameterSchemas: Record<string, OpenApiSchema> = {
   "GET /find/file limit": { type: "integer", minimum: 1, maximum: 200 },
   "GET /experimental/session cursor": { type: "number" },
   "GET /experimental/session limit": { type: "number" },
+  "GET /experimental/session/search archived": QueryBooleanOpenApi,
+  "GET /experimental/session/search limit": { type: "integer", minimum: 1, maximum: 100 },
   "GET /session start": { type: "number" },
   "GET /session roots": QueryBooleanOpenApi,
   "GET /session limit": { type: "number" },
@@ -136,6 +138,11 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
             ? spec.components?.schemas?.[ref]?.properties
             : operation.requestBody.content?.["application/json"]?.schema?.properties
           if (properties?.id) properties.id = { anyOf: [properties.id, { type: "null" }] }
+        }
+        if (path === "/session/{sessionID}" && method === "patch") {
+          const properties = operation.requestBody.content?.["application/json"]?.schema?.properties
+          const archived = properties?.time?.properties?.archived
+          if (archived) properties!.time!.properties!.archived = nullable(archived)
         }
       }
       for (const response of Object.values(operation.responses ?? {})) {

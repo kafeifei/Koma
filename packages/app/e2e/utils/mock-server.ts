@@ -27,6 +27,10 @@ export interface MockServerConfig {
   fileList?: (path: string) => unknown | Promise<unknown>
   fileContent?: (path: string) => unknown | Promise<unknown>
   findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown | Promise<unknown>
+  sessionSearch?: (input: { query: string; archived: boolean; limit: number; cursor?: string }) => {
+    data: { sessionID: string; directory: string; snippet: string }[]
+    cursor?: string
+  }
   sessionStatus?: Record<string, unknown> | (() => Record<string, unknown>)
 }
 
@@ -77,6 +81,32 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (path === "/api/health" && config.protocol === "v2")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
+    if (path === "/experimental/session/search") {
+      const input = {
+        query: url.searchParams.get("query") ?? "",
+        archived: url.searchParams.get("archived") === "true",
+        limit: Number(url.searchParams.get("limit") ?? 50),
+        cursor: url.searchParams.get("cursor") ?? undefined,
+      }
+      if (config.sessionSearch) return json(route, config.sessionSearch(input))
+      return json(route, {
+        data: config.sessions
+          .filter(
+            (session) => (typeof (session.time as { archived?: unknown })?.archived === "number") === input.archived,
+          )
+          .filter((session) =>
+            String(session.title ?? "")
+              .toLowerCase()
+              .includes(input.query.toLowerCase()),
+          )
+          .slice(0, input.limit)
+          .map((session) => ({
+            sessionID: session.id,
+            directory: String(session.directory ?? config.directory),
+            snippet: String(session.title ?? ""),
+          })),
+      })
+    }
     if (path === "/provider")
       return json(route, typeof config.provider === "function" ? config.provider() : config.provider)
     if (path === "/provider/auth") return json(route, config.integrationMethods ?? {})
@@ -232,6 +262,14 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (/^\/session\/[^/]+\/permissions\/[^/]+$/.test(path) && route.request().method() === "POST") {
       return json(route, true)
     }
+    const renameSessionMatch = path.match(/^\/api\/session\/([^/]+)\/rename$/)
+    if (renameSessionMatch && route.request().method() === "POST") {
+      const index = config.sessions.findIndex((session) => session.id === renameSessionMatch[1])
+      if (index === -1) return json(route, { error: "Session not found" }, undefined, 404)
+      const update = route.request().postDataJSON() as { title: string }
+      config.sessions[index] = { ...config.sessions[index], title: update.title }
+      return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
+    }
     if (
       /^\/api\/session\/[^/]+\/(archive|rename|interrupt|revert\/clear|revert\/commit)$/.test(path) &&
       route.request().method() === "POST"
@@ -240,6 +278,22 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     }
     if (/^\/api\/session\/[^/]+$/.test(path) && route.request().method() === "DELETE") {
       return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
+    }
+    const updateSessionMatch = path.match(/^\/session\/([^/]+)$/)
+    if (updateSessionMatch && route.request().method() === "PATCH") {
+      const index = config.sessions.findIndex((session) => session.id === updateSessionMatch[1])
+      if (index === -1) return json(route, { error: "Session not found" }, undefined, 404)
+      const update = route.request().postDataJSON() as { title?: string; time?: Record<string, unknown> }
+      const session = {
+        ...config.sessions[index],
+        ...update,
+        time: {
+          ...((config.sessions[index].time as Record<string, unknown> | undefined) ?? {}),
+          ...update.time,
+        },
+      }
+      config.sessions[index] = session
+      return json(route, session)
     }
     if (path in staticRoutes) return json(route, staticRoutes[path])
 

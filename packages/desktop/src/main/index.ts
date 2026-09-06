@@ -4,6 +4,7 @@ import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, BrowserWindow } from "electron"
@@ -13,7 +14,7 @@ import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
 import { checkAppExists, resolveAppPath } from "./apps"
-import { CHANNEL } from "./constants"
+import { APP_ID, APP_NAME, APP_PROTOCOL, CHANNEL } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
 import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as writeLog } from "./logging"
@@ -49,17 +50,9 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
+import { prepareLabEnvironment } from "./lab-environment"
+import { createWebEntryController } from "./web-entry-controller"
 
-const APP_NAMES: Record<string, string> = {
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
-}
-const APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
-}
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
@@ -80,9 +73,12 @@ function useEnvProxy() {
 
 function emitDeepLinks(urls: string[]) {
   if (urls.length === 0) return
-  pendingDeepLinks.push(...urls)
+  const normalized = urls.map((url) =>
+    APP_PROTOCOL === "opencode" ? url : url.replace(`${APP_PROTOCOL}://`, "opencode://"),
+  )
+  pendingDeepLinks.push(...normalized)
   const win = getLastFocusedWindow()
-  if (win) sendDeepLinks(win, urls)
+  if (win) sendDeepLinks(win, normalized)
 }
 
 async function killSidecar() {
@@ -122,7 +118,7 @@ const main = Effect.gen(function* () {
 
   process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
-  const appId = app.isPackaged ? APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+  const appId = app.isPackaged || CHANNEL === "lab" ? APP_ID : "ai.opencode.desktop.dev"
   const onboardingTestRoot = ((): string | undefined => {
     if (!TEST_ONBOARDING) return
 
@@ -138,16 +134,20 @@ const main = Effect.gen(function* () {
     process.env.XDG_STATE_HOME = join(root, "state")
     return root
   })()
-  app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OpenCode Dev")
+  app.setName(app.isPackaged || CHANNEL === "lab" ? APP_NAME : "OpenCode Dev")
   app.setAppUserModelId(appId)
-  app.setPath(
-    "userData",
-    onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId),
-  )
+  const userDataPath = onboardingTestRoot
+    ? join(onboardingTestRoot, "desktop")
+    : join(app.getPath("appData"), CHANNEL === "lab" ? APP_NAME : appId)
+  app.setPath("userData", userDataPath)
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
+  if (CHANNEL === "lab" && !onboardingTestRoot) app.setPath("sessionData", join(userDataPath, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
   logger = initLogging()
   initCrashReporter()
+
+  const serverReady = Deferred.makeUnsafe<ServerReadyData, unknown>()
+  let webEntry: ReturnType<typeof createWebEntryController> | undefined
 
   const wslServers = createWslServersController(
     app.getVersion(),
@@ -165,8 +165,8 @@ const main = Effect.gen(function* () {
     },
   )
   const stopSidecars = async () => {
-    await killSidecar()
     wslServers.stopAll()
+    await Promise.all([webEntry?.stop(), killSidecar()])
   }
   const relaunch = () => {
     setAppQuitting()
@@ -184,6 +184,7 @@ const main = Effect.gen(function* () {
 
   logger.log("app starting", {
     version: app.getVersion(),
+    build: import.meta.env.OPENCODE_BUILD,
     packaged: app.isPackaged,
     onboardingTest: Boolean(onboardingTestRoot),
   })
@@ -201,9 +202,10 @@ const main = Effect.gen(function* () {
   }
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
+  if (CHANNEL === "lab") prepareLabEnvironment(process.env, app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
+    const urls = argv.filter((arg: string) => arg.startsWith(`${APP_PROTOCOL}://`))
     if (urls.length) {
       logger.log("deep link received via second-instance", { urls })
       emitDeepLinks(urls)
@@ -250,8 +252,6 @@ const main = Effect.gen(function* () {
     })
   }
 
-  const serverReady = Deferred.makeUnsafe<ServerReadyData, unknown>()
-
   yield* Effect.promise(() => app.whenReady())
 
   if (!TEST_ONBOARDING) migrate()
@@ -268,7 +268,16 @@ const main = Effect.gen(function* () {
       }),
     ),
   )
-  app.setAsDefaultProtocolClient("opencode")
+  webEntry = createWebEntryController({
+    backend: () => Effect.runPromise(Deferred.await(serverReady)),
+    root: fileURLToPath(new URL("../renderer", import.meta.url)),
+    changed: (state) => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("web-entry-state", state))
+      logger.log("web entry changed", state)
+    },
+    failed: (error) => logger.error("web entry failed", error),
+  })
+  app.setAsDefaultProtocolClient(APP_PROTOCOL)
   registerRendererProtocol()
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)
@@ -281,6 +290,7 @@ const main = Effect.gen(function* () {
     relaunch,
   }
   registerIpcHandlers({
+    webEntry,
     killSidecar: () => killSidecar(),
     relaunch,
     awaitInitialization: Effect.fnUntraced(
@@ -332,7 +342,9 @@ const main = Effect.gen(function* () {
 
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")
-      const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
+      const sidecar = yield* Effect.promise(() =>
+        startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME, { isolated: CHANNEL === "lab" }),
+      )
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,
         username: sidecar.username,
@@ -407,6 +419,7 @@ const main = Effect.gen(function* () {
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)
 
   yield* Fiber.await(loadingTask)
+  yield* Effect.promise(() => webEntry.initialize())
 
   app.on("window-all-closed", () => {
     if (process.platform === "darwin") return

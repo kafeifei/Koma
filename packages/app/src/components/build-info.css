@@ -1,0 +1,13 @@
+[data-component="build-info"] {
+  min-width: 0;
+  color: var(--v2-text-text-faint);
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+[data-component="task-sidebar"] [data-component="build-info"] {
+  padding: 4px 9px 0;
+}

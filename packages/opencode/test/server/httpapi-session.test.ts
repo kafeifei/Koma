@@ -743,6 +743,13 @@ describe("session HttpApi", () => {
         })
         expect(updated).toMatchObject({ id: created.id, title: "updated", time: { archived: 1 } })
 
+        const restored = yield* requestJson<Session.Info>(pathFor(SessionPaths.update, { sessionID: created.id }), {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ time: { archived: null } }),
+        })
+        expect(restored.time.archived).toBeUndefined()
+
         const forked = yield* requestJson<Session.Info>(pathFor(SessionPaths.fork, { sessionID: created.id }), {
           method: "POST",
           headers,

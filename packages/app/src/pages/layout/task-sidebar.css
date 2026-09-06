@@ -1,0 +1,264 @@
+[data-component="task-workspace"] {
+  --workspace-sidebar-width: 248px;
+}
+
+[data-slot="workspace-body"] {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+[data-component="task-sidebar"] {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: var(--workspace-sidebar-width);
+  min-height: 0;
+  padding: 12px 10px 10px;
+  color: var(--v2-text-text-base);
+  background: var(--v2-background-bg-deep);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-component="task-sidebar"][hidden],
+[data-component="task-sidebar"] [hidden] {
+  display: none;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-actions"],
+[data-component="task-sidebar"] [data-slot="workspace-footer"] {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 3px;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-action"],
+[data-component="task-sidebar"] [data-slot="workspace-task"],
+[data-component="task-sidebar"] [data-slot="workspace-icon-action"],
+[data-component="task-sidebar"] [data-slot="workspace-show-more"] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 6px 9px;
+  min-width: 0;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  text-decoration: none;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-action"] > span,
+[data-component="task-sidebar"] [data-slot="workspace-task-title"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-action"]:hover,
+[data-component="task-sidebar"] [data-slot="workspace-task"]:hover,
+[data-component="task-sidebar"] [data-slot="workspace-icon-action"]:hover,
+[data-component="task-sidebar"] [data-slot="workspace-show-more"]:hover {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task"][aria-current="page"],
+[data-component="task-sidebar"] [data-slot="workspace-action"][aria-current="page"] {
+  background: var(--v2-overlay-simple-overlay-pressed);
+}
+
+[data-component="task-sidebar"] :is(button, a, input):focus-visible {
+  outline: 2px solid var(--v2-border-border-focus);
+  outline-offset: -2px;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-search"] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 5px 0 12px;
+  padding: 7px 9px;
+  color: var(--v2-text-text-muted);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-search"] input {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--v2-text-text-base);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-search"] input::placeholder {
+  color: var(--v2-text-text-muted);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task-list"] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-section-heading"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding-inline: 9px 0;
+  margin-top: 8px;
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-project"] {
+  margin-bottom: 15px;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-project-heading"] {
+  display: flex;
+  align-items: center;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-project-heading"] [data-slot="workspace-action"] {
+  flex: 1;
+  gap: 5px;
+  padding-inline-start: 3px;
+  font-weight: 500;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-icon-action"] {
+  flex-shrink: 0;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 5px;
+  color: var(--v2-text-text-muted);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task-time"] {
+  flex-shrink: 0;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task-content"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task-snippet"] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task-pin"] {
+  display: flex;
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--v2-text-text-muted);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-task-status"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--v2-text-text-muted);
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-status-dot"] {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--v2-icon-icon-muted);
+  opacity: 0.45;
+}
+
+[data-component="task-sidebar"] [data-status="attention"] [data-slot="workspace-status-dot"] {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--v2-state-fg-warning);
+  opacity: 1;
+}
+
+[data-component="task-sidebar"] [data-status="unread"] [data-slot="workspace-status-dot"] {
+  background: var(--v2-state-fg-info);
+  opacity: 1;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-empty"],
+[data-component="task-sidebar"] [data-slot="workspace-show-more"] {
+  padding: 6px 12px 6px 30px;
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+}
+
+[data-component="task-sidebar"] [data-slot="workspace-footer"] {
+  border-top: 1px solid var(--v2-border-border-muted);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+[data-slot="workspace-backdrop"] {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  [data-component="task-sidebar"] {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: min(280px, calc(100% - 48px));
+    z-index: 50;
+    border-inline-end: 1px solid var(--v2-border-border-base);
+  }
+
+  [data-slot="workspace-backdrop"] {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    background: var(--v2-overlay-simple-overlay-scrim);
+  }
+}
+
+@media (pointer: coarse) {
+  [data-component="task-sidebar"]
+    :is([data-slot="workspace-task"], [data-slot="workspace-action"], [data-slot="workspace-icon-action"]) {
+    min-height: 44px;
+  }
+
+  [data-component="task-sidebar"] [data-slot="workspace-icon-action"] {
+    width: 44px;
+  }
+}

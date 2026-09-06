@@ -1,6 +1,9 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
+  "settings.webEntry.title": "Web access",
+  "settings.webEntry.description": "Open this desktop's tasks in a browser on this computer.",
+  "settings.webEntry.error": "Web access could not start. Turn it off and on to try again.",
   ...DESKTOP_NATIVE_ENGLISH,
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
@@ -803,6 +806,8 @@ export const dict = {
 
   "titlebar.update": "Update",
   "titlebar.updateVersion": "Update {{version}}",
+  "titlebar.toggleDebugTools": "Toggle debug tools",
+  "app.build": "Build {{build}}",
 
   "common.closeTab": "Close tab",
   "common.dismiss": "Dismiss",
@@ -1123,6 +1128,21 @@ export const dict = {
   "session.delete.button": "Delete session",
 
   "workspace.new": "New workspace",
+  "workspace.newTask": "New task",
+  "workspace.activeTasks": "All tasks",
+  "workspace.archived": "Archived",
+  "workspace.archive.empty": "No archived tasks",
+  "workspace.search.placeholder": "Search tasks and conversation content",
+  "workspace.search.loading": "Searching...",
+  "workspace.search.failed": "Search failed",
+  "workspace.search.more": "More results are available",
+  "workspace.task.pin": "Pin",
+  "workspace.task.unpin": "Unpin",
+  "workspace.task.restore": "Restore",
+  "workspace.task.rename.title": "Rename task",
+  "workspace.task.rename.name": "Name",
+  "workspace.drafts": "Drafts",
+  "workspace.retry": "Retry",
   "workspace.type.local": "local",
   "workspace.type.sandbox": "sandbox",
   "workspace.create.failed.title": "Failed to create workspace",
@@ -1133,6 +1153,10 @@ export const dict = {
   "workspace.reset.success.title": "Workspace reset",
   "workspace.reset.success.description": "Workspace now matches the default branch.",
   "workspace.error.stillPreparing": "Workspace is still preparing",
+  "workspace.status.running": "Running",
+  "workspace.status.attention": "Needs your input",
+  "workspace.status.unread": "Unread",
+  "workspace.status.idle": "Ready",
   "workspace.status.checking": "Checking for unmerged changes...",
   "workspace.status.error": "Unable to verify git status.",
   "workspace.status.clean": "No unmerged changes detected.",

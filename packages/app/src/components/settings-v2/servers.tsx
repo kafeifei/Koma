@@ -9,16 +9,19 @@ import { createStore } from "solid-js/store"
 import { ServerRowMenu } from "@/components/server/server-row-menu"
 import { ServerHealthIndicator } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import { ServerConnection, serverName } from "@/context/server"
 import { useServerManagementController } from "../dialog-select-server"
 import { DialogServerV2 } from "./dialog-server-v2"
 import { SettingsListV2 } from "./parts/list"
+import { WebEntrySetting } from "./web-entry"
 import { AddServerMenu, isWslServer, useFilteredWslServers, WslServerSettings } from "@/wsl/settings"
 import "./settings-v2.css"
 
 export const SettingsServersV2: Component = () => {
   const dialog = useDialog()
   const language = useLanguage()
+  const platform = usePlatform()
   const controller = useServerManagementController()
   const [store, setStore] = createStore({ filter: "" })
   const wslServers = useFilteredWslServers(() => store.filter)
@@ -85,6 +88,13 @@ export const SettingsServersV2: Component = () => {
       </div>
 
       <div class="settings-v2-tab-body settings-v2-servers">
+        <Show when={platform.webEntry}>
+          {(entry) => (
+            <div class="mb-6">
+              <WebEntrySetting entry={entry()} />
+            </div>
+          )}
+        </Show>
         <Show
           when={filtered().length > 0 || wslServers().length > 0}
           fallback={

@@ -134,6 +134,7 @@ function manifest() {
   return {
     generated: new Date().toISOString(),
     version: app.getVersion(),
+    build: import.meta.env.OPENCODE_BUILD,
     name: app.getName(),
     packaged: app.isPackaged,
     platform: process.platform,

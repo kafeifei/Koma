@@ -74,7 +74,7 @@ describe("Home V2 session index", () => {
     ])
   })
 
-  test("maps visible roots to Home session summaries", () => {
+  test("keeps active and archived roots in the shared index", () => {
     const activeNull = {
       ...session({ id: "active-null", updated: 20 }),
       time: { created: 1, updated: 20, archived: null },
@@ -100,6 +100,7 @@ describe("Home V2 session index", () => {
         id: "active-null",
         time: { created: 1, updated: 20, archived: null },
       }),
+      expect.objectContaining({ id: "archived", time: { created: 1, updated: 50, archived: 50 } }),
     ])
   })
 
@@ -181,5 +182,41 @@ describe("Home V2 session index", () => {
 
     expect(queryClient.getQueryData(cache.indexKey)).toBeUndefined()
     expect(cache.sessions({ sessions, eventSequence: 0 }, undefined).map((item) => item.id)).toEqual(["b"])
+  })
+
+  test("archive and restore move the same task between views without losing its summary", () => {
+    const queryClient = new QueryClient()
+    const cache = createHomeSessionIndexCache(queryClient, "server")
+    const info = parseHomeSessionIndex([session({ id: "a" })])[0]
+    queryClient.setQueryData(cache.indexKey, { sessions: [info], eventSequence: 0 })
+    const index = () => queryClient.getQueryData<import("./home-session-index").HomeSessionIndex>(cache.indexKey)
+    cache.apply({
+      type: "session.updated",
+      properties: { sessionID: info.id, info: { ...info, time: { ...info.time, archived: 7 } } },
+    })
+    cache.remove(info.id)
+    expect(cache.sessions(index(), undefined)).toEqual([])
+    expect(cache.sessions(index(), undefined, true).map((item) => item.id)).toEqual([info.id])
+    cache.apply({ type: "session.updated", properties: { sessionID: info.id, info } })
+    expect(cache.sessions(index(), undefined)).toEqual([info])
+    expect(cache.sessions(index(), undefined, true)).toEqual([])
+    queryClient.clear()
+  })
+
+  test("an archive or restore received during a fetch wins over the response snapshot", async () => {
+    const queryClient = new QueryClient()
+    const cache = createHomeSessionIndexCache(queryClient, "server")
+    const info = parseHomeSessionIndex([session({ id: "a", archived: 7 })])[0]
+    queryClient.setQueryData(cache.indexKey, { sessions: [info], eventSequence: 0 })
+    const { promise, resolve } = Promise.withResolvers<{ sessions: Session[]; eventSequence: number }>()
+    const fetch = queryClient.fetchQuery({ queryKey: cache.indexKey, queryFn: () => promise })
+    const restored = { ...info, time: { ...info.time, archived: undefined } }
+    cache.apply({ type: "session.updated", properties: { sessionID: info.id, info: restored } })
+    resolve({ sessions: [info], eventSequence: 0 })
+    const index = await fetch
+    const events = queryClient.getQueryData<import("./home-session-index").HomeSessionEvents>(cache.eventsKey)
+    expect(cache.sessions(index, events)).toEqual([restored])
+    expect(cache.sessions(index, events, true)).toEqual([])
+    queryClient.clear()
   })
 })

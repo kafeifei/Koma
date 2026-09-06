@@ -39,6 +39,9 @@ import type { PromptSession } from "@/context/prompt"
 import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
 import { normalizeSessionInfo } from "@/utils/session"
+import { createDraftPromptSession } from "@/context/prompt-state"
+import { displayName } from "@/pages/layout/helpers"
+import { sessionTitle } from "@/utils/session-title"
 
 const legacyTitlebarHeight = 40
 const v2TitlebarHeight = 36
@@ -61,7 +64,11 @@ export function useTitlebarRightMount() {
   return mount
 }
 
-export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visible: boolean; toggle: () => void } }) {
+export function Titlebar(props: {
+  update?: TitlebarUpdate
+  debugTools?: { visible: boolean; toggle: () => void }
+  workspace?: { opened: boolean; toggle: () => void }
+}) {
   const layout = useLayout()
   const platform = usePlatform()
   const command = useCommand()
@@ -197,14 +204,20 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
             const tabs = useTabs()
             const tabsStore = tabs.store
             const tabsStoreActions = tabs
+            const sessionContext = createMemo(() => {
+              const route = layout.route()
+              if (route.type !== "session") return
+              const conn = global.servers
+                .list()
+                .find((item) => ServerConnection.key(item) === (route.server ?? server.key))
+              if (conn) return global.ensureServerCtx(conn)
+            })
             const [session] = createResource(
               () => {
                 const route = layout.route()
                 if (route.type !== "session") return undefined
-                const conn = global.servers
-                  .list()
-                  .find((item) => ServerConnection.key(item) === (route.server ?? server.key))
-                return conn ? { route, sdk: global.ensureServerCtx(conn).sdk } : undefined
+                const context = sessionContext()
+                return context ? { route, sdk: context.sdk } : undefined
               },
               ({ route, sdk }) =>
                 sdk.api.session
@@ -312,15 +325,45 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
               tabs.newDraft({ server: fallback.server, directory: fallback.project.worktree }, "")
             }
             const toggleHome = () => tabs.toggleHome({ home: layout.route().type === "home", current: currentTab() })
+            const draftPrompt = createMemo(() => {
+              const tab = currentTab()
+              if (!props.workspace || tab?.type !== "draft") return
+              return tabs.state(tab, "prompt", () => createDraftPromptSession(tab.draftID))
+            })
+            const workspaceHeading = createMemo(() => {
+              const route = layout.route()
+              const tab = currentTab()
+              if (tab?.type === "draft") {
+                const title = draftPrompt()
+                  ?.current()
+                  .flatMap((part) => (part.type === "text" ? [part.content] : []))
+                  .join(" ")
+                  .trim()
+                return {
+                  title: title || language.t("workspace.newTask"),
+                  directory: displayName({ worktree: tab.directory }),
+                }
+              }
+              if (route.type === "session") {
+                const active = sessionContext()?.sync.session.peek(route.sessionId) ?? session()
+                const fallback = tab ? tabs.info[tabKey(tab)] : undefined
+                const directory = active?.directory ?? fallback?.directory
+                return {
+                  title: sessionTitle(active?.title ?? fallback?.title) || language.t("workspace.newTask"),
+                  directory: directory ? displayName({ worktree: directory }) : undefined,
+                }
+              }
+              return { title: language.t("home.title") }
+            })
 
             command.register("titlebar-home", () => [
               {
-                id: "home.toggle",
-                title: language.t("home.title"),
+                id: props.workspace ? "sidebar.toggle" : "home.toggle",
+                title: props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title"),
                 category: language.t("command.category.view"),
                 keybind: "mod+b",
                 hidden: true,
-                onSelect: toggleHome,
+                onSelect: props.workspace ? props.workspace.toggle : toggleHome,
               },
             ])
 
@@ -376,8 +419,11 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   placement="bottom"
                   value={
                     <>
-                      {language.t("home.title")}
-                      <KeybindV2 keys={command.keybindParts("home.toggle")} variant="neutral" />
+                      {props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title")}
+                      <KeybindV2
+                        keys={command.keybindParts(props.workspace ? "sidebar.toggle" : "home.toggle")}
+                        variant="neutral"
+                      />
                     </>
                   }
                   class="shrink-0"
@@ -387,48 +433,80 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                     variant="ghost-muted"
                     size="large"
                     class="!w-9 shrink-0"
-                    icon={<IconV2 name="grid-plus" />}
-                    state={layout.route().type === "home" ? "pressed" : undefined}
-                    onClick={toggleHome}
-                    aria-label={language.t("home.title")}
-                    aria-pressed={layout.route().type === "home"}
+                    icon={<IconV2 name={props.workspace ? "sidebar-right" : "grid-plus"} />}
+                    state={
+                      props.workspace
+                        ? props.workspace.opened
+                          ? "pressed"
+                          : undefined
+                        : layout.route().type === "home"
+                          ? "pressed"
+                          : undefined
+                    }
+                    onClick={props.workspace ? props.workspace.toggle : toggleHome}
+                    aria-label={props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title")}
+                    aria-expanded={props.workspace ? props.workspace.opened : undefined}
+                    aria-controls={props.workspace ? "task-sidebar" : undefined}
+                    aria-pressed={props.workspace ? undefined : layout.route().type === "home"}
                   />
                 </TooltipV2>
 
-                <TitlebarTabStrip
-                  tabs={tabsStore}
-                  currentTab={currentTab}
-                  forceTruncate={tabsAreOverflowing()}
-                  onOverflowChange={setTabsAreOverflowing}
-                  onNavigate={(tab, el) => {
-                    tabs.select(tab)
-                    el?.scrollIntoView({ behavior: "instant" })
-                  }}
-                  onClose={(tab) => {
-                    const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
-                    if (index !== -1) tabsStoreActions.closeTab(index)
-                  }}
-                  onReorder={(keys) => tabsStoreActions.reorder(keys)}
-                />
-                <TooltipV2
-                  placement="bottom"
-                  value={
-                    <>
-                      {language.t("command.session.new")}
-                      <KeybindV2 keys={newTabTooltipKeybind(command)} variant="neutral" />
-                    </>
-                  }
-                >
-                  <IconButtonV2
-                    type="button"
-                    variant="ghost-muted"
-                    size="large"
-                    class="shrink-0"
-                    icon={<IconV2 name="plus" />}
-                    onClick={openNewTab}
-                    aria-label={language.t("command.session.new")}
+                <div classList={{ contents: !props.workspace, hidden: !!props.workspace }}>
+                  <TitlebarTabStrip
+                    tabs={tabsStore}
+                    currentTab={currentTab}
+                    forceTruncate={tabsAreOverflowing()}
+                    onOverflowChange={setTabsAreOverflowing}
+                    onNavigate={(tab, el) => {
+                      tabs.select(tab)
+                      el?.scrollIntoView({ behavior: "instant" })
+                    }}
+                    onClose={(tab) => {
+                      const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
+                      if (index !== -1) tabsStoreActions.closeTab(index)
+                    }}
+                    onReorder={(keys) => tabsStoreActions.reorder(keys)}
                   />
-                </TooltipV2>
+                </div>
+                <Show when={!props.workspace}>
+                  <TooltipV2
+                    placement="bottom"
+                    value={
+                      <>
+                        {language.t("command.session.new")}
+                        <KeybindV2 keys={newTabTooltipKeybind(command)} variant="neutral" />
+                      </>
+                    }
+                  >
+                    <IconButtonV2
+                      type="button"
+                      variant="ghost-muted"
+                      size="large"
+                      class="shrink-0"
+                      icon={<IconV2 name="plus" />}
+                      onClick={openNewTab}
+                      aria-label={language.t("command.session.new")}
+                    />
+                  </TooltipV2>
+                </Show>
+                <Show when={props.workspace}>
+                  <div
+                    data-slot="workspace-titlebar-heading"
+                    class="min-w-0 flex items-center gap-2 px-1 text-[13px] font-medium"
+                    data-tauri-drag-region
+                  >
+                    <span class="min-w-0 truncate text-v2-text-text-base" data-tauri-drag-region>
+                      {workspaceHeading().title}
+                    </span>
+                    <Show when={workspaceHeading().directory}>
+                      {(directory) => (
+                        <span class="shrink-0 text-v2-text-text-muted" data-tauri-drag-region>
+                          {directory()}
+                        </span>
+                      )}
+                    </Show>
+                  </div>
+                </Show>
                 <div class="flex-1" />
                 <TitlebarV2Right state={v2RightState()} />
               </div>
@@ -646,14 +724,15 @@ function TitlebarUpdateIconButton(props: { state: TitlebarUpdatePillState }) {
 }
 
 function ChannelIndicator(props: { debugTools?: { visible: boolean; toggle: () => void } }) {
+  const language = useLanguage()
   const channel = import.meta.env.VITE_OPENCODE_CHANNEL
-  if (channel === "dev" && props.debugTools) {
+  if (props.debugTools) {
     return (
       <button
         type="button"
         class="bg-icon-interactive-base text-[#FFF] font-medium px-2 rounded-sm uppercase font-mono cursor-pointer"
         onClick={props.debugTools.toggle}
-        aria-label="Toggle debug tools"
+        aria-label={language.t("titlebar.toggleDebugTools")}
         aria-pressed={props.debugTools.visible}
       >
         DEV

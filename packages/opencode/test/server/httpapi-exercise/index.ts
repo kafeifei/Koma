@@ -578,6 +578,13 @@ const scenarios: Scenario[] = [
     .get("/experimental/session", "experimental.session.list")
     .at((ctx) => ({ path: "/experimental/session?roots=false&archived=false", headers: ctx.headers() }))
     .json(200, array),
+  http.protected
+    .get("/experimental/session/search", "experimental.session.search")
+    .at((ctx) => ({ path: "/experimental/session/search?query=owner&archived=false", headers: ctx.headers() }))
+    .json(200, (body) => {
+      check(typeof body === "object" && body !== null && "data" in body, "search should return a page")
+      check(Array.isArray(body.data), "search page data should be an array")
+    }),
   http.protected.get("/experimental/capabilities", "experimental.capabilities.get").json(200, (body) => {
     check(typeof body === "object" && body !== null, "capabilities should be an object")
     check("backgroundSubagents" in body, "capabilities should report background subagents")

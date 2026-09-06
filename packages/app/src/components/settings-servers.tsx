@@ -1,9 +1,12 @@
 import { Show, type Component } from "solid-js"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
+import { WebEntrySetting } from "./settings-v2/web-entry"
 import { ServerConnectionForm, ServerConnectionList, useServerManagementController } from "./dialog-select-server"
 
 export const SettingsServers: Component = () => {
   const language = useLanguage()
+  const platform = usePlatform()
   const controller = useServerManagementController()
 
   return (
@@ -18,6 +21,13 @@ export const SettingsServers: Component = () => {
                   <h2 class="text-16-medium text-text-strong">{language.t("status.popover.tab.servers")}</h2>
                 </div>
               </div>
+              <Show when={platform.webEntry}>
+                {(entry) => (
+                  <div class="mb-6">
+                    <WebEntrySetting entry={entry()} />
+                  </div>
+                )}
+              </Show>
               <ServerConnectionList controller={controller} />
             </>
           }

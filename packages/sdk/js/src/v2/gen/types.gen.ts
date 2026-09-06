@@ -2249,6 +2249,17 @@ export type GlobalSession = {
   project: ProjectSummary | null
 }
 
+export type SessionSearchResult = {
+  sessionID: string
+  directory: string
+  snippet: string
+}
+
+export type SessionSearchPage = {
+  data: Array<SessionSearchResult>
+  cursor?: string
+}
+
 export type McpResource = {
   name: string
   uri: string
@@ -7829,6 +7840,39 @@ export type ExperimentalSessionListResponses = {
 
 export type ExperimentalSessionListResponse = ExperimentalSessionListResponses[keyof ExperimentalSessionListResponses]
 
+export type ExperimentalSessionSearchData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    query: string
+    archived?: boolean | "true" | "false"
+    cursor?: string
+    limit?: number
+  }
+  url: "/experimental/session/search"
+}
+
+export type ExperimentalSessionSearchErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ExperimentalSessionSearchError = ExperimentalSessionSearchErrors[keyof ExperimentalSessionSearchErrors]
+
+export type ExperimentalSessionSearchResponses = {
+  /**
+   * Session search results
+   */
+  200: SessionSearchPage
+}
+
+export type ExperimentalSessionSearchResponse =
+  ExperimentalSessionSearchResponses[keyof ExperimentalSessionSearchResponses]
+
 export type ExperimentalSessionBackgroundData = {
   body?: never
   path: {
@@ -9621,7 +9665,7 @@ export type SessionUpdateData = {
     }
     permission?: PermissionRuleset
     time?: {
-      archived?: number
+      archived?: number | null
     }
   }
   path: {

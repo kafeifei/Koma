@@ -4,6 +4,7 @@ import { basename, join } from "node:path"
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
+import type { WebEntryPlatform } from "@opencode-ai/app/web-entry"
 import { parseDesktopNativeBundle, type DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 
 import type { FatalRendererError, ServerReadyData, TitlebarTheme } from "../preload/types"
@@ -33,6 +34,7 @@ const pickerFilters = (ext?: string[]) => {
 const pickedFiles = createPickedFileAuthorizations()
 
 type Deps = {
+  webEntry: Pick<WebEntryPlatform, "getState" | "setEnabled">
   killSidecar: () => Promise<void> | void
   relaunch: () => void
   awaitInitialization: () => Promise<ServerReadyData>
@@ -55,6 +57,11 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  ipcMain.handle("web-entry-get-state", () => deps.webEntry.getState())
+  ipcMain.handle("web-entry-set-enabled", (_event: IpcMainInvokeEvent, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid web entry preference")
+    return deps.webEntry.setEnabled(enabled)
+  })
   const drafts = createDesktopDraftStore(join(app.getPath("userData"), "drafts.sqlite"))
   const updaterSubscriptions = createUpdaterSubscriptions()
   app.once("will-quit", updaterSubscriptions.clear)

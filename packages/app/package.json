@@ -5,6 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./build-info": "./src/build-info.ts",
+    "./web-entry": "./src/web-entry.ts",
+    "./web-entrypoint": "./src/entry.tsx",
     "./desktop-menu": "./src/desktop-menu.ts",
     "./i18n/desktop-native": "./src/i18n/desktop-native.ts",
     "./updater": "./src/updater.ts",

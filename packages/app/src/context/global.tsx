@@ -9,6 +9,7 @@ import { createServerSyncContext } from "./server-sync"
 import { getOwner } from "solid-js/web"
 import { QueryClient } from "@tanstack/solid-query"
 import type { ServerScope } from "@/utils/server-scope"
+import { Persist, persisted } from "@/utils/persist"
 
 export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext({
   name: "Global",
@@ -109,6 +110,10 @@ function createServerCtx(
   })
   const sdk = createServerSdkContext(conn, scope)
   const sync = createServerSyncContext(sdk)
+  const [tasks, setTasks, , tasksReady] = persisted(
+    Persist.serverGlobal(scope, "task-workspace"),
+    createStore({ pinned: [] as string[] }),
+  )
 
   function enrich(project: { worktree: string; expanded: boolean }) {
     const [childStore] = sync.child(project.worktree, { bootstrap: false })
@@ -145,6 +150,16 @@ function createServerCtx(
     sdk,
     sync,
     isLocal,
+    tasks: {
+      ready: tasksReady,
+      pinned: () => tasks.pinned,
+      togglePin(sessionID: string) {
+        if (!tasksReady()) return
+        setTasks("pinned", (ids) =>
+          ids.includes(sessionID) ? ids.filter((id) => id !== sessionID) : [...ids, sessionID],
+        )
+      },
+    },
     projects: {
       ...projects,
       list: projectsList,

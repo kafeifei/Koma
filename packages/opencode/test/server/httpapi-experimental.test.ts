@@ -267,6 +267,57 @@ describe("experimental HttpApi", () => {
     { git: true, config: { formatter: false, lsp: false } },
   )
 
+  it.instance(
+    "searches active and archived sessions with an opaque cursor",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const first = yield* createSession({ title: "search target first" })
+        const second = yield* createSession({ title: "search target second" })
+        const archived = yield* createSession({ title: "search target archived" })
+        yield* setSessionUpdated(first, 1)
+        yield* setSessionUpdated(second, 2)
+        yield* Session.use.setArchived({ sessionID: archived.id, time: Date.now() })
+
+        const response = yield* request(`${ExperimentalPaths.sessionSearch}?query=target&limit=1`, tmp.directory)
+        expect(response.status).toBe(200)
+        const page = yield* json<Session.SearchPage>(response)
+        expect(page.data).toHaveLength(1)
+        expect(page.data[0]).toEqual({
+          sessionID: second.id,
+          directory: second.directory,
+          snippet: "search target second",
+        })
+        expect(page.cursor).toBeTruthy()
+
+        const next = yield* request(
+          `${ExperimentalPaths.sessionSearch}?${new URLSearchParams({ query: "target", cursor: page.cursor! })}`,
+          tmp.directory,
+        )
+        expect(next.status).toBe(200)
+        expect((yield* json<Session.SearchPage>(next)).data.map((item) => item.sessionID)).toContain(first.id)
+
+        const archivedOnly = yield* request(
+          `${ExperimentalPaths.sessionSearch}?query=target&archived=true`,
+          tmp.directory,
+        )
+        expect(archivedOnly.status).toBe(200)
+        const archivedPage = yield* json<Session.SearchPage>(archivedOnly)
+        expect(archivedPage.data.map((item) => item.sessionID)).toEqual([archived.id])
+        expect("cursor" in archivedPage).toBe(false)
+
+        for (const query of [
+          "query=%20%20",
+          "query=target&limit=0",
+          "query=target&limit=101",
+          "query=target&cursor=bad",
+        ]) {
+          expect((yield* request(`${ExperimentalPaths.sessionSearch}?${query}`, tmp.directory)).status).toBe(400)
+        }
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
   testWorktreeMutations(
     "serves worktree mutations through the default server app",
     () =>

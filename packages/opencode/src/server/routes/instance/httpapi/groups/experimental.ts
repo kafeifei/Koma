@@ -86,6 +86,17 @@ export const SessionListQuery = Schema.Struct({
   limit: Schema.optional(Schema.NumberFromString),
   archived: Schema.optional(QueryBoolean),
 })
+export const SessionSearchQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  query: Schema.String.check(
+    Schema.makeFilter((value) => (value.trim().length > 0 ? undefined : "Expected a non-empty search query")),
+  ),
+  archived: Schema.optional(QueryBoolean),
+  cursor: Schema.optional(Session.SearchCursor),
+  limit: Schema.optional(
+    Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)),
+  ),
+})
 
 export const ExperimentalPaths = {
   capabilities: "/experimental/capabilities",
@@ -97,6 +108,7 @@ export const ExperimentalPaths = {
   worktree: "/experimental/worktree",
   worktreeReset: "/experimental/worktree/reset",
   session: "/experimental/session",
+  sessionSearch: "/experimental/session/search",
   sessionBackground: "/experimental/session/:sessionID/background",
   resource: "/experimental/resource",
 } as const
@@ -230,6 +242,16 @@ export const ExperimentalApi = HttpApi.make("experimental")
             summary: "List sessions",
             description:
               "Get a list of all OpenCode sessions across projects, sorted by most recently updated. Archived sessions are excluded by default.",
+          }),
+        ),
+        HttpApiEndpoint.get("sessionSearch", ExperimentalPaths.sessionSearch, {
+          query: SessionSearchQuery,
+          success: described(Session.SearchPage, "Session search results"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.session.search",
+            summary: "Search sessions",
+            description: "Search session titles and visible text across projects, filtered by archive state.",
           }),
         ),
         HttpApiEndpoint.post("sessionBackground", ExperimentalPaths.sessionBackground, {

@@ -5,18 +5,22 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
+import { backgroundStateCandidates } from "./background-state"
 
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
-const stateHome = process.env.XDG_STATE_HOME
-const desktopStateNames = ["ai.opencode.desktop.dev", "ai.opencode.desktop.beta", "ai.opencode.desktop"]
 
 type Logger = {
   log(message: string, meta?: Record<string, unknown>): void
   error(message: string, meta?: Record<string, unknown>): void
 }
 
-export async function startBackgroundCli(logger: Logger, shellStateHome?: string) {
+export async function startBackgroundCli(
+  logger: Logger,
+  shellStateHome?: string,
+  options: { isolated?: boolean } = {},
+) {
+  const stateHome = process.env.XDG_STATE_HOME
   const bundled = app.isPackaged
     ? join(process.resourcesPath, executableName())
     : join(root, "../../resources", executableName())
@@ -24,9 +28,8 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
   const version = await run(bundled, ["--version"], logger)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
 
-  const candidates = [
-    ...new Set([stateHome, shellStateHome, ...desktopStateNames.map((name) => join(app.getPath("appData"), name))]),
-  ].filter((candidate) => candidate === undefined || existsSync(candidate))
+  const candidates = backgroundStateCandidates(shellStateHome, app.getPath("appData"), options.isolated)
+  if (options.isolated && candidates.length === 0) throw new Error("Isolated CLI state directory is unavailable")
   const discovered = await Promise.all(
     candidates.map(async (candidate) => ({
       stateHome: candidate,

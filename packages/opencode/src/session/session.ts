@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
+import { isNotNull } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { like } from "drizzle-orm"
 import { sql } from "drizzle-orm"
@@ -52,6 +53,18 @@ export function isDefaultTitle(title: string) {
   return new RegExp(
     `^(${parentTitlePrefix}|${childTitlePrefix})\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$`,
   ).test(title)
+}
+
+function encodeSearchCursor(updated: number, sessionID: SessionID) {
+  return Buffer.from(`${updated}:${sessionID}`).toString("base64url")
+}
+
+function decodeSearchCursor(cursor?: string) {
+  if (!cursor) return
+  const [updated, sessionID, extra] = Buffer.from(cursor, "base64url").toString().split(":")
+  const time = Number(updated)
+  if (extra !== undefined || !Number.isFinite(time) || !sessionID?.startsWith("ses")) return
+  return { updated: time, sessionID: SessionID.make(sessionID) }
 }
 
 type SessionRow = typeof SessionTable.$inferSelect
@@ -257,6 +270,22 @@ export const GlobalInfo = Schema.Struct({
 }).annotate({ identifier: "GlobalSession" })
 export type GlobalInfo = Types.DeepMutable<Schema.Schema.Type<typeof GlobalInfo>>
 
+export const SearchResult = Schema.Struct({
+  sessionID: SessionID,
+  directory: Schema.String,
+  snippet: Schema.String,
+}).annotate({ identifier: "SessionSearchResult" })
+export type SearchResult = Types.DeepMutable<Schema.Schema.Type<typeof SearchResult>>
+
+export const SearchPage = Schema.Struct({
+  data: Schema.Array(SearchResult),
+  cursor: Schema.optional(Schema.String),
+}).annotate({ identifier: "SessionSearchPage" })
+export type SearchPage = Types.DeepMutable<Schema.Schema.Type<typeof SearchPage>>
+export const SearchCursor = Schema.String.check(
+  Schema.makeFilter((value) => (decodeSearchCursor(value) ? undefined : "Expected a valid session search cursor")),
+)
+
 export const CreateInput = Schema.optional(
   Schema.Struct({
     parentID: Schema.optional(SessionID),
@@ -318,6 +347,13 @@ export type GlobalListInput = {
   search?: string
   limit?: number
   archived?: boolean
+}
+
+export type SearchGlobalInput = {
+  query: string
+  archived?: boolean
+  cursor?: string
+  limit?: number
 }
 
 export const Event = {
@@ -413,6 +449,7 @@ export type NotFound = NotFoundError
 export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<Info[]>
   readonly listGlobal: (input?: GlobalListInput) => Effect.Effect<GlobalInfo[]>
+  readonly searchGlobal: (input: SearchGlobalInput) => Effect.Effect<SearchPage>
   readonly create: (input?: {
     parentID?: SessionID
     title?: string
@@ -591,6 +628,55 @@ const layer: Layer.Layer<
         }
       }
       return rows.map((row) => ({ ...fromRow(row), project: projects.get(row.project_id) ?? null }))
+    })
+
+    const searchGlobal = Effect.fn("Session.searchGlobal")(function* (input: SearchGlobalInput) {
+      const query = input.query.trim()
+      if (!query) return { data: [] }
+      const text = sql<string>`json_extract(${PartTable.data}, '$.text')`
+      const textMatch = sql`json_extract(${PartTable.data}, '$.type') = 'text'
+        and coalesce(json_extract(${PartTable.data}, '$.ignored'), 0) = 0
+        and coalesce(json_extract(${PartTable.data}, '$.synthetic'), 0) = 0
+        and instr(lower(${text}), lower(${query})) > 0`
+      const titleMatch = sql`instr(lower(${SessionTable.title}), lower(${query})) > 0`
+      const conditions: SQL[] = [isNull(SessionTable.parent_id), sql`(${titleMatch} or ${textMatch})`]
+      conditions.push(input.archived ? isNotNull(SessionTable.time_archived) : isNull(SessionTable.time_archived))
+      const cursor = decodeSearchCursor(input.cursor)
+      if (cursor) {
+        conditions.push(
+          sql`(${SessionTable.time_updated} < ${cursor.updated} or (${SessionTable.time_updated} = ${cursor.updated} and ${SessionTable.id} < ${cursor.sessionID}))`,
+        )
+      }
+
+      const limit = Math.min(100, Math.max(1, Math.floor(input.limit ?? 100)))
+      const rows = yield* db
+        .select({
+          sessionID: SessionTable.id,
+          directory: SessionTable.directory,
+          updated: SessionTable.time_updated,
+          snippet: sql<string>`case
+            when ${titleMatch} then substr(${SessionTable.title}, max(instr(lower(${SessionTable.title}), lower(${query})) - 80, 1), 240)
+            else max(case when ${textMatch} then substr(${text}, max(instr(lower(${text}), lower(${query})) - 80, 1), 240) end)
+          end`,
+        })
+        .from(SessionTable)
+        .leftJoin(PartTable, eq(PartTable.session_id, SessionTable.id))
+        .where(and(...conditions))
+        .groupBy(SessionTable.id, SessionTable.directory, SessionTable.title, SessionTable.time_updated)
+        .orderBy(desc(SessionTable.time_updated), desc(SessionTable.id))
+        .limit(limit + 1)
+        .all()
+        .pipe(Effect.orDie)
+      const data = rows.slice(0, limit).map((row) => ({
+        sessionID: row.sessionID,
+        directory: row.directory,
+        snippet: row.snippet,
+      }))
+      const last = rows.length > limit ? rows[limit - 1] : undefined
+      return {
+        data,
+        ...(last ? { cursor: encodeSearchCursor(last.updated, last.sessionID) } : {}),
+      }
     })
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
@@ -906,6 +992,7 @@ const layer: Layer.Layer<
     return Service.of({
       list,
       listGlobal,
+      searchGlobal,
       create,
       fork,
       touch,

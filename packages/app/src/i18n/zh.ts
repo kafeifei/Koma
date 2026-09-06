@@ -3,6 +3,9 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "settings.webEntry.title": "网页入口",
+  "settings.webEntry.description": "在本机浏览器中打开桌面版的任务。",
+  "settings.webEntry.error": "网页入口启动失败，请关闭后重新开启。",
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "文件",
   "desktop.menu.edit": "编辑",
@@ -844,6 +847,8 @@ export const dict = {
 
   "titlebar.update": "更新",
   "titlebar.updateVersion": "更新 {{version}}",
+  "titlebar.toggleDebugTools": "切换调试工具",
+  "app.build": "构建 {{build}}",
 
   "common.closeTab": "关闭标签页",
   "common.dismiss": "忽略",
@@ -1102,6 +1107,21 @@ export const dict = {
   "session.delete.button": "删除会话",
 
   "workspace.new": "新建工作区",
+  "workspace.newTask": "新建任务",
+  "workspace.activeTasks": "全部任务",
+  "workspace.archived": "已归档",
+  "workspace.archive.empty": "暂无已归档任务",
+  "workspace.search.placeholder": "搜索任务和会话内容",
+  "workspace.search.loading": "搜索中...",
+  "workspace.search.failed": "搜索失败",
+  "workspace.search.more": "还可加载更多结果",
+  "workspace.task.pin": "置顶",
+  "workspace.task.unpin": "取消置顶",
+  "workspace.task.restore": "恢复",
+  "workspace.task.rename.title": "重命名任务",
+  "workspace.task.rename.name": "名称",
+  "workspace.drafts": "草稿",
+  "workspace.retry": "重试",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙盒",
   "workspace.create.failed.title": "创建工作区失败",
@@ -1112,6 +1132,10 @@ export const dict = {
   "workspace.reset.success.title": "工作区已重置",
   "workspace.reset.success.description": "工作区现已与默认分支一致。",
   "workspace.error.stillPreparing": "工作区仍在准备中",
+  "workspace.status.running": "运行中",
+  "workspace.status.attention": "需要你的输入",
+  "workspace.status.unread": "未读",
+  "workspace.status.idle": "就绪",
   "workspace.status.checking": "正在检查未合并的更改...",
   "workspace.status.error": "无法验证 Git 状态。",
   "workspace.status.clean": "未检测到未合并的更改。",

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { desktopIdentity, resolveDesktopChannel } from "./src/main/channel"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -29,22 +30,13 @@ async function signWindows(configuration: { path: string }) {
   )
 }
 
-const channel = (() => {
-  const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
-})()
-
-const APP_IDS = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
-} as const
+const channel = resolveDesktopChannel(process.env.OPENCODE_CHANNEL)
+const identity = desktopIdentity(channel)
 
 const getBase = (appId: string): Configuration => ({
-  artifactName: "opencode-desktop-${os}-${arch}.${ext}",
+  artifactName: channel === "lab" ? "opencode-lab-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
   directories: {
-    output: "dist",
+    output: channel === "lab" ? "dist-lab" : "dist",
     buildResources: "resources",
   },
   // Linux launchers are .desktop files, so this is the desktop file name,
@@ -57,7 +49,7 @@ const getBase = (appId: string): Configuration => ({
   },
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
   extraResources: [
-    ...(channel === "dev"
+    ...(channel === "dev" || channel === "lab"
       ? [
           {
             from: "resources/",
@@ -86,8 +78,8 @@ const getBase = (appId: string): Configuration => ({
     sign: true,
   },
   protocols: {
-    name: "OpenCode",
-    schemes: ["opencode"],
+    name: identity.name,
+    schemes: [identity.scheme],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -119,7 +111,7 @@ const getBase = (appId: string): Configuration => ({
 })
 
 function getConfig() {
-  const appId = APP_IDS[channel]
+  const appId = identity.appId
   const base = getBase(appId)
 
   switch (channel) {
@@ -130,6 +122,25 @@ function getConfig() {
         productName: "OpenCode Dev",
         deb: { fpm: [metainfoFpm(appId)] },
         rpm: { packageName: "opencode-dev", fpm: [metainfoFpm(appId)] },
+      }
+    }
+    case "lab": {
+      return {
+        ...base,
+        appId,
+        productName: identity.name,
+        mac: {
+          ...base.mac,
+          target: ["dir"],
+          // A certificate keeps Keychain access stable across Lab updates; ad-hoc signatures do not.
+          forceCodeSigning: true,
+          // Local Lab builds are not notarized and can be signed offline.
+          timestamp: "none",
+          hardenedRuntime: false,
+          notarize: false,
+        },
+        deb: { fpm: [metainfoFpm(appId)] },
+        rpm: { packageName: "opencode-lab", fpm: [metainfoFpm(appId)] },
       }
     }
     case "beta": {

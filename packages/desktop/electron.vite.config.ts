@@ -2,15 +2,26 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
 import * as fs from "node:fs/promises"
+import { resolveDesktopChannel } from "./src/main/channel"
+import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
+import pkg from "./package.json"
 
 const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
-const channel = (() => {
-  const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  if (process.env.OPENCODE_CHANNEL === "latest") return "prod"
-  return "dev"
-})()
+const channel = process.env.OPENCODE_CHANNEL === "latest" ? "prod" : resolveDesktopChannel(process.env.OPENCODE_CHANNEL)
+
+const git = { cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8" as const, windowsHide: true }
+const builtAt = new Date().toISOString()
+// Evaluate once for main and renderer, then freeze the identity into this build.
+const buildInfo = {
+  id: builtAt.replace(/[-:]/g, "").replace("T", ".").slice(0, 15),
+  version: pkg.version,
+  channel,
+  commit: spawnSync("git", ["rev-parse", "--short=10", "HEAD"], git).stdout?.trim() || undefined,
+  dirty: !!spawnSync("git", ["status", "--porcelain", "--untracked-files=normal"], git).stdout?.trim(),
+  builtAt,
+}
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 
@@ -35,6 +46,7 @@ export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+      "import.meta.env.OPENCODE_BUILD": JSON.stringify(buildInfo),
     },
     build: {
       rollupOptions: {
@@ -91,6 +103,9 @@ const require = __cjs_mod__.createRequire(import.meta.url);
     },
   },
   renderer: {
+    define: {
+      "import.meta.env.OPENCODE_BUILD": JSON.stringify(buildInfo),
+    },
     plugins: [appPlugin, sentry],
     publicDir: "../../../app/public",
     root: "src/renderer",
@@ -99,6 +114,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
       rollupOptions: {
         input: {
           main: "src/renderer/index.html",
+          web: "src/renderer/web.html",
         },
       },
     },
