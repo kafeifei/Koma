@@ -1,3 +1,8 @@
+> [!NOTE]
+> This repository is an independent fork of [anomalyco/opencode](https://github.com/anomalyco/opencode).
+> **OpenCode Lab** is our desktop experiment for a Codex-like project and task workspace built on existing OpenCode capabilities. It is not built by or affiliated with the OpenCode team.
+> Start with [our project goals and boundaries](./PROJECT.md) and [agent instructions](./AGENTS.md). The upstream README below describes official OpenCode; its installation links do not install this fork's Lab build.
+
 <p align="center">
   <a href="https://opencode.ai">
     <picture>

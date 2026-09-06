@@ -1,3 +1,7 @@
+> [!NOTE]
+> 本仓是 [anomalyco/opencode](https://github.com/anomalyco/opencode) 的独立 fork。**OpenCode Lab** 是在 OpenCode 现有能力上探索更接近 Codex 的项目／任务工作台的桌面实验渠道，不是 OpenCode 团队制作的官方产品，也不隶属于该团队。
+> 请先读[项目目标与边界](./PROJECT.md)和 [agent 工作入口](./AGENTS.md)。下方保留上游 README；其中的安装和下载链接面向官方 OpenCode，不会安装本 fork 的 Lab 改动。
+
 <p align="center">
   <a href="https://opencode.ai">
     <picture>

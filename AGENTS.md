@@ -1,3 +1,14 @@
+## 本仓项目边界（先读）
+
+- 开始工作前阅读 [PROJECT.md](./PROJECT.md)，再阅读修改目录下的 `AGENTS.md`。`PROJECT.md` 说明本 fork 的目标与分界；[CONTEXT.md](./CONTEXT.md) 是上游 Session Runtime 的术语和设计约束，不能替代项目定位。
+- 本仓基于 `anomalyco/opencode`，`origin` 是 `kafeifei/opencode`。当前目标是在 OpenCode 现有能力上建设更接近 Codex 的项目／任务工作台，独立桌面实验渠道名为 **OpenCode Lab**。
+- 优先复用现有 App、Session UI、会话、事件、服务和 SDK。工作台需要的 API 补齐、数据一致性修复可以落在所属后端层；不要另建一套 Task／Session 数据源或执行循环。
+- 当前阶段不是从零建设 sayMiao 多 agent 平台。替换执行引擎、引入 Cindy／ACP 作为主架构、跨引擎调度等须另行明确目标和授权；不能从“像 Codex”自行推导这些要求。
+- 本地产品改造与上游通用修复分清归属，保留上游许可证、包边界和协议语义。下面的工程规范继续适用；上游贡献流程见 `CONTRIBUTING.md`。
+- 保留已有未提交改动和运行状态。文档、诊断或验证任务不自动授权清理数据、重启应用／服务、提交、推送、合并或发布。源码、构建产物、已安装应用、正在运行实例分别核验。
+
+## 上游工程规范
+
 - To regenerate the legacy JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
 - After changing the public Protocol or Server `HttpApi`, run `bun run generate` from `packages/client`. Do not edit `src/generated` or `src/generated-effect` directly.
 - Keep runtime dependencies directed from Schema to Core and Protocol, then from Core and Protocol to Server. Client runtime code may depend on Schema and Protocol but never Core or Server; `sdk-next` composes Client, Core, and Server.

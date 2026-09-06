@@ -1,5 +1,10 @@
 # Contributing to OpenCode
 
+> This file retains the upstream OpenCode contribution guide. For work in this fork, first read
+> [PROJECT.md](./PROJECT.md) and [AGENTS.md](./AGENTS.md). The core-team design review and upstream PR
+> acceptance rules below apply to contributions to `anomalyco/opencode`; local fork work follows the
+> user's agreed scope and authorization. Publishing or submitting upstream changes must be covered by the user's authorization; existing authorization remains valid.
+
 We want to make it easy for you to contribute to OpenCode. Here are the most common type of changes that get merged:
 
 - Bug fixes
@@ -10,7 +15,7 @@ We want to make it easy for you to contribute to OpenCode. Here are the most com
 - Missing standard behavior
 - Documentation improvements
 
-However, any UI or core product feature must go through a design review with the core team before implementation.
+For contributions to upstream OpenCode, any UI or core product feature must go through a design review with the core team before implementation.
 
 If you are unsure if a PR would be accepted, feel free to ask a maintainer or look for issues with any of the following labels:
 
@@ -250,7 +255,7 @@ These are not strictly enforced, they are just general guidelines:
 
 ## Feature Requests
 
-For net-new functionality, start with a design conversation. Open an issue describing the problem, your proposed approach (optional), and why it belongs in OpenCode. The core team will help decide whether it should move forward; please wait for that approval instead of opening a feature PR directly.
+For net-new functionality proposed to upstream OpenCode, start with a design conversation. Open an issue describing the problem, your proposed approach (optional), and why it belongs in OpenCode. The core team will help decide whether it should move forward; please wait for that approval instead of opening a feature PR directly.
 
 ## Issue Requirements
 
