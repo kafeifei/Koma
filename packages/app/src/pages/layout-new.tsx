@@ -59,7 +59,7 @@ export default function NewLayout(props: ParentProps) {
     >
       <Titlebar
         update={update}
-        workspace={{ opened: opened(), toggle }}
+        workspace={{ opened: opened(), docked: !mobile() && opened(), toggle }}
         debugTools={
           debugToolsEnabled(platform)
             ? { visible: state.debugTools, toggle: () => setState("debugTools", (value) => !value) }

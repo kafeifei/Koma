@@ -133,10 +133,6 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
           <Icon name={state.archived ? "arrow-left" : "archive"} />
           <span>{language.t(state.archived ? "workspace.activeTasks" : "workspace.archived")}</span>
         </button>
-        <button type="button" data-slot="workspace-action" onClick={chooseProject}>
-          <Icon name="folder-add-left" />
-          <span>{language.t("home.project.add")}</span>
-        </button>
         <button type="button" data-slot="workspace-action" onClick={projects.utility.settings}>
           <Icon name="settings-gear" />
           <span>{language.t("sidebar.settings")}</span>
