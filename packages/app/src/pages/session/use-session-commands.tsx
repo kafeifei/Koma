@@ -28,6 +28,10 @@ export type SessionCommandContext = {
   focusInput: () => void
   review?: () => boolean
   fileBrowser?: () => boolean
+  sidePanel?: () => boolean
+  onToggleTerminal?: () => void
+  onNewTerminal?: () => void
+  onCloseTab?: (tab: string) => void
 }
 
 const withCategory = (category: string) => {
@@ -88,6 +92,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     review: actions.review,
     hasReview,
     fileBrowser: actions.fileBrowser,
+    sidePanel: actions.sidePanel,
   })
   const activeFileTab = tabState.activeFileTab
   const closableTab = tabState.closableTab
@@ -266,6 +271,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const closeTab = () => {
     const tab = closableTab()
     if (!tab) return
+    if (actions.sidePanel?.() && actions.onCloseTab) return actions.onCloseTab(tab)
     tabs().close(tab)
   }
 
@@ -289,12 +295,18 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const openTerminal = () => {
+    if (actions.sidePanel?.() && actions.onNewTerminal) return actions.onNewTerminal()
     if (terminal.all().length > 0) terminal.new({ focus: true })
     if (terminal.all().length === 0) terminal.requestFocus()
     view().terminal.open()
   }
 
   const closeTerminal = () => {
+    if (actions.sidePanel?.() && actions.onCloseTab) {
+      const tab = closableTab()
+      if (tab) actions.onCloseTab(tab)
+      return
+    }
     const id = terminal.active()
     if (!id) return
     const last = terminal.all().length === 1
@@ -541,6 +553,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       keybind: "ctrl+`",
       slash: "terminal",
       onSelect: () => {
+        if (actions.sidePanel?.() && actions.onToggleTerminal) return actions.onToggleTerminal()
         if (view().terminal.opened()) {
           terminal.cancelFocus()
           view().terminal.close()

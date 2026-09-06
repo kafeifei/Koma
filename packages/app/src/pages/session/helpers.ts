@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { same } from "@/utils/same"
 import { SESSION_OPEN_FILE_TAB } from "@/context/layout-tabs"
+import { sidePanelTab } from "./side-panel-tabs"
 
 export { SESSION_OPEN_FILE_TAB } from "@/context/layout-tabs"
 
@@ -20,6 +21,7 @@ type TabsInput = {
   review?: Accessor<boolean>
   hasReview?: Accessor<boolean>
   fileBrowser?: Accessor<boolean>
+  sidePanel?: Accessor<boolean>
 }
 
 export const getSessionKey = (dir: string | undefined, id: string | undefined) => `${dir ?? ""}${id ? `/${id}` : ""}`
@@ -47,6 +49,7 @@ export const createSessionTabs = (input: TabsInput) => {
         .flatMap((tab) => {
           if (tab === "context" || tab === "review") return []
           if (tab === SESSION_OPEN_FILE_TAB && !fileBrowser()) return []
+          if (sidePanelTab(tab) && !input.sidePanel?.()) return []
           const value = input.pathFromTab(tab) ? input.normalizeTab(tab) : tab
           if (seen.has(value)) return []
           seen.add(value)
@@ -65,6 +68,7 @@ export const createSessionTabs = (input: TabsInput) => {
     if (active === SESSION_OPEN_FILE_TAB && openFileOpen()) return active
     if (active === "review" && review()) return active
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
+    if (active && input.sidePanel?.() && sidePanelTab(active) && openedTabs().includes(active)) return active
 
     const first = openedTabs()[0]
     if (first) return first
@@ -75,6 +79,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const activeFileTab = createMemo(() => {
     const active = activeTab()
     if (!openedTabs().includes(active)) return
+    if (sidePanelTab(active)) return
     return active
   })
   const closableTab = createMemo(() => {

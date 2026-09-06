@@ -14,6 +14,7 @@ export function SortableTabV2(props: {
   tab: string
   index: () => number
   temporary?: boolean
+  label?: JSX.Element
   onTabClose: (tab: string) => void
   onTabDoubleClick?: (tab: string) => void
 }): JSX.Element {
@@ -31,6 +32,7 @@ export function SortableTabV2(props: {
   })
   const path = createMemo(() => file.pathFromTab(props.tab))
   const content = createMemo(() => {
+    if (props.label) return props.label
     const value = path()
     if (!value) return
     return <FileVisual path={value} temporary={props.temporary} />

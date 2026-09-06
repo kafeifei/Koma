@@ -255,6 +255,8 @@ export function MessageTimeline(props: {
   setRevealMessage?: (fn: (id: string) => void) => void
   setScrollToEnd?: (fn: () => void) => void
   setHistoryAnchor?: (handlers: { capture: () => void; restore: (done: boolean) => void }) => void
+  onInspectTool?: (part: ToolPart) => void
+  onPreviewSession?: (id: string) => void
 }) {
   let touchGesture: number | undefined
 
@@ -995,6 +997,7 @@ export function MessageTimeline(props: {
             workingTurn(row().userMessageID) && lastAssistantGroupKey().get(row().userMessageID) === row().group.key
           }
           onSizeChange={onSizeChange}
+          onInspectTool={props.onInspectTool}
         />
       )
     }
@@ -1032,6 +1035,8 @@ export function MessageTimeline(props: {
                 deferToolContent
                 virtualizeDiff={false}
                 onContentRendered={onSizeChange}
+                onInspectTool={props.onInspectTool}
+                onPreviewSession={props.onPreviewSession}
               />
             )}
           </Show>

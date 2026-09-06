@@ -82,6 +82,8 @@ import {
   sessionPanelWidthMax,
 } from "@/pages/session/session-panel-width"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
+import { useSidePanel } from "@/pages/session/use-side-panel"
+import { sidePanelTab } from "@/pages/session/side-panel-tabs"
 import { sessionPanelLayout } from "@/pages/session/session-panel-layout"
 import { SessionReviewEmptyChangesV2 } from "@opencode-ai/session-ui/v2/session-review-empty-changes-v2"
 import { SessionReviewEmptyNoGitV2 } from "@opencode-ai/session-ui/v2/session-review-empty-no-git-v2"
@@ -375,6 +377,7 @@ export default function Page() {
   const reviewFile = () => view().review.file()
   const sessionOwnership = createSessionOwnership(sessionKey)
   const newSessionDesign = createMemo(() => settings.general.newLayoutDesigns())
+  const sidePanel = useSidePanel()
 
   createEffect(() => {
     if (!prompt.ready()) return
@@ -448,9 +451,10 @@ export default function Page() {
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()
   const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
+  const unifiedSidePanel = createMemo(() => newSessionDesign() && isDesktop() && !!params.id)
   const desktopV2ReviewOpen = createMemo(() => newSessionDesign() && desktopReviewOpen() && !!params.id)
   const terminalOpen = createMemo(() => view().terminal.opened())
-  const desktopTerminalOpen = createMemo(() => isDesktop() && terminalOpen())
+  const desktopTerminalOpen = createMemo(() => isDesktop() && terminalOpen() && !unifiedSidePanel())
   const desktopInlineTerminalOnlyOpen = createMemo(
     () => newSessionDesign() && desktopTerminalOpen() && !desktopV2ReviewOpen(),
   )
@@ -473,7 +477,10 @@ export default function Page() {
     ({ width }) => setPanelRowWidth(width),
   )
   const splitReview = createMemo(
-    () => (newSessionDesign() ? desktopV2ReviewOpen() : desktopReviewOpen()) && layout.review.diffStyle() === "split",
+    () =>
+      (newSessionDesign() ? desktopV2ReviewOpen() : desktopReviewOpen()) &&
+      !sidePanelTab(tabs().active()) &&
+      layout.review.diffStyle() === "split",
   )
   // The observer reports the content-box width, which already excludes the row
   // padding; only the flex gap between the panels remains to subtract.
@@ -510,6 +517,12 @@ export default function Page() {
     }),
   )
 
+  createEffect(() => {
+    if (!unifiedSidePanel() || !terminal.ready() || !terminalOpen()) return
+    view().terminal.close()
+    void sidePanel.openTerminal()
+  })
+
   function normalizeTab(tab: string) {
     if (!tab.startsWith("file://")) return tab
     return file.tab(tab)
@@ -541,6 +554,7 @@ export default function Page() {
     normalizeTab,
     review: reviewTab,
     hasReview: canReview,
+    sidePanel: unifiedSidePanel,
   })
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
@@ -1143,6 +1157,10 @@ export default function Page() {
     focusInput,
     review: reviewTab,
     fileBrowser: () => newSessionDesign() && isDesktop() && !!params.id,
+    sidePanel: unifiedSidePanel,
+    onToggleTerminal: () => sidePanel.toggleTerminal(),
+    onNewTerminal: () => void sidePanel.openTerminal(true),
+    onCloseTab: sidePanel.close,
   })
   command.register("session-palette", () => [
     {
@@ -2085,6 +2103,8 @@ export default function Page() {
               {(_id) => (
                 <MessageTimeline
                   actions={actions}
+                  onInspectTool={unifiedSidePanel() ? sidePanel.inspectTool : undefined}
+                  onPreviewSession={unifiedSidePanel() ? sidePanel.previewSession : undefined}
                   scroll={ui.scroll}
                   onResumeScroll={resumeScroll}
                   setScrollRef={setScrollRef}
@@ -2369,7 +2389,7 @@ export default function Page() {
                   />
                 </div>
               </Show>
-              <Show when={terminalOpen()}>
+              <Show when={terminalOpen() && !unifiedSidePanel()}>
                 <div
                   classList={{
                     "min-h-0 shrink-0": desktopV2PanelLayout().stacked,

@@ -465,6 +465,7 @@ function currentMessage(value: unknown) {
                     status: "completed",
                     input: state.input ?? {},
                     structured: state.metadata ?? {},
+                    metadata: state.metadata ?? {},
                     content: [{ type: "text", text: state.output ?? "" }],
                   }
                 : state.status === "error"
@@ -472,10 +473,17 @@ function currentMessage(value: unknown) {
                       status: "error",
                       input: state.input ?? {},
                       structured: state.metadata ?? {},
+                      metadata: state.metadata ?? {},
                       content: [],
                       error: { type: "ToolError", message: state.error ?? "Tool failed" },
                     }
-                  : { status: "running", input: state.input ?? {}, structured: state.metadata ?? {}, content: [] },
+                  : {
+                      status: "running",
+                      input: state.input ?? {},
+                      structured: state.metadata ?? {},
+                      metadata: state.metadata ?? {},
+                      content: [],
+                    },
         },
       ]
     }),
