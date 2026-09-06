@@ -17,7 +17,6 @@ import {
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Button } from "@opencode-ai/ui/button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
@@ -625,7 +624,7 @@ export function SessionSidePanel(props: {
                                         ) : undefined
                                       }
                                       onTabClose={side.close}
-                                      onTabDoubleClick={temporaryTab() === tab ? side.pin : undefined}
+                                      onTabClick={temporaryTab() === tab ? side.pin : undefined}
                                     />
                                   }
                                 >
@@ -670,11 +669,6 @@ export function SessionSidePanel(props: {
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => event.stopPropagation()}
                           >
-                            <Show when={temporaryTab() === activeTab()}>
-                              <Button variant="ghost" size="small" onClick={() => side.pin(activeTab())}>
-                                {language.t("session.panel.pin")}
-                              </Button>
-                            </Show>
                             <SidePanelAddMenu onOpenFile={openFileBrowser} />
                           </div>
                           <div

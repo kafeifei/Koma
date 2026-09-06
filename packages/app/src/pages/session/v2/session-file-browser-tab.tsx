@@ -86,7 +86,7 @@ export function SessionFileBrowserTab(props: {
     if (!query()) return
     applyFileListKeyDown(event, files(), highlighted(), {
       onHighlight: setExplicitHighlight,
-      onSelect: props.onSelectPermanent,
+      onSelect: props.onSelect,
     })
   }
 

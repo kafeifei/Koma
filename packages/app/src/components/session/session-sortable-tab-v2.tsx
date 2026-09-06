@@ -16,7 +16,7 @@ export function SortableTabV2(props: {
   temporary?: boolean
   label?: JSX.Element
   onTabClose: (tab: string) => void
-  onTabDoubleClick?: (tab: string) => void
+  onTabClick?: (tab: string) => void
 }): JSX.Element {
   const file = useFile()
   const language = useLanguage()
@@ -66,7 +66,7 @@ export function SortableTabV2(props: {
           }
           hideCloseButton
           onMiddleClick={() => props.onTabClose(props.tab)}
-          onDblClick={() => props.onTabDoubleClick?.(props.tab)}
+          onClick={() => props.onTabClick?.(props.tab)}
         >
           <Show when={content()}>{(value) => value()}</Show>
         </Tabs.Trigger>
