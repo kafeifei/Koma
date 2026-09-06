@@ -40,7 +40,9 @@
 
   [data-slot="workspace-titlebar-tools"] {
     justify-content: flex-end;
-    padding-right: max(12px, var(--titlebar-windows-inset));
+    padding-right: var(--titlebar-windows-inset);
+    padding-left: 0;
+    border-bottom: 1px solid var(--v2-border-border-muted);
   }
 
   &[data-docked="true"] [data-slot="workspace-titlebar-nav"] {

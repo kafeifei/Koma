@@ -9,12 +9,12 @@ import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useLanguage } from "@/context/language"
 import { type OpenApp, useOpenInApp } from "@/components/session/open-in-app"
 
-export function OpenInAppV2(props: { directory: () => string }) {
+export function OpenInAppV2(props: { directory: () => string; file?: () => string }) {
   const language = useLanguage()
   const state = useOpenInApp(props)
 
   return (
-    <Show when={props.directory() && state.canOpen()}>
+    <Show when={(props.file?.() || props.directory()) && state.canOpen()}>
       <SplitButtonV2 class="session-review-v2-open-in-app" onPointerDown={(event) => event.stopPropagation()}>
         <TooltipV2
           placement="bottom"

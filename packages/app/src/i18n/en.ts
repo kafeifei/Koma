@@ -2,6 +2,7 @@ import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
   "session.panel.workspace": "Side workspace",
+  "session.panel.allTabs": "All tabs",
   "session.panel.add": "Open panel",
   "session.panel.background": "Background tasks",
   "session.panel.pin": "Keep tab open",

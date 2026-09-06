@@ -10,6 +10,7 @@ import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
 import { displayName } from "@/pages/layout/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { FilePanelToolbar } from "@/pages/session/file-panel-toolbar"
 import { SessionFileView } from "@/pages/session/file-tabs"
 import { applyFileListKeyDown, SessionFileListV2 } from "@/pages/session/v2/session-file-list-v2"
 import { pathKey } from "@/utils/path-key"
@@ -94,7 +95,17 @@ export function SessionFileBrowserTab(props: {
   // unmounts the whole panel on every file-tab switch and resets sidebar scroll.
   return (
     <SessionFilePanelV2
-      toolbar={false}
+      toolbar={!props.placeholder && !!props.active}
+      toolbarStart={
+        <span class="min-w-0 truncate" title={props.active}>
+          {props.active}
+        </span>
+      }
+      toolbarEnd={
+        <Show when={!props.placeholder && props.active}>
+          {(path) => <FilePanelToolbar directory={() => sdk().directory} file={path} />}
+        </Show>
+      }
       sidebar={
         <SessionReviewV2Sidebar
           open={sidebarOpened()}

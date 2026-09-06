@@ -1,0 +1,119 @@
+#opencode-titlebar-side-panel > div {
+  height: 100%;
+}
+.session-side-panel-top-tabs {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  gap: 2px;
+  padding-inline: 4px;
+  background: var(--v2-background-bg-base);
+  -webkit-app-region: no-drag;
+  > :not([data-slot="tabs-list"]) {
+    flex: none;
+  }
+  .session-side-panel-tree-toggle {
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+  [data-slot="tabs-list"] {
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+    gap: 0;
+  }
+  [data-slot="tabs-list"] > * {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 180px;
+  }
+  [data-slot="tabs-list"] > *:has([data-side-tab-hidden="true"]) {
+    display: none;
+  }
+
+  [data-slot="side-panel-sortable-tab"] > div {
+    width: 100%;
+    min-width: 0;
+  }
+  [data-slot="tabs-trigger-wrapper"] {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: 28px;
+    border-radius: 5px;
+    color: var(--v2-text-text-muted);
+    &:hover,
+    &:has([data-selected]) {
+      background: var(--v2-background-bg-layer-02);
+      color: var(--v2-text-text-base);
+    }
+  }
+  [data-slot="tabs-trigger"] {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding-inline: 7px 5px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 13px;
+    outline: none;
+    > * {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    [data-component="icon"],
+    [data-slot="icon-svg"] {
+      flex-shrink: 0;
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 1px var(--v2-text-text-muted);
+      border-radius: 5px;
+    }
+  }
+  /* Reserve the close hit area while hidden; hover never changes tab geometry. */
+  [data-slot="tabs-trigger-wrapper"]:has([data-slot="tabs-trigger-close-button"]) [data-slot="tabs-trigger"] {
+    padding-inline-end: 25px;
+  }
+  [data-slot="tabs-trigger-close-button"] {
+    position: absolute;
+    inset-inline-end: 2px;
+    top: 4px;
+    width: 20px;
+    height: 20px;
+    opacity: 0;
+    pointer-events: none;
+    button {
+      width: 20px;
+      height: 20px;
+      margin: 0;
+    }
+  }
+  [data-slot="tabs-trigger-wrapper"]:is(:hover, :focus-within, :has([data-selected]))
+    [data-slot="tabs-trigger-close-button"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .tab-fileicon-color {
+    opacity: 0;
+  }
+  [data-slot="tabs-trigger-wrapper"]:is(:hover, :has([data-selected])) {
+    .tab-fileicon-color {
+      opacity: 1;
+    }
+    .tab-fileicon-mono {
+      opacity: 0;
+    }
+  }
+}

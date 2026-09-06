@@ -4,6 +4,7 @@ type Keys = keyof typeof en
 
 export const dict = {
   "session.panel.workspace": "右侧工作区",
+  "session.panel.allTabs": "所有标签页",
   "session.panel.add": "打开面板",
   "session.panel.background": "后台任务",
   "session.panel.pin": "固定标签页",

@@ -56,12 +56,16 @@ export type TitlebarUpdate = {
   install: () => void
 }
 
-export function useTitlebarRightMount() {
+export function useTitlebarRightMount(id = "opencode-titlebar-right") {
   const language = useLanguage()
+  const settings = useSettings()
+  const desktop = createMediaQuery("(min-width: 768px)")
   const [mount, setMount] = createSignal<HTMLElement | null>(null)
-  const sync = () => setMount(document.getElementById("opencode-titlebar-right"))
+  const sync = () => setMount(document.getElementById(id))
   onMount(sync)
-  createEffect(on(language.direction, sync, { defer: true }))
+  createEffect(
+    on([language.direction, settings.general.newLayoutDesigns, desktop], () => queueMicrotask(sync), { defer: true }),
+  )
   return mount
 }
 
@@ -534,11 +538,18 @@ export function Titlebar(props: {
                         </span>
                       )}
                     </Show>
+                    <Show when={segmented()}>
+                      <div class="ml-auto shrink-0 pl-2">
+                        <TitlebarV2Right state={v2RightState()} />
+                      </div>
+                    </Show>
                   </div>
                 </Show>
                 <div class="flex-1" classList={{ hidden: segmented() }} />
                 <div data-slot="workspace-titlebar-tools" classList={{ contents: !segmented() }} data-tauri-drag-region>
-                  <TitlebarV2Right state={v2RightState()} />
+                  <Show when={segmented()} fallback={<TitlebarV2Right state={v2RightState()} />}>
+                    <div id="opencode-titlebar-side-panel" class="h-full min-w-0 w-full" />
+                  </Show>
                 </div>
               </div>
             )
