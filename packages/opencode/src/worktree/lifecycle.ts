@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -109,7 +110,7 @@ const layer = Layer.effect(
         directory: owner?.directory,
       })
 
-    const key = (directory: string) => [...PREFIX, new Bun.CryptoHasher("sha256").update(directory).digest("hex")]
+    const key = (directory: string) => [...PREFIX, createHash("sha256").update(directory).digest("hex")]
 
     const decode = Schema.decodeUnknownOption(Owner)
     const readDirectory = Effect.fnUntraced(function* (directory: string) {
