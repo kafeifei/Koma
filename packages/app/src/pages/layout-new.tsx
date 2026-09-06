@@ -9,6 +9,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
 import { TaskSidebar } from "./layout/task-sidebar"
 import { debugToolsEnabled } from "@/utils/debug-tools"
+import { WORKSPACE_PANEL_MIN_WIDTH } from "./layout/layout-width"
 
 export default function NewLayout(props: ParentProps) {
   const platform = usePlatform()
@@ -39,6 +40,7 @@ export default function NewLayout(props: ParentProps) {
       style={{
         "padding-top": "env(safe-area-inset-top, 0px)",
         "padding-bottom": "env(safe-area-inset-bottom, 0px)",
+        "--workspace-sidebar-width": `${WORKSPACE_PANEL_MIN_WIDTH}px`,
       }}
     >
       <Titlebar

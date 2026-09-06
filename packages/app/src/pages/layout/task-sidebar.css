@@ -1,5 +1,5 @@
 [data-component="task-workspace"] {
-  --workspace-sidebar-width: 208px;
+  --workspace-sidebar-width: 248px;
 }
 
 [data-slot="workspace-body"] {
