@@ -1,5 +1,5 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { expect, test, type Page, type Route, type WebSocketRoute } from "@playwright/test"
+import { expect, test, type Locator, type Page, type Route, type WebSocketRoute } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
 
@@ -68,12 +68,16 @@ test.describe("new layout", () => {
     await context.locator('[data-slot="context-tool-group-item"]').filter({ hasText: "read" }).click()
     await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(readOutput)
     await expect(side.getByRole("tab", { name: /Shell/ })).toHaveCount(0)
-    await side.getByRole("button", { name: "Keep tab open" }).click()
+    await expect(side.getByRole("button", { name: "Keep tab open" })).toHaveCount(0)
+    const readTab = side.getByRole("tab", { name: /Read/ })
+    await readTab.click()
 
     await shell.locator('[data-slot="collapsible-trigger"]').click()
     await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
-    await expect(side.getByRole("tab", { name: /Read/ })).toBeVisible()
+    await expect(readTab).toBeVisible()
     await expect(side.getByRole("tab", { name: /Shell/ })).toBeVisible()
+    await closeSideTab(readTab)
+    await expect(readTab).toHaveCount(0)
   })
 
   for (const entry of ["timeline", "background list"] as const) {
@@ -99,7 +103,8 @@ test.describe("new layout", () => {
 
       await shell.click()
       await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
-      await side.getByRole("button", { name: "Keep tab open" }).click()
+      await expect(side.getByRole("button", { name: "Keep tab open" })).toHaveCount(0)
+      await side.getByRole("tab", { name: /Shell/ }).click()
       const back = side.getByRole("button", { name: "Background tasks", exact: true })
       await back.focus()
       await back.press("Enter")
@@ -147,6 +152,21 @@ test.describe("new layout", () => {
         expect.objectContaining({ phase: "loaded", targetSessionID: childID }),
       ]),
     )
+
+    const side = workspace(page)
+    const childTab = side.getByRole("tab", { name: childTitle })
+    await expect(side.getByRole("button", { name: "Keep tab open" })).toHaveCount(0)
+    await timelinePart(page, shellPartID).locator('[data-slot="collapsible-trigger"]').click()
+    await expect(childTab).toHaveCount(0)
+
+    await timelinePart(page, taskPartID).locator('[data-component="task-tool-card"]').click()
+    await expect(childTab).toBeVisible()
+    await childTab.click()
+    await timelinePart(page, shellPartID).locator('[data-slot="collapsible-trigger"]').click()
+    await expect(childTab).toBeVisible()
+    await expect(side.getByRole("tab", { name: /Shell/ })).toBeVisible()
+    await closeSideTab(childTab)
+    await expect(childTab).toHaveCount(0)
   })
 
   test("shows background activity beside the active todo dock", async ({ page }) => {
@@ -229,6 +249,50 @@ test.describe("new layout", () => {
     await timelinePart(page, "prt_other_shell").locator('[data-slot="collapsible-trigger"]').click()
     await expect(page.locator('[data-component="tool-inspector-panel"]')).toContainText(otherOutput)
     await expect(page.locator('[data-component="tool-inspector-panel"]')).not.toContainText(shellOutput)
+  })
+})
+
+test.describe("v1 file preview tabs", () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page, true, { protocol: "v1" })
+    await page.goto(sessionHref(parentID))
+    await expectSessionTitle(page, parentTitle)
+    await page.getByRole("button", { name: "Toggle review" }).click()
+    await expect(workspace(page)).toHaveAttribute("aria-hidden", "false")
+  })
+
+  test("keeps a file preview only after its tab is clicked and closes it with the tab X", async ({
+    page,
+  }, testInfo) => {
+    const side = workspace(page)
+    await openPanelItem(page, "Open file")
+    const filter = side.getByRole("combobox", { name: "Filter files" })
+    await filter.fill("alpha")
+    await expect(side.getByRole("option", { name: /alpha\.ts/ })).toBeVisible()
+    await filter.press("Enter")
+
+    const alphaTab = side.getByRole("tab", { name: "alpha.ts" })
+    await expect(alphaTab).toBeVisible()
+    await expect(side.getByText("contents:src/alpha.ts", { exact: true })).toBeVisible()
+    await expect(side.getByRole("button", { name: "Keep tab open" })).toHaveCount(0)
+
+    await openPanelItem(page, "Open file")
+    await filter.fill("beta")
+    await expect(side.getByRole("option", { name: /beta\.ts/ })).toBeVisible()
+    await filter.press("Enter")
+    await expect(alphaTab).toHaveCount(0)
+
+    const betaTab = side.getByRole("tab", { name: "beta.ts" })
+    await expect(betaTab).toBeVisible()
+    await expect(side.getByText("contents:src/beta.ts", { exact: true })).toBeVisible()
+    await betaTab.click()
+    await timelinePart(page, taskPartID).locator('[data-component="task-tool-card"]').click()
+    await expect(betaTab).toBeVisible()
+    await expect(side.getByRole("tab", { name: childTitle })).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath("file-and-subagent-tabs.png"), fullPage: true })
+
+    await closeSideTab(betaTab)
+    await expect(betaTab).toHaveCount(0)
   })
 })
 
@@ -382,6 +446,9 @@ async function setup(
     pageMessages: (sessionID) => ({ items: messages(sessionID, options) }),
     sessionStatus: { [parentID]: { type: "busy" }, [childID]: { type: "busy" } },
     todos: (sessionID) => (sessionID === parentID ? todos : []),
+    fileList: () => [],
+    fileContent: (path) => ({ type: "text", content: `contents:${path}` }),
+    findFiles: (input) => (input.query === "alpha" ? ["src/alpha.ts"] : input.query === "beta" ? ["src/beta.ts"] : []),
     events: () => events.splice(0),
     eventRetry: 16,
   })
@@ -489,6 +556,11 @@ function timelinePart(page: Page, partID: string) {
 
 function workspace(page: Page) {
   return page.locator('#review-panel[aria-label="Side workspace"]')
+}
+
+async function closeSideTab(tab: Locator) {
+  await tab.hover()
+  await tab.locator("..").getByRole("button", { name: "Close tab" }).click()
 }
 
 function session(id: string, title: string, created: number, extra?: Record<string, unknown>) {
