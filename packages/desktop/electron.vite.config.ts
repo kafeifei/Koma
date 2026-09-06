@@ -1,7 +1,8 @@
 import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
-import * as fs from "node:fs/promises"
+import { readdir, readFile, writeFile } from "node:fs/promises"
+import { nextLabBuildSequence } from "./scripts/lab-build-sequence"
 import { resolveDesktopChannel } from "./src/main/channel"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
@@ -42,81 +43,91 @@ const sentry =
       })
     : false
 
-export default defineConfig({
-  main: {
-    define: {
-      "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
-      "import.meta.env.OPENCODE_BUILD": JSON.stringify(buildInfo),
-    },
-    build: {
-      rollupOptions: {
-        input: { index: "src/main/index.ts", sidecar: "src/main/sidecar.ts" },
-        // Keep this identical to electron-vite's Node 20.11+ shim. Its regex insertion can
-        // corrupt bundled TypeScript, while a Rollup banner places the shim safely.
-        output: {
-          banner: `
+export default defineConfig(async ({ command }) => {
+  const common =
+    channel === "lab" && command === "build"
+      ? spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], git)
+      : undefined
+  if (common && (common.status !== 0 || !common.stdout?.trim())) {
+    throw new Error("Cannot resolve shared Git directory for the Lab build sequence")
+  }
+  const build = { ...buildInfo, sequence: common ? await nextLabBuildSequence(common.stdout.trim()) : undefined }
+  return {
+    main: {
+      define: {
+        "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+        "import.meta.env.OPENCODE_BUILD": JSON.stringify(build),
+      },
+      build: {
+        rollupOptions: {
+          input: { index: "src/main/index.ts", sidecar: "src/main/sidecar.ts" },
+          // Keep this identical to electron-vite's Node 20.11+ shim. Its regex insertion can
+          // corrupt bundled TypeScript, while a Rollup banner places the shim safely.
+          output: {
+            banner: `
 // -- CommonJS Shims --
 import __cjs_mod__ from 'node:module';
 const __filename = import.meta.filename;
 const __dirname = import.meta.dirname;
 const require = __cjs_mod__.createRequire(import.meta.url);
 `,
+          },
         },
+        externalizeDeps: { include: [nodePtyPkg] },
       },
-      externalizeDeps: { include: [nodePtyPkg] },
+      plugins: [
+        {
+          name: "opencode:node-pty-narrower",
+          enforce: "pre",
+          resolveId(s) {
+            if (s === "@lydell/node-pty") return nodePtyPkg
+          },
+        },
+        {
+          name: "opencode:virtual-server-module",
+          enforce: "pre",
+          resolveId(id) {
+            if (id === "virtual:opencode-server") return this.resolve(`${OPENCODE_SERVER_DIST}/node.js`)
+          },
+        },
+        {
+          name: "opencode:copy-server-assets",
+          async writeBundle() {
+            for (const l of await readdir(OPENCODE_SERVER_DIST)) {
+              if (!l.endsWith(".wasm")) continue
+              await writeFile(`./out/main/chunks/${l}`, await readFile(`${OPENCODE_SERVER_DIST}/${l}`))
+            }
+          },
+        },
+      ],
     },
-    plugins: [
-      {
-        name: "opencode:node-pty-narrower",
-        enforce: "pre",
-        resolveId(s) {
-          if (s === "@lydell/node-pty") return nodePtyPkg
-        },
-      },
-      {
-        name: "opencode:virtual-server-module",
-        enforce: "pre",
-        resolveId(id) {
-          if (id === "virtual:opencode-server") return this.resolve(`${OPENCODE_SERVER_DIST}/node.js`)
-        },
-      },
-      {
-        name: "opencode:copy-server-assets",
-        async writeBundle() {
-          for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
-            if (!l.endsWith(".wasm")) continue
-            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
-          }
-        },
-      },
-    ],
-  },
-  preload: {
-    build: {
-      rollupOptions: {
-        input: { index: "src/preload/index.ts" },
-        output: {
-          format: "cjs",
-          entryFileNames: "[name].js",
-        },
-      },
-    },
-  },
-  renderer: {
-    define: {
-      "import.meta.env.OPENCODE_BUILD": JSON.stringify(buildInfo),
-    },
-    plugins: [appPlugin, sentry],
-    publicDir: "../../../app/public",
-    root: "src/renderer",
-    build: {
-      sourcemap: true,
-      rollupOptions: {
-        input: {
-          main: "src/renderer/index.html",
-          web: "src/renderer/web.html",
+    preload: {
+      build: {
+        rollupOptions: {
+          input: { index: "src/preload/index.ts" },
+          output: {
+            format: "cjs",
+            entryFileNames: "[name].js",
+          },
         },
       },
     },
-  },
+    renderer: {
+      define: {
+        "import.meta.env.OPENCODE_BUILD": JSON.stringify(build),
+      },
+      plugins: [appPlugin, sentry],
+      publicDir: "../../../app/public",
+      root: "src/renderer",
+      build: {
+        sourcemap: true,
+        rollupOptions: {
+          input: {
+            main: "src/renderer/index.html",
+            web: "src/renderer/web.html",
+          },
+        },
+      },
+    },
+  }
 })
