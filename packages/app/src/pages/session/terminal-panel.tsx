@@ -152,7 +152,7 @@ export function TerminalPanel() {
   const all = terminal.all
   const ids = createMemo(() => all().map((pty) => pty.id))
 
-  const recoverTerminal = (key: string, id: string, clone: (id: string) => Promise<void>) => {
+  const recoverTerminal = (key: string, id: string, clone: (id: string) => Promise<unknown>) => {
     if (store.recovered[key]) return
     setStore("recovered", key, true)
     void clone(id)

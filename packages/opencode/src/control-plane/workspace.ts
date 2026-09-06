@@ -794,7 +794,10 @@ const layer = Layer.effect(
       yield* Effect.forEach(
         sessions.filter((sessionInfo) => !sessionInfo.parentID || !sessionIDs.has(sessionInfo.parentID)),
         (sessionInfo) =>
-          session.remove(sessionInfo.id).pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.void)),
+          session.remove(sessionInfo.id).pipe(
+            Effect.catchIf(NotFoundError.isInstance, () => Effect.void),
+            Effect.catchTag("WorktreeLifecycleFailedError", (error) => Effect.die(error)),
+          ),
         { discard: true },
       )
 

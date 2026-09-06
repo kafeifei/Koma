@@ -276,7 +276,11 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     ) {
       return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
     }
-    if (/^\/api\/session\/[^/]+$/.test(path) && route.request().method() === "DELETE") {
+    const deleteSessionMatch = path.match(/^\/(?:api\/)?session\/([^/]+)$/)
+    if (deleteSessionMatch && route.request().method() === "DELETE") {
+      const index = config.sessions.findIndex((session) => session.id === deleteSessionMatch[1])
+      if (index !== -1) config.sessions.splice(index, 1)
+      if (!path.startsWith("/api/")) return json(route, true)
       return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
     }
     const updateSessionMatch = path.match(/^\/session\/([^/]+)$/)
@@ -461,6 +465,7 @@ function currentMessage(value: unknown) {
                     status: "completed",
                     input: state.input ?? {},
                     structured: state.metadata ?? {},
+                    metadata: state.metadata ?? {},
                     content: [{ type: "text", text: state.output ?? "" }],
                   }
                 : state.status === "error"
@@ -468,10 +473,17 @@ function currentMessage(value: unknown) {
                       status: "error",
                       input: state.input ?? {},
                       structured: state.metadata ?? {},
+                      metadata: state.metadata ?? {},
                       content: [],
                       error: { type: "ToolError", message: state.error ?? "Tool failed" },
                     }
-                  : { status: "running", input: state.input ?? {}, structured: state.metadata ?? {}, content: [] },
+                  : {
+                      status: "running",
+                      input: state.input ?? {},
+                      structured: state.metadata ?? {},
+                      metadata: state.metadata ?? {},
+                      content: [],
+                    },
         },
       ]
     }),

@@ -3,10 +3,14 @@ import { InstanceState } from "@/effect/instance-state"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Runner } from "@/effect/runner"
 import { BackgroundJob } from "@/background/job"
-import { Effect, Latch, Layer, Scope, Context } from "effect"
+import { Context, Effect, Latch, Layer, Scope, Semaphore } from "effect"
 import { Session } from "./session"
 import { SessionID } from "./schema"
 import { SessionStatus } from "./status"
+import { WorktreeLifecycle } from "@/worktree/lifecycle"
+import { Database } from "@opencode-ai/core/database/database"
+import { SessionTable } from "@opencode-ai/core/session/sql"
+import { eq } from "drizzle-orm"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
@@ -15,7 +19,7 @@ export interface Interface {
     sessionID: SessionID,
     onInterrupt: Effect.Effect<SessionV1.WithParts>,
     work: Effect.Effect<SessionV1.WithParts>,
-  ) => Effect.Effect<SessionV1.WithParts>
+  ) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly startShell: (
     sessionID: SessionID,
     onInterrupt: Effect.Effect<SessionV1.WithParts>,
@@ -31,21 +35,30 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const background = yield* BackgroundJob.Service
     const status = yield* SessionStatus.Service
+    const lifecycle = yield* WorktreeLifecycle.Service
+    const { db } = yield* Database.Service
 
     const state = yield* InstanceState.make(
       Effect.fn("SessionRunState.state")(function* () {
         const scope = yield* Scope.Scope
-        const runners = new Map<SessionID, Runner.Runner<SessionV1.WithParts>>()
+        const runners = new Map<SessionID, { directory: string; runner: Runner.Runner<SessionV1.WithParts> }>()
+        const mutation = Semaphore.makeUnsafe(1)
         yield* Effect.addFinalizer(
           Effect.fnUntraced(function* () {
-            yield* Effect.forEach(runners.values(), (runner) => runner.cancel, {
+            const active = [...runners.entries()]
+            yield* Effect.forEach(active, (item) => item[1].runner.cancel, {
               concurrency: "unbounded",
               discard: true,
             })
+            yield* Effect.forEach(
+              active,
+              (item) => lifecycle.release({ directory: item[1].directory, sessionID: item[0] }),
+              { concurrency: "unbounded", discard: true },
+            )
             runners.clear()
           }),
         )
-        return { runners, scope }
+        return { mutation, runners, scope }
       }),
     )
 
@@ -54,24 +67,55 @@ const layer = Layer.effect(
       onInterrupt: Effect.Effect<SessionV1.WithParts>,
     ) {
       const data = yield* InstanceState.get(state)
-      const existing = data.runners.get(sessionID)
-      if (existing) return existing
-      const next = Runner.make<SessionV1.WithParts>(data.scope, {
-        onIdle: Effect.gen(function* () {
-          data.runners.delete(sessionID)
-          yield* status.set(sessionID, { type: "idle" })
+      return yield* data.mutation.withPermits(1)(
+        Effect.gen(function* () {
+          const existing = data.runners.get(sessionID)
+          if (existing) return existing.runner
+          const row = yield* db
+            .select({ directory: SessionTable.directory })
+            .from(SessionTable)
+            .where(eq(SessionTable.id, sessionID))
+            .get()
+            .pipe(Effect.orDie)
+          if (!row) return yield* busyError(sessionID)
+          const directory = row.directory
+          yield* lifecycle.acquire({ directory, sessionID }).pipe(Effect.mapError(() => busyError(sessionID)))
+          const next = Runner.make<SessionV1.WithParts>(data.scope, {
+            onIdle: data.mutation.withPermits(1)(
+              Effect.gen(function* () {
+                data.runners.delete(sessionID)
+                yield* lifecycle.release({ directory, sessionID })
+                yield* status.set(sessionID, { type: "idle" })
+              }),
+            ),
+            onBusy: status.set(sessionID, { type: "busy" }),
+            onInterrupt,
+          })
+          data.runners.set(sessionID, { directory, runner: next })
+          return next
         }),
-        onBusy: status.set(sessionID, { type: "busy" }),
-        onInterrupt,
-      })
-      data.runners.set(sessionID, next)
-      return next
+      )
+    })
+
+    const cleanupIdle = Effect.fnUntraced(function* (
+      sessionID: SessionID,
+      current: Runner.Runner<SessionV1.WithParts>,
+    ) {
+      const data = yield* InstanceState.get(state)
+      yield* data.mutation.withPermits(1)(
+        Effect.gen(function* () {
+          const entry = data.runners.get(sessionID)
+          if (!entry || entry.runner !== current || current.busy) return
+          data.runners.delete(sessionID)
+          yield* lifecycle.release({ directory: entry.directory, sessionID })
+        }),
+      )
     })
 
     const assertNotBusy = Effect.fn("SessionRunState.assertNotBusy")(function* (sessionID: SessionID) {
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
-      if (existing?.busy) yield* busyError(sessionID)
+      if (existing?.runner.busy) yield* busyError(sessionID)
     })
 
     const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID) {
@@ -82,7 +126,7 @@ const layer = Layer.effect(
         yield* status.set(sessionID, { type: "idle" })
         return
       }
-      yield* existing.cancel
+      yield* existing.runner.cancel
     })
 
     const ensureRunning = Effect.fn("SessionRunState.ensureRunning")(function* (
@@ -90,7 +134,12 @@ const layer = Layer.effect(
       onInterrupt: Effect.Effect<SessionV1.WithParts>,
       work: Effect.Effect<SessionV1.WithParts>,
     ) {
-      return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work)
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const current = yield* runner(sessionID, onInterrupt)
+          return yield* restore(current.ensureRunning(work)).pipe(Effect.ensuring(cleanupIdle(sessionID, current)))
+        }),
+      )
     })
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (
@@ -99,9 +148,15 @@ const layer = Layer.effect(
       work: Effect.Effect<SessionV1.WithParts>,
       ready?: Latch.Latch,
     ) {
-      return yield* (yield* runner(sessionID, onInterrupt))
-        .startShell(work, ready)
-        .pipe(Effect.catchTag("RunnerBusy", () => Effect.fail(busyError(sessionID))))
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const current = yield* runner(sessionID, onInterrupt)
+          return yield* restore(current.startShell(work, ready)).pipe(
+            Effect.catchTag("RunnerBusy", () => Effect.fail(busyError(sessionID))),
+            Effect.ensuring(cleanupIdle(sessionID, current)),
+          )
+        }),
+      )
     })
 
     return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
@@ -146,6 +201,10 @@ function busyError(sessionID: SessionID) {
   return new Session.BusyError({ sessionID })
 }
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [BackgroundJob.node, SessionStatus.node] })
+export const node = LayerNode.make({
+  service: Service,
+  layer: layer,
+  deps: [BackgroundJob.node, SessionStatus.node, WorktreeLifecycle.node, Database.node],
+})
 
 export * as SessionRunState from "./run-state"

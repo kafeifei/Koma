@@ -171,6 +171,8 @@ export interface MessageProps {
   showReasoningSummaries?: boolean
   useV2Actions?: boolean
   comments?: UserMessageComment[]
+  onInspectTool?: (part: ToolPart) => void
+  onPreviewSession?: (id: string) => void
 }
 
 export type SessionAction = (input: { sessionID: string; messageID: string }) => Promise<void> | void
@@ -203,6 +205,8 @@ export interface MessagePartProps {
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number
   useV2Actions?: boolean
+  onInspectTool?: (part: ToolPart) => void
+  onPreviewSession?: (id: string) => void
 }
 
 function MessageActionButton(
@@ -955,6 +959,8 @@ export function Message(props: MessageProps) {
             showAssistantCopyPartID={props.showAssistantCopyPartID}
             showReasoningSummaries={props.showReasoningSummaries}
             useV2Actions={props.useV2Actions}
+            onInspectTool={props.onInspectTool}
+            onPreviewSession={props.onPreviewSession}
           />
         )}
       </Match>
@@ -968,6 +974,8 @@ export function AssistantMessageDisplay(props: {
   showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
   useV2Actions?: boolean
+  onInspectTool?: (part: ToolPart) => void
+  onPreviewSession?: (id: string) => void
 }) {
   const emptyTools: ToolPart[] = []
   const part = createMemo(() => index(props.parts))
@@ -1008,7 +1016,7 @@ export function AssistantMessageDisplay(props: {
 
                 return (
                   <Show when={parts().length > 0}>
-                    <ContextToolGroup parts={parts()} />
+                    <ContextToolGroup parts={parts()} onInspectTool={props.onInspectTool} />
                   </Show>
                 )
               })()}
@@ -1028,6 +1036,8 @@ export function AssistantMessageDisplay(props: {
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
                       useV2Actions={props.useV2Actions}
+                      onInspectTool={props.onInspectTool}
+                      onPreviewSession={props.onPreviewSession}
                     />
                   </Show>
                 )
@@ -1046,6 +1056,7 @@ export function ContextToolGroup(props: {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   onSizeChange?: () => void
+  onInspectTool?: (part: ToolPart) => void
 }) {
   const i18n = useI18n()
   const [localOpen, setLocalOpen] = createSignal(false)
@@ -1118,8 +1129,19 @@ export function ContextToolGroup(props: {
                 () => partAccessor().state.status === "pending" || partAccessor().state.status === "running",
               )
               return (
-                <div data-slot="context-tool-group-item">
-                  <div data-component="tool-trigger">
+                <div
+                  data-slot="context-tool-group-item"
+                  role={props.onInspectTool ? "button" : undefined}
+                  tabIndex={props.onInspectTool ? 0 : undefined}
+                  onClick={() => props.onInspectTool?.(partAccessor())}
+                  onKeyDown={(event) => {
+                    if (!props.onInspectTool) return
+                    if (event.key !== "Enter" && event.key !== " ") return
+                    event.preventDefault()
+                    props.onInspectTool(partAccessor())
+                  }}
+                >
+                  <div data-component="tool-trigger" data-clickable={props.onInspectTool ? "true" : undefined}>
                     <div data-slot="basic-tool-tool-trigger-content">
                       <div data-slot="basic-tool-tool-info">
                         <div data-slot="basic-tool-tool-info-structured">
@@ -1448,6 +1470,8 @@ export function Part(props: MessagePartProps) {
         showAssistantCopyPartID={props.showAssistantCopyPartID}
         turnDurationMs={props.turnDurationMs}
         useV2Actions={props.useV2Actions}
+        onInspectTool={props.onInspectTool}
+        onPreviewSession={props.onPreviewSession}
       />
     </Show>
   )
@@ -1469,6 +1493,9 @@ export interface ToolProps {
   onContentRendered?: () => void
   forceOpen?: boolean
   locked?: boolean
+  onTriggerClick?: JSX.EventHandlerUnion<HTMLElement, MouseEvent>
+  clickable?: boolean
+  onPreviewSession?: (id: string) => void
 }
 
 export type ToolComponent = Component<ToolProps>
@@ -1566,6 +1593,21 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
   const controlledOpen = () => (props.onToolOpenChange ? (props.toolOpen ?? props.defaultOpen) : undefined)
   const handleToolOpenChange = (open: boolean) => props.onToolOpenChange?.(open)
+  const inspect = () => !!props.onInspectTool && part().tool !== "task" && part().tool !== "question"
+  const preview = () => !!props.onPreviewSession && part().tool === "task"
+  const handleTriggerClick = (event: MouseEvent) => {
+    if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    if (part().tool === "task") {
+      const id = taskId()
+      if (!id || !props.onPreviewSession) return
+      event.preventDefault()
+      props.onPreviewSession(id)
+      return
+    }
+    if (!inspect()) return
+    event.preventDefault()
+    props.onInspectTool?.(part())
+  }
 
   return (
     <Show when={!hideQuestion()}>
@@ -1593,15 +1635,21 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   defaultOpen={props.defaultOpen}
                   open={controlledOpen()}
                   onOpenChange={props.onToolOpenChange ? handleToolOpenChange : undefined}
+                  hideDetails={inspect() || preview()}
+                  onTriggerClick={inspect() || preview() ? handleTriggerClick : undefined}
                   subtitle={taskSubtitle()}
                   href={taskHref()}
                   onSubtitleClick={(event) => {
-                    if (!data.navigateToSession) return
+                    if (!props.onPreviewSession && !data.navigateToSession) return
                     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
                     const id = taskId()
                     if (!id) return
                     event.preventDefault()
-                    data.navigateToSession(id)
+                    if (props.onPreviewSession) {
+                      props.onPreviewSession(id)
+                      return
+                    }
+                    data.navigateToSession?.(id)
                   }}
                 />
               )
@@ -1617,7 +1665,10 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               // @ts-expect-error
               output={part().state.output}
               status={part().state.status}
-              hideDetails={props.hideDetails}
+              hideDetails={inspect() || props.hideDetails}
+              onTriggerClick={inspect() ? handleTriggerClick : undefined}
+              clickable={inspect()}
+              onPreviewSession={props.onPreviewSession}
               defaultOpen={props.defaultOpen}
               open={controlledOpen()}
               onOpenChange={props.onToolOpenChange ? handleToolOpenChange : undefined}
@@ -2001,18 +2052,23 @@ ToolRegistry.register({
     const running = createMemo(() => props.status === "pending" || props.status === "running")
 
     const href = createMemo(() => sessionLink(childSessionId(), data.sessionHref))
-    const clickable = createMemo(() => !!(childSessionId() && (data.navigateToSession || href())))
+    const clickable = createMemo(() => !!(childSessionId() && (props.onPreviewSession || data.navigateToSession || href())))
 
     const open = () => {
       const id = childSessionId()
       if (!id) return
+      if (props.onPreviewSession) {
+        props.onPreviewSession(id)
+        return
+      }
       data.navigateToSession?.(id)
     }
 
     const navigate = (event: MouseEvent) => {
-      if (!data.navigateToSession) return
+      if (!props.onPreviewSession && !data.navigateToSession) return
       if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
       event.preventDefault()
+      event.stopPropagation()
       open()
     }
     const navigateKey = (event: KeyboardEvent) => {
@@ -2025,6 +2081,7 @@ ToolRegistry.register({
     const trigger = () => (
       <div
         data-component="task-tool-card"
+        onClick={navigate}
         style={{
           "--task-agent-color": v2Tone(),
           "--task-agent-legacy-color": tone(),
@@ -2637,6 +2694,15 @@ ToolRegistry.register({
       </div>
     )
 
-    return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+    return (
+      <BasicTool
+        icon="brain"
+        status={props.status}
+        trigger={trigger()}
+        hideDetails
+        onTriggerClick={props.onTriggerClick}
+        clickable={props.clickable}
+      />
+    )
   },
 })

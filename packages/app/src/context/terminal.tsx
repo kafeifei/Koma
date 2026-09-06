@@ -309,6 +309,7 @@ function createWorkspaceTerminalSession(
         setStore("active", data.id)
       }
     })
+    return data.id
   }
 
   return {
@@ -331,7 +332,7 @@ function createWorkspaceTerminalSession(
         }
         return (await sdk.api.pty.create({ location, title: defaultTitle(nextNumber) })).data
       }
-      doCreate()
+      return doCreate()
         .then((data) => {
           const id = data?.id
           if (!id) {
@@ -350,6 +351,7 @@ function createWorkspaceTerminalSession(
               setUi("focus", { request: focusRequest, id, pending: false })
             }
           })
+          return id
         })
         .catch((error: unknown) => {
           if (focusRequest !== undefined) cancelFocus(focusRequest)
@@ -372,7 +374,7 @@ function createWorkspaceTerminalSession(
       })
     },
     async clone(id: string) {
-      await clone(id)
+      return clone(id)
     },
     bind() {
       return {
@@ -385,7 +387,7 @@ function createWorkspaceTerminalSession(
           update(pty)
         },
         async clone(id: string) {
-          await clone(id)
+          return clone(id)
         },
       }
     },
@@ -401,7 +403,8 @@ function createWorkspaceTerminalSession(
     consumeFocus(id: string) {
       consumeFocus(id)
     },
-    cancelFocus() {
+    cancelFocus(id?: string) {
+      if (id !== undefined && ui.focus?.id !== id) return
       cancelFocus()
     },
     next() {
@@ -536,7 +539,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       requestFocus: (id?: string) => workspace().requestFocus(id),
       focusRequested: (id?: string) => workspace().focusRequested(id),
       consumeFocus: (id: string) => workspace().consumeFocus(id),
-      cancelFocus: () => workspace().cancelFocus(),
+      cancelFocus: (id?: string) => workspace().cancelFocus(id),
       close: (id: string) => workspace().close(id),
       move: (id: string, to: number) => workspace().move(id, to),
       next: () => workspace().next(),

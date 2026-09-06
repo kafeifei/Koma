@@ -69,6 +69,9 @@ test.beforeEach(async ({ page }) => {
     if (!(path in catalog)) return route.fallback()
     return route.fulfill({ json: { location: { directory }, data: catalog[path] } })
   })
+  await page.route("**/experimental/worktree/options**", (route) =>
+    route.fulfill({ json: { hasHead: false, branches: [] } }),
+  )
   await page.addInitScript(
     ({ directory, other }) => {
       if (sessionStorage.getItem("retention-fixture")) return
@@ -224,6 +227,9 @@ for (const initial of ["", "Existing input"]) {
 }
 
 test("project selection and existing worktrees open independent inputs", async ({ page }) => {
+  await page.route("**/experimental/worktree/options**", (route) =>
+    route.fulfill({ json: { hasHead: true, defaultBranch: "main", branches: ["main"] } }),
+  )
   await openProject(page, directory)
   await editor(page).fill("Root input")
   const rootURL = page.url()
@@ -235,14 +241,13 @@ test("project selection and existing worktrees open independent inputs", async (
   await openProject(page, directory)
   await expect(page).toHaveURL(rootURL)
   await expect(editor(page)).toHaveText("Root input")
-  await page.getByRole("button", { name: "Local", exact: true }).click()
-  await page.getByRole("menuitem", { name: "New workspace", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Create new worktree", exact: true })).toBeVisible()
   await expect(page).toHaveURL(rootURL)
   await expect(editor(page)).toHaveText("Root input")
-  await page.getByRole("button", { name: "New workspace", exact: true }).click()
-  await page.getByRole("menuitem", { name: "Local repository", exact: true }).click()
+  await page.getByRole("button", { name: "Create new worktree", exact: true }).click()
+  await page.getByRole("menuitemcheckbox", { name: "Worktree", exact: true }).click()
   await expect(editor(page)).toHaveText("Root input")
-  await page.getByRole("button", { name: "Local", exact: true }).click()
+  await page.getByRole("button", { name: "Main branch", exact: true }).click()
   await page.getByRole("menuitem", { name: /^Workspace/ }).hover()
   await page.getByRole("menuitem", { name: "feature", exact: true }).click()
   await expect(page).toHaveURL(new URL(inputHref(feature), page.url()).href)
@@ -252,6 +257,14 @@ test("project selection and existing worktrees open independent inputs", async (
   await newTask(page).click()
   await expect(page).toHaveURL(featureURL)
   await expect(editor(page)).toHaveText("Feature input")
+  await page.getByRole("button", { name: "feature", exact: true }).click()
+  await page.getByRole("menuitemcheckbox", { name: "Worktree", exact: true }).click()
+  await expect(page).toHaveURL(`${rootURL}&worktree=main`)
+  await expect(page.getByRole("button", { name: "Main branch", exact: true })).toBeVisible()
+  await expect(editor(page)).toHaveText("Root input")
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Main branch", exact: true })).toBeVisible()
+  await expect(editor(page)).toHaveText("Root input")
   await openProject(page, directory)
   await expect(editor(page)).toHaveText("Root input")
   await openProject(page, other)

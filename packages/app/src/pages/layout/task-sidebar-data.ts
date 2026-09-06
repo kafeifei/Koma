@@ -42,6 +42,40 @@ export function taskProjectGroups(
     : groups
 }
 
+// Archived checkouts can disappear from Project.sandboxes; the durable project ID still identifies their root.
+export function taskSessionProjectDirectory(
+  session: Pick<Session, "directory" | "projectID">,
+  projects: Array<Pick<LocalProject, "id" | "worktree" | "sandboxes">>,
+) {
+  const directory = pathKey(session.directory)
+  const project =
+    projects.find(
+      (item) =>
+        pathKey(item.worktree) === directory || item.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
+    ) ?? (session.projectID === "global" ? undefined : projects.find((item) => item.id === session.projectID))
+  return project?.worktree ?? session.directory
+}
+
+export function filterClosedSessionDirectories(
+  directories: string[],
+  recentlyClosed: string[],
+  projects: Array<Pick<LocalProject, "worktree" | "sandboxes">>,
+) {
+  const closed = new Set(recentlyClosed.map(pathKey))
+  const excluded = new Set(
+    [
+      ...recentlyClosed,
+      ...projects.flatMap((project) => {
+        if (!closed.has(pathKey(project.worktree))) return []
+        return [project.worktree, ...(project.sandboxes ?? [])]
+      }),
+    ].map(pathKey),
+  )
+  return [...new Set(directories)].filter((directory) => {
+    return !excluded.has(pathKey(directory))
+  })
+}
+
 export function visibleTaskSessions(sessions: Session[], limit: number, activeID?: string) {
   const visible = sessions.slice(0, limit)
   const active = sessions.find((session) => session.id === activeID)

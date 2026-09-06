@@ -27,7 +27,13 @@ import { createSizing, focusTerminalById } from "@/pages/session/helpers"
 import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
-export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
+export function TerminalPanelV2(
+  props: {
+    stacked?: boolean
+    terminalID?: string
+    onTerminalReplaced?: (previous: string, next: string) => void
+  } = {},
+) {
   const layout = useLayout()
   const terminal = useTerminal()
   const sdk = useSDK()
@@ -38,14 +44,18 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const newLayout = createMemo(() => settings.general.newLayoutDesigns())
-  const opened = createMemo(() => view().terminal.opened())
+  const embedded = () => props.terminalID !== undefined
+  const opened = createMemo(() => embedded() || view().terminal.opened())
+  const active = () => props.terminalID ?? terminal.active()
   const size = createSizing()
   const height = createMemo(() => layout.terminal.height())
   const close = () => view().terminal.close()
   let root: HTMLDivElement | undefined
   let tabList: HTMLDivElement | undefined
 
-  onCleanup(() => terminal.cancelFocus())
+  const focusOwner = terminal.bind()
+  const focusID = props.terminalID
+  onCleanup(() => focusOwner.cancelFocus(focusID))
 
   const [store, setStore] = createStore({
     autoCreated: false,
@@ -74,6 +84,7 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
   })
 
   createEffect(() => {
+    if (embedded()) return
     if (!opened()) {
       setStore("autoCreated", false)
       return
@@ -90,14 +101,14 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
       (count, prevCount) => {
         if (prevCount === undefined || prevCount <= 0 || count !== 0) return
         if (!opened()) return
-        close()
+        if (!embedded()) close()
       },
     ),
   )
 
   createEffect(
     on(
-      () => [opened(), terminal.active(), terminal.focusRequested(terminal.active())] as const,
+      () => [opened(), active(), terminal.focusRequested(active())] as const,
       ([next, id, requested]) => {
         if (!next || !id || !requested) return
         focusTerminalById(id)
@@ -140,10 +151,13 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
   const all = terminal.all
   const ids = createMemo(() => all().map((pty) => pty.id))
 
-  const recoverTerminal = (key: string, id: string, clone: (id: string) => Promise<void>) => {
+  const recoverTerminal = (key: string, id: string, ops: ReturnType<typeof terminal.bind>) => {
     if (store.recovered[key]) return
     setStore("recovered", key, true)
-    void clone(id)
+    const replaced = props.onTerminalReplaced
+    void ops.clone(id).then((next) => {
+      if (next && next !== id) replaced?.(id, next)
+    })
   }
 
   const terminalRecoveryKey = (pty: { id: string; title: string; titleNumber: number }) => {
@@ -177,7 +191,7 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
         "w-full": !isDesktop() || stacked(),
         "min-w-0 h-full flex-1": isDesktop() && opened() && !stacked(),
         "w-0 h-full pointer-events-none": isDesktop() && !opened(),
-        "rounded-[10px] shadow-[var(--v2-elevation-raised)]": isDesktop() && newLayout(),
+        "rounded-[10px] shadow-[var(--v2-elevation-raised)]": isDesktop() && newLayout() && !embedded(),
         "transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none":
           !isDesktop() && !size.active(),
       }}
@@ -256,33 +270,56 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
             }}
           >
             <div class="flex flex-col h-full">
-              <Tabs
-                variant={newLayout() ? "normal" : "alt"}
-                value={terminal.active()}
-                onChange={(id) => terminal.open(id)}
-                class={newLayout() ? "!h-[52px] !flex-none" : "!h-auto !flex-none"}
-              >
-                <Tabs.List
-                  ref={tabList}
-                  class={newLayout() ? undefined : "h-10 border-b border-border-weaker-base"}
-                  onPointerDown={(event: PointerEvent & { currentTarget: HTMLDivElement }) => {
-                    const active = document.activeElement
-                    if (event.target === active) return
-                    if (active instanceof HTMLInputElement && event.currentTarget.contains(active)) active.blur()
-                  }}
+              <Show when={!embedded()}>
+                <Tabs
+                  variant={newLayout() ? "normal" : "alt"}
+                  value={terminal.active()}
+                  onChange={(id) => terminal.open(id)}
+                  class={newLayout() ? "!h-[52px] !flex-none" : "!h-auto !flex-none"}
                 >
-                  <For each={all()}>
-                    {(pty, index) => (
-                      <SortableTerminalTabV2 terminal={pty} index={index} newLayout={newLayout()} onClose={close} />
-                    )}
-                  </For>
-                  <div class="h-full flex items-center justify-center">
-                    <Show
-                      when={newLayout()}
-                      fallback={
-                        <TooltipKeybind
-                          title={language.t("command.terminal.new")}
-                          keybind={command.keybind("terminal.new")}
+                  <Tabs.List
+                    ref={tabList}
+                    class={newLayout() ? undefined : "h-10 border-b border-border-weaker-base"}
+                    onPointerDown={(event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+                      const active = document.activeElement
+                      if (event.target === active) return
+                      if (active instanceof HTMLInputElement && event.currentTarget.contains(active)) active.blur()
+                    }}
+                  >
+                    <For each={all()}>
+                      {(pty, index) => (
+                        <SortableTerminalTabV2 terminal={pty} index={index} newLayout={newLayout()} onClose={close} />
+                      )}
+                    </For>
+                    <div class="h-full flex items-center justify-center">
+                      <Show
+                        when={newLayout()}
+                        fallback={
+                          <TooltipKeybind
+                            title={language.t("command.terminal.new")}
+                            keybind={command.keybind("terminal.new")}
+                            class="flex items-center"
+                          >
+                            <IconButton
+                              icon="plus-small"
+                              variant="ghost"
+                              iconSize="large"
+                              onClick={() => terminal.new({ focus: true })}
+                              aria-label={language.t("command.terminal.new")}
+                            />
+                          </TooltipKeybind>
+                        }
+                      >
+                        <TooltipV2
+                          value={
+                            <>
+                              {language.t("command.terminal.new")}
+                              <Show when={newTerminalKeybind().length > 0}>
+                                <KeybindV2 keys={newTerminalKeybind()} variant="neutral" />
+                              </Show>
+                            </>
+                          }
+                          placement="bottom"
                           class="flex items-center"
                         >
                           <IconButton
@@ -292,35 +329,14 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
                             onClick={() => terminal.new({ focus: true })}
                             aria-label={language.t("command.terminal.new")}
                           />
-                        </TooltipKeybind>
-                      }
-                    >
-                      <TooltipV2
-                        value={
-                          <>
-                            {language.t("command.terminal.new")}
-                            <Show when={newTerminalKeybind().length > 0}>
-                              <KeybindV2 keys={newTerminalKeybind()} variant="neutral" />
-                            </Show>
-                          </>
-                        }
-                        placement="bottom"
-                        class="flex items-center"
-                      >
-                        <IconButton
-                          icon="plus-small"
-                          variant="ghost"
-                          iconSize="large"
-                          onClick={() => terminal.new({ focus: true })}
-                          aria-label={language.t("command.terminal.new")}
-                        />
-                      </TooltipV2>
-                    </Show>
-                  </div>
-                </Tabs.List>
-              </Tabs>
+                        </TooltipV2>
+                      </Show>
+                    </div>
+                  </Tabs.List>
+                </Tabs>
+              </Show>
               <div class="flex-1 min-h-0 relative">
-                <Show when={opened() && terminal.active()} keyed>
+                <Show when={opened() && active()} keyed>
                   {(id) => {
                     const ops = terminal.bind()
                     return (
@@ -334,7 +350,7 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
                               class="!px-[14px]"
                               onConnect={() => markTerminalConnected(terminalRecoveryKey(pty()), id, ops.trim)}
                               onCleanup={ops.update}
-                              onConnectError={() => recoverTerminal(terminalRecoveryKey(pty()), id, ops.clone)}
+                              onConnectError={() => recoverTerminal(terminalRecoveryKey(pty()), id, ops)}
                             />
                           </div>
                         )}

@@ -176,7 +176,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const remove = Effect.fn("SessionHttpApi.remove")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* SessionError.mapStorageNotFound(session.remove(ctx.params.sessionID))
+      yield* SessionError.mapStorageNotFound(
+        SessionError.mapLifecycle(session.remove(ctx.params.sessionID), ctx.params.sessionID),
+      )
       return true
     })
 
@@ -206,7 +208,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         )
       }
       if (ctx.payload.time && "archived" in ctx.payload.time) {
-        yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived ?? undefined })
+        yield* SessionError.mapLifecycle(
+          session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived ?? undefined }),
+          ctx.params.sessionID,
+        )
       }
       return yield* requireSession(ctx.params.sessionID)
     })
@@ -296,7 +301,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         },
         auto: ctx.payload.auto ?? false,
       })
-      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+      yield* SessionError.mapBusy(promptSvc.loop({ sessionID: ctx.params.sessionID }))
       return true
     })
 

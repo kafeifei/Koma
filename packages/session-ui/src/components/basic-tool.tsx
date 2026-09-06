@@ -89,10 +89,11 @@ export function BasicTool(props: BasicToolProps) {
     ready: !props.defer && (props.defaultOpen ?? false),
   })
   const open = () => props.open ?? state.open
+  const displayOpen = () => !props.hideDetails && open()
   const ready = () => state.ready
   const pending = () => props.status === "pending" || props.status === "running"
   const hasChildren = () => (props.defer ? "children" in props : props.children)
-  const dynamicTrigger = typeof props.trigger === "function" ? props.trigger(open) : undefined
+  const dynamicTrigger = typeof props.trigger === "function" ? props.trigger(displayOpen) : undefined
 
   let cancelReady: (() => void) | undefined
 
@@ -105,7 +106,7 @@ export function BasicTool(props: BasicToolProps) {
     cancel()
     cancelReady = (initial ? scheduleDeferredMount : scheduleFrameMount)(() => {
       cancelReady = undefined
-      if (!open()) return
+      if (!displayOpen()) return
       setState("ready", true)
     })
   }
@@ -113,7 +114,7 @@ export function BasicTool(props: BasicToolProps) {
   onCleanup(cancel)
 
   onMount(() => {
-    if (props.defer && open()) scheduleReady(true)
+    if (props.defer && displayOpen()) scheduleReady(true)
   })
 
   const setOpen = (value: boolean) => {
@@ -129,7 +130,7 @@ export function BasicTool(props: BasicToolProps) {
 
   createEffect(
     on(
-      open,
+      displayOpen,
       (value) => {
         if (!props.defer) return
         if (!value) {
@@ -147,11 +148,11 @@ export function BasicTool(props: BasicToolProps) {
   // Animated height for collapsible open/close
   let contentRef: HTMLDivElement | undefined
   let heightAnim: AnimationPlaybackControls | undefined
-  const initialOpen = open()
+  const initialOpen = displayOpen()
 
   createEffect(
     on(
-      open,
+      displayOpen,
       (isOpen) => {
         if (!props.animated || !contentRef) return
         heightAnim?.stop()
@@ -159,7 +160,7 @@ export function BasicTool(props: BasicToolProps) {
           contentRef.style.overflow = "hidden"
           heightAnim = animate(contentRef, { height: "auto" }, SPRING)
           void heightAnim.finished.then(() => {
-            if (!contentRef || !open()) return
+            if (!contentRef || !displayOpen()) return
             contentRef.style.overflow = "visible"
             contentRef.style.height = "auto"
           })
@@ -177,6 +178,7 @@ export function BasicTool(props: BasicToolProps) {
   })
 
   const handleOpenChange = (value: boolean) => {
+    if (props.hideDetails) return
     if (pending() && !props.allowOpenWhilePending) return
     if (props.locked && !value) return
     setOpen(value)
@@ -255,7 +257,7 @@ export function BasicTool(props: BasicToolProps) {
   )
 
   return (
-    <Collapsible open={open()} onOpenChange={handleOpenChange} class="tool-collapsible">
+    <Collapsible open={displayOpen()} onOpenChange={handleOpenChange} class="tool-collapsible">
       <Show
         when={props.triggerAsLink || props.triggerHref}
         fallback={
@@ -325,6 +327,8 @@ export function GenericTool(props: {
   status?: string
   hideDetails?: boolean
   input?: Record<string, unknown>
+  onTriggerClick?: JSX.EventHandlerUnion<HTMLElement, MouseEvent>
+  clickable?: boolean
 }) {
   const i18n = useI18n()
 
@@ -338,6 +342,8 @@ export function GenericTool(props: {
         args: args(props.input),
       }}
       hideDetails={props.hideDetails}
+      onTriggerClick={props.onTriggerClick}
+      clickable={props.clickable}
     />
   )
 }

@@ -43,7 +43,10 @@ export type PromptInputV2ComposerProps = {
   borderUnderlay?: boolean
 }
 
-export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
+export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission"> & {
+  newSessionBaseBranch?: string
+  newSessionWorktreeReady?: boolean
+}
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
   readonly permission: PromptPermissionController
@@ -216,6 +219,8 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       if (!popover) controller.dispatch({ type: "popover.close" })
     },
     newSessionWorktree: () => props.newSessionWorktree,
+    newSessionBaseBranch: () => props.newSessionBaseBranch,
+    newSessionWorktreeReady: () => props.newSessionWorktreeReady ?? true,
     onNewSessionWorktreeReset: props.onNewSessionWorktreeReset,
     shouldQueue: props.shouldQueue,
     onQueue: props.onQueue,

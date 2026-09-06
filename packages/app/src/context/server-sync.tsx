@@ -7,6 +7,7 @@ import type {
   SessionStatus,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
+import { Worktree } from "@/utils/worktree"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { type Accessor, batch, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -552,6 +553,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     const directory = e.name
     const key = directoryKey(directory)
     const event = e.details
+    // Both layouts share this subscription; worktree creation must not depend on the legacy sidebar being mounted.
+    if (event.type === "worktree.ready") Worktree.ready(serverSDK.scope, directory)
+    if (event.type === "worktree.failed") Worktree.failed(serverSDK.scope, directory, event.properties.message)
     const eventType: string = event.type
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 

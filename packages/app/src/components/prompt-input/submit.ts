@@ -224,6 +224,8 @@ type PromptSubmitInput = {
   setMode: (mode: "normal" | "shell") => void
   setPopover: (popover: "at" | "slash" | null) => void
   newSessionWorktree?: Accessor<string | undefined>
+  newSessionBaseBranch?: Accessor<string | undefined>
+  newSessionWorktreeReady?: Accessor<boolean>
   onNewSessionWorktreeReset?: () => void
   shouldQueue?: Accessor<boolean>
   onQueue?: (draft: FollowupDraft) => void
@@ -320,7 +322,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
   }
 
-  const handleSubmit = async (event: Event) => {
+  const creation = { pending: false }
+  const submit = async (event: Event) => {
     event.preventDefault()
 
     const target = prompt.capture()
@@ -343,6 +346,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
       if (input.working()) void abort()
+      return
+    }
+
+    if (!params.id && input.newSessionWorktreeReady?.() === false) {
+      showToast({ title: language.t("prompt.toast.worktreeNotReady.title") })
       return
     }
 
@@ -373,7 +381,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     if (isNewSession) {
       if (worktreeSelection === "create") {
         const createdWorktree = await client.worktree
-          .create({ directory: projectDirectory })
+          .create({
+            directory: projectDirectory,
+            worktreeCreateInput: { baseBranch: input.newSessionBaseBranch?.(), wait: true },
+          })
           .then((x) => x.data)
           .catch((err) => {
             showToast({
@@ -390,7 +401,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           })
           return
         }
-        WorktreeState.pending(sourceSDK.scope, createdWorktree.directory)
+        // The wait response is authoritative even if the global ready event preceded this request's subscription.
+        WorktreeState.ready(sourceSDK.scope, createdWorktree.directory)
         sessionDirectory = createdWorktree.directory
       }
 
@@ -666,6 +678,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   return {
     abort,
-    handleSubmit,
+    handleSubmit: (event: Event) => {
+      event.preventDefault()
+      if (creation.pending) return Promise.resolve()
+      if (params.id) return submit(event)
+      creation.pending = true
+      return submit(event).finally(() => {
+        creation.pending = false
+      })
+    },
   }
 }

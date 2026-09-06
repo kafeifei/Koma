@@ -12,7 +12,7 @@ export function BuildInfo() {
         <div
           data-component="build-info"
           title={[
-            `v${build().version}`,
+            `v${build().version}${build().sequence ? ` #${build().sequence}` : ""}`,
             build().channel,
             build().commit ? `${build().commit}${build().dirty ? "+" : ""}` : undefined,
             build().builtAt,
@@ -20,7 +20,7 @@ export function BuildInfo() {
             .filter(Boolean)
             .join(" · ")}
         >
-          {language.t("app.build", { build: build().id })}
+          {language.t("app.build", { build: `${build().id}${build().sequence ? ` #${build().sequence}` : ""}` })}
         </div>
       )}
     </Show>

@@ -14,6 +14,8 @@ export default function NewSessionPage() {
   const workspace = createNewSessionWorkspaceController()
   const draft = createNewSessionDraftController({
     worktree: workspace.selection.value,
+    baseBranch: workspace.bar.baseBranch,
+    ready: workspace.selection.ready,
     resetWorktree: workspace.selection.reset,
   })
   const project = createPromptProjectController({

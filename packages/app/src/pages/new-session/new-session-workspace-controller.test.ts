@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   normalizeNewSessionWorktree,
+  resolveNewSessionBaseBranch,
   resolveNewSessionBranch,
   resolveNewSessionWorktree,
 } from "./new-session-workspace-controller"
@@ -22,7 +23,7 @@ describe("new session workspace selection", () => {
       resolveNewSessionWorktree({ enabled: true, directory: "/project/feature", projectWorktree: "/project" }),
     ).toBe("/project/feature")
     expect(resolveNewSessionWorktree({ enabled: true, directory: "/project", projectWorktree: "/project" })).toBe(
-      "main",
+      "create",
     )
   })
 
@@ -39,5 +40,11 @@ describe("new session workspace selection", () => {
       "feature",
     )
     expect(resolveNewSessionBranch({ worktree: "/missing", local: "dev", worktreeBranch: branch })).toBe("dev")
+  })
+
+  test("uses the selected base branch only for a new worktree", () => {
+    expect(resolveNewSessionBaseBranch({ worktree: "create", selected: "feature", fallback: "dev" })).toBe("feature")
+    expect(resolveNewSessionBaseBranch({ worktree: "create", fallback: "dev" })).toBe("dev")
+    expect(resolveNewSessionBaseBranch({ worktree: "main", selected: "feature", fallback: "dev" })).toBeUndefined()
   })
 })

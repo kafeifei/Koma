@@ -200,6 +200,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
       .handle("worktree", worktree)
+      .handle("worktreeOptions", () => mapWorktreeError(worktreeSvc.options()))
+      .handle("worktreeStatus", (ctx) => mapWorktreeError(worktreeSvc.lifecycleStatus(ctx.params.sessionID)))
       .handle("worktreeCreate", worktreeCreate)
       .handle("worktreeRemove", worktreeRemove)
       .handle("worktreeReset", worktreeReset)

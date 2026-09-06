@@ -61,6 +61,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     pathFromTab: file.pathFromTab,
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
     fileBrowser: () => settings.general.newLayoutDesigns() && isDesktop() && !!params.id,
+    sidePanel: () => settings.general.newLayoutDesigns() && isDesktop() && !!params.id,
   })
   const messages = createMemo(() => (params.id ? (sync().data.message[params.id] ?? []) : []))
   const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))

@@ -57,6 +57,8 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
+import { WorktreeLifecycle } from "@/worktree/lifecycle"
+import { Storage } from "@/storage/storage"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -206,6 +208,8 @@ const promptRoot = LayerNode.group([
   SystemPrompt.node,
   CrossSpawnSpawner.node,
   RuntimeFlags.node,
+  WorktreeLifecycle.node,
+  Storage.node,
 ])
 
 function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; processor?: "blocking" }) {
@@ -443,6 +447,47 @@ const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
 })
 
 // Loop semantics
+
+noLLMServer.instance(
+  "rejects a prompt before writing history while managed archive is pending",
+  () =>
+    Effect.gen(function* () {
+      const { directory } = yield* TestInstance
+      const { prompt, sessions, chat } = yield* boot()
+      const lifecycle = yield* WorktreeLifecycle.Service
+      const git = yield* Git.Service
+      const branch = yield* git.branch(directory)
+      if (!branch) return yield* Effect.die("prompt lifecycle test requires a branch")
+      yield* lifecycle.register({ directory, root: directory, branch, projectID: chat.projectID })
+      expect(yield* lifecycle.claim({ directory, sessionID: chat.id })).toBe(true)
+      const storage = yield* Storage.Service
+      yield* Effect.addFinalizer(() =>
+        lifecycle
+          .abortArchive(chat.id)
+          .pipe(
+            Effect.andThen(
+              storage.remove(["worktree_lifecycle", new Bun.CryptoHasher("sha256").update(directory).digest("hex")]),
+            ),
+            Effect.ignore,
+          ),
+      )
+      expect(yield* lifecycle.prepareArchive(chat.id)).toEqual({ managed: true, pending: false })
+      const before = yield* sessions.messages({ sessionID: chat.id })
+
+      const exit = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "must not be written" }],
+        })
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* sessions.messages({ sessionID: chat.id })).toEqual(before)
+    }),
+  { config: cfg, git: true },
+)
 
 noLLMServer.instance(
   "loop exits immediately when last assistant has stop finish",

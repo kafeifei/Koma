@@ -17,10 +17,10 @@ import {
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Button } from "@opencode-ai/ui/button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
@@ -56,6 +56,9 @@ import {
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionFileBrowserTab, type SessionFileBrowserState } from "@/pages/session/v2/session-file-browser-tab"
+import { SidePanelAddMenu, SidePanelContent, SidePanelTabLabel } from "./side-panel-content"
+import { sidePanelTab } from "./side-panel-tabs"
+import { useSidePanel } from "./use-side-panel"
 
 type ReviewDiff = FileDiffInfo | SnapshotFileDiff | VcsFileDiff
 type RenderDiff = FileDiffInfo | (SnapshotFileDiff & { file: string }) | VcsFileDiff
@@ -89,6 +92,7 @@ export function SessionSidePanel(props: {
   const command = useCommand()
   const dialog = useDialog()
   const sdk = useSDK()
+  const side = useSidePanel()
   const { sessionKey, tabs, view, params } = useSessionLayout()
   const projectDirectory = createMemo(() => sdk().directory)
 
@@ -180,6 +184,7 @@ export function SessionSidePanel(props: {
     review: reviewTab,
     hasReview: props.canReview,
     fileBrowser: () => !!props.fileBrowserState,
+    sidePanel: () => !!props.fileBrowserState,
   })
   const contextOpen = tabState.contextOpen
   const openFileOpen = tabState.openFileOpen
@@ -216,6 +221,7 @@ export function SessionSidePanel(props: {
     queueMicrotask(() => fileFilter?.focus())
   }
   const activateTab = (value: string) => {
+    if (props.fileBrowserState && sidePanelTab(value)) return side.activate(value)
     const next = normalizeTab(value)
     const path = file.pathFromTab(next)
     if (path) void file.load(path)
@@ -234,13 +240,12 @@ export function SessionSidePanel(props: {
   // otherwise dispose the sidebar and reset scroll.
   const fileBrowserMounted = createMemo(() => {
     if (!props.fileBrowserState) return false
-    return openedTabs().length > 0 || openFileOpen() || !!browserTab()
+    return openedTabs().some((tab) => !!file.pathFromTab(tab)) || openFileOpen() || !!browserTab()
   })
   const fileBrowserVisible = createMemo(() => {
     const active = activeTab()
-    return active !== "review" && active !== "context" && active !== "empty"
+    return active === SESSION_OPEN_FILE_TAB || !!file.pathFromTab(active)
   })
-  const openFileKeybind = createMemo(() => command.keybindParts("file.open"))
   const closeTabKeybind = createMemo(() => command.keybindParts("tab.close"))
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
@@ -291,7 +296,7 @@ export function SessionSidePanel(props: {
     <Show when={isDesktop() && !(settings.general.newLayoutDesigns() && !params.id)}>
       <aside
         id="review-panel"
-        aria-label={language.t("session.panel.reviewAndFiles")}
+        aria-label={language.t(props.fileBrowserState ? "session.panel.workspace" : "session.panel.reviewAndFiles")}
         aria-hidden={!open()}
         inert={!open()}
         class="relative min-w-0 flex overflow-hidden"
@@ -614,8 +619,13 @@ export function SessionSidePanel(props: {
                                       tab={tab}
                                       index={() => tabs().all().indexOf(tab)}
                                       temporary={temporaryTab() === tab}
-                                      onTabClose={tabs().close}
-                                      onTabDoubleClick={temporaryTab() === tab ? openTab : undefined}
+                                      label={
+                                        sidePanelTab(tab) ? (
+                                          <SidePanelTabLabel tab={tab} temporary={temporaryTab() === tab} />
+                                        ) : undefined
+                                      }
+                                      onTabClose={side.close}
+                                      onTabDoubleClick={temporaryTab() === tab ? side.pin : undefined}
                                     />
                                   }
                                 >
@@ -654,35 +664,19 @@ export function SessionSidePanel(props: {
                                 </Show>
                               )}
                             </For>
-                            <div
-                              class="h-full shrink-0 sticky right-0 z-10 flex items-center justify-center"
-                              classList={{
-                                "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
-                                "bg-background-stronger": !settings.general.newLayoutDesigns(),
-                              }}
-                            >
-                              <TooltipV2
-                                value={
-                                  <>
-                                    {language.t("command.file.open")}
-                                    <Show when={openFileKeybind().length > 0}>
-                                      <KeybindV2 keys={openFileKeybind()} variant="neutral" />
-                                    </Show>
-                                  </>
-                                }
-                                placement="bottom"
-                                class="flex items-center"
-                              >
-                                <IconButtonV2
-                                  icon={<Icon name="plus-small" />}
-                                  variant="ghost-muted"
-                                  size="large"
-                                  onClick={() => openFileBrowser()}
-                                  aria-label={language.t("command.file.open")}
-                                />
-                              </TooltipV2>
-                            </div>
                           </Tabs.List>
+                          <div
+                            class="session-side-panel-actions h-full shrink-0 flex items-center justify-center bg-v2-background-bg-base"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <Show when={temporaryTab() === activeTab()}>
+                              <Button variant="ghost" size="small" onClick={() => side.pin(activeTab())}>
+                                {language.t("session.panel.pin")}
+                              </Button>
+                            </Show>
+                            <SidePanelAddMenu onOpenFile={openFileBrowser} />
+                          </div>
                           <div
                             class="session-review-v2-open-in-app-slot shrink-0 flex items-center pr-3"
                             onPointerDown={(event) => event.stopPropagation()}
@@ -724,6 +718,14 @@ export function SessionSidePanel(props: {
                               <SessionContextTab />
                             </div>
                           </Tabs.Content>
+                        </Show>
+
+                        <Show when={sidePanelTab(activeTab()) ? `${sessionKey()}:${activeTab()}` : undefined} keyed>
+                          {(_key) => (
+                            <div role="tabpanel" data-slot="tabs-content" class="h-full min-h-0 overflow-hidden">
+                              <SidePanelContent tab={activeTab()} />
+                            </div>
+                          )}
                         </Show>
 
                         <Show when={fileBrowserMounted()}>

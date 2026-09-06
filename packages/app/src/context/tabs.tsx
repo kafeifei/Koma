@@ -228,7 +228,12 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         if (!tab || tab.type !== "draft") throw new Error(`Draft not found: ${draftID}`)
         return tab
       },
-      async newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
+      async newDraft(
+        draft: Omit<DraftTab, "type" | "draftID">,
+        prompt?: string,
+        model?: PromptModel,
+        options?: { worktree?: "main" },
+      ) {
         await ready.promise
         const draftID = directoryInputID(server.scope(draft.server), draft.directory)
         const existing = store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === draftID)
@@ -241,7 +246,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
               if (!tabs.some((tab) => tab.type === "draft" && tab.draftID === draftID)) tabs.push(tab)
             }),
           )
-          navigate(draftHref(draftID))
+          navigate(`${draftHref(draftID)}${options?.worktree === "main" ? "&worktree=main" : ""}`)
         })
         return tab
       },
