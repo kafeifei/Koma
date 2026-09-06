@@ -13,6 +13,9 @@ dist-lab
 dist-ssr
 *.local
 
+# Temporary bundled config exists while build metadata reads git status.
+electron.vite.config.[0-9]*.mjs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
