@@ -116,7 +116,7 @@ test.describe("new layout", () => {
     }
     await page.evaluate(() => (document.documentElement.dir = "ltr"))
 
-    await side.getByRole("button", { name: "Keep tab open" }).click()
+    await side.getByRole("tab", { name: /Shell/ }).click()
     await openPanelItem(page, "Background tasks")
     await expect(side.locator('[data-component="background-tasks-panel"]')).toContainText(childTitle)
     await side.getByRole("tab", { name: /Shell/ }).click()
