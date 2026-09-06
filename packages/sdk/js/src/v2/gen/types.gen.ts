@@ -18,6 +18,7 @@ export type Event =
   | EventMessagePartRemoved
   | EventSessionNextAgentSwitched
   | EventSessionNextModelSwitched
+  | EventSessionNextPermissionModeChanged
   | EventSessionNextMoved
   | EventSessionNextPrompted
   | EventSessionNextPromptAdmitted
@@ -167,6 +168,8 @@ export type PermissionRule = {
 
 export type PermissionRuleset = Array<PermissionRule>
 
+export type SessionPermissionMode = "default" | "auto" | "full"
+
 export type Session = {
   id: string
   slug: string
@@ -212,6 +215,7 @@ export type Session = {
     archived?: number
   }
   permission?: PermissionRuleset
+  permissionMode?: SessionPermissionMode
   revert?: {
     messageID: string
     partID?: string
@@ -766,6 +770,7 @@ export type GlobalEvent = {
         properties: {
           sessionID: string
           info: Session
+          permissionMode?: SessionPermissionMode
         }
       }
     | {
@@ -836,6 +841,15 @@ export type GlobalEvent = {
           sessionID: string
           messageID: string
           model: ModelRef
+        }
+      }
+    | {
+        id: string
+        type: "session.next.permission-mode.changed"
+        properties: {
+          timestamp: number
+          sessionID: string
+          permissionMode: SessionPermissionMode
         }
       }
     | {
@@ -1610,6 +1624,7 @@ export type GlobalEvent = {
     | SyncEventMessagePartRemoved
     | SyncEventSessionNextAgentSwitched
     | SyncEventSessionNextModelSwitched
+    | SyncEventSessionNextPermissionModeChanged
     | SyncEventSessionNextMoved
     | SyncEventSessionNextPrompted
     | SyncEventSessionNextPromptAdmitted
@@ -2240,6 +2255,7 @@ export type GlobalSession = {
     archived?: number
   }
   permission?: PermissionRuleset
+  permissionMode?: SessionPermissionMode
   revert?: {
     messageID: string
     partID?: string
@@ -2753,6 +2769,7 @@ export type UnknownError1 = {
 export type SessionDurableEvent =
   | SessionNextAgentSwitched
   | SessionNextModelSwitched
+  | SessionNextPermissionModeChanged
   | SessionNextMoved
   | SessionNextPrompted
   | SessionNextPromptAdmitted
@@ -2880,6 +2897,7 @@ export type V2Event =
   | MessagePartRemoved
   | SessionNextAgentSwitched
   | SessionNextModelSwitched
+  | SessionNextPermissionModeChanged
   | SessionNextMoved
   | SessionNextPrompted
   | SessionNextPromptAdmitted
@@ -3216,6 +3234,7 @@ export type SyncEventSessionCreated = {
     data: {
       sessionID: string
       info: Session
+      permissionMode?: SessionPermissionMode
     }
   }
 }
@@ -3342,6 +3361,22 @@ export type SyncEventSessionNextModelSwitched = {
       sessionID: string
       messageID: string
       model: ModelRef
+    }
+  }
+}
+
+export type SyncEventSessionNextPermissionModeChanged = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.permission-mode.changed.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      permissionMode: SessionPermissionMode
     }
   }
 }
@@ -3941,6 +3976,7 @@ export type SessionV2Info = {
   location: LocationRef
   subpath?: string
   revert?: RevertState
+  permissionMode?: SessionPermissionMode
 }
 
 export type PromptInputFileAttachment = {
@@ -4213,6 +4249,25 @@ export type SessionNextModelSwitched = {
     sessionID: string
     messageID: string
     model: ModelRef
+  }
+}
+
+export type SessionNextPermissionModeChanged = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.permission-mode.changed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    permissionMode: SessionPermissionMode
   }
 }
 
@@ -5118,6 +5173,7 @@ export type SessionCreated = {
   data: {
     sessionID: string
     info: Session
+    permissionMode?: SessionPermissionMode
   }
 }
 
@@ -6203,6 +6259,7 @@ export type EventSessionCreated = {
   properties: {
     sessionID: string
     info: Session
+    permissionMode?: SessionPermissionMode
   }
 }
 
@@ -6281,6 +6338,16 @@ export type EventSessionNextModelSwitched = {
     sessionID: string
     messageID: string
     model: ModelRef
+  }
+}
+
+export type EventSessionNextPermissionModeChanged = {
+  id: string
+  type: "session.next.permission-mode.changed"
+  properties: {
+    timestamp: number
+    sessionID: string
+    permissionMode: SessionPermissionMode
   }
 }
 
@@ -9531,6 +9598,7 @@ export type SessionCreateData = {
       [key: string]: unknown
     }
     permission?: PermissionRuleset
+    permissionMode?: SessionPermissionMode
     workspaceID?: string
   }
   path?: never
@@ -9664,6 +9732,7 @@ export type SessionUpdateData = {
       [key: string]: unknown
     }
     permission?: PermissionRuleset
+    permissionMode?: SessionPermissionMode
     time?: {
       archived?: number | null
     }
@@ -11423,6 +11492,7 @@ export type V2SessionCreateData = {
     agent?: string
     model?: ModelRef
     location?: LocationRef
+    permissionMode?: SessionPermissionMode
   }
   path?: never
   query?: never
@@ -11596,6 +11666,44 @@ export type V2SessionSwitchModelResponses = {
 }
 
 export type V2SessionSwitchModelResponse = V2SessionSwitchModelResponses[keyof V2SessionSwitchModelResponses]
+
+export type V2SessionSetPermissionModeData = {
+  body: {
+    permissionMode: SessionPermissionMode
+  }
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/permission-mode"
+}
+
+export type V2SessionSetPermissionModeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionSetPermissionModeError = V2SessionSetPermissionModeErrors[keyof V2SessionSetPermissionModeErrors]
+
+export type V2SessionSetPermissionModeResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionSetPermissionModeResponse =
+  V2SessionSetPermissionModeResponses[keyof V2SessionSetPermissionModeResponses]
 
 export type V2SessionPromptData = {
   body: {

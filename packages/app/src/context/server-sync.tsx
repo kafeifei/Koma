@@ -528,6 +528,26 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     })
   }
 
+  const refreshPermissionModes = (sessionID: string) => {
+    const affected = Object.values(session.data.info).flatMap((info) => {
+      if (!info) return []
+      const seen = new Set([info.id])
+      let current = info
+      while (current.parentID) {
+        if (current.parentID === sessionID) return [info.id]
+        if (seen.has(current.parentID)) return []
+        seen.add(current.parentID)
+        const parent = session.data.info[current.parentID]
+        if (!parent) return []
+        current = parent
+      }
+      return []
+    })
+    void Promise.all([...new Set([sessionID, ...affected])].map((id) => session.resolve(id, { force: true })))
+      .then((sessions) => sessions.forEach(indexSession))
+      .catch(() => {})
+  }
+
   const unsub = serverSDK.event.listen((e) => {
     const directory = e.name
     const key = directoryKey(directory)
@@ -537,6 +557,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
 
     if (event.current) session.applyV2(event.current)
     session.apply(event)
+    if (eventType === "session.next.permission-mode.changed") {
+      refreshPermissionModes((event.properties as { sessionID: string }).sessionID)
+    }
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       homeSessions.apply(event)
     }

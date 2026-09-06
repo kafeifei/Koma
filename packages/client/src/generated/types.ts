@@ -262,6 +262,7 @@ export type SessionsListOutput = {
         readonly patch: string
       }>
     }
+    readonly permissionMode?: "default" | "auto" | "full"
   }>
   readonly cursor: { readonly previous?: string | null; readonly next?: string | null }
 }
@@ -272,25 +273,36 @@ export type SessionsCreateInput = {
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+    readonly permissionMode?: ("default" | "auto" | "full") | null
   }["id"]
   readonly agent?: {
     readonly id?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+    readonly permissionMode?: ("default" | "auto" | "full") | null
   }["agent"]
   readonly model?: {
     readonly id?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+    readonly permissionMode?: ("default" | "auto" | "full") | null
   }["model"]
   readonly location?: {
     readonly id?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+    readonly permissionMode?: ("default" | "auto" | "full") | null
   }["location"]
+  readonly permissionMode?: {
+    readonly id?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+    readonly permissionMode?: ("default" | "auto" | "full") | null
+  }["permissionMode"]
 }
 
 export type SessionsCreateOutput = {
@@ -324,6 +336,7 @@ export type SessionsCreateOutput = {
         readonly patch: string
       }>
     }
+    readonly permissionMode?: "default" | "auto" | "full"
   }
 }["data"]
 
@@ -362,6 +375,7 @@ export type SessionsGetOutput = {
         readonly patch: string
       }>
     }
+    readonly permissionMode?: "default" | "auto" | "full"
   }
 }["data"]
 
@@ -380,6 +394,13 @@ export type SessionsSwitchModelInput = {
 }
 
 export type SessionsSwitchModelOutput = void
+
+export type SessionsSetPermissionModeInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly permissionMode: { readonly permissionMode: "default" | "auto" | "full" }["permissionMode"]
+}
+
+export type SessionsSetPermissionModeOutput = void
 
 export type SessionsPromptInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
@@ -708,6 +729,18 @@ export type SessionsHistoryOutput = {
           readonly sessionID: string
           readonly messageID: string
           readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+        }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "session.next.permission-mode.changed"
+        readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+        readonly location?: { readonly directory: string; readonly workspaceID?: string }
+        readonly data: {
+          readonly timestamp: number
+          readonly sessionID: string
+          readonly permissionMode: "default" | "auto" | "full"
         }
       }
     | {
@@ -1166,6 +1199,18 @@ export type SessionsEventsOutput =
         readonly sessionID: string
         readonly messageID: string
         readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+      }
+    }
+  | {
+      readonly id: string
+      readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "session.next.permission-mode.changed"
+      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {
+        readonly timestamp: number
+        readonly sessionID: string
+        readonly permissionMode: "default" | "auto" | "full"
       }
     }
   | {

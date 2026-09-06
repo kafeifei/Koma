@@ -27,6 +27,21 @@ describe("tab migration", () => {
     expect(migrateTabs(null, server)).toEqual([])
     expect(migrateTabs({}, server)).toEqual([])
   })
+
+  test("maps both legacy draft auto-accept values into permission modes", () => {
+    expect(
+      migrateTabs(
+        [
+          { type: "draft", draftID: "auto", server, directory: "/repo", autoAccept: true },
+          { type: "draft", draftID: "default", server, directory: "/repo", autoAccept: false },
+        ],
+        server,
+      ),
+    ).toEqual([
+      { type: "draft", draftID: "auto", server, directory: "/repo", worktree: undefined, permissionMode: "auto" },
+      { type: "draft", draftID: "default", server, directory: "/repo", worktree: undefined, permissionMode: "default" },
+    ])
+  })
 })
 
 describe("tab memory", () => {

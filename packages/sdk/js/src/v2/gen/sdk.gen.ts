@@ -203,6 +203,7 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
+  SessionPermissionMode,
   SessionPromptAsyncErrors,
   SessionPromptAsyncResponses,
   SessionPromptErrors,
@@ -379,6 +380,8 @@ import type {
   V2SessionRevertCommitResponses,
   V2SessionRevertStageErrors,
   V2SessionRevertStageResponses,
+  V2SessionSetPermissionModeErrors,
+  V2SessionSetPermissionModeResponses,
   V2SessionSwitchAgentErrors,
   V2SessionSwitchAgentResponses,
   V2SessionSwitchModelErrors,
@@ -3467,6 +3470,7 @@ export class Session2 extends HeyApiClient {
         [key: string]: unknown
       }
       permission?: PermissionRuleset
+      permissionMode?: SessionPermissionMode
       workspaceID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3484,6 +3488,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "model" },
             { in: "body", key: "metadata" },
             { in: "body", key: "permission" },
+            { in: "body", key: "permissionMode" },
             { in: "body", key: "workspaceID" },
           ],
         },
@@ -3610,6 +3615,7 @@ export class Session2 extends HeyApiClient {
         [key: string]: unknown
       }
       permission?: PermissionRuleset
+      permissionMode?: SessionPermissionMode
       time?: {
         archived?: number | null
       }
@@ -3627,6 +3633,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "metadata" },
             { in: "body", key: "permission" },
+            { in: "body", key: "permissionMode" },
             { in: "body", key: "time" },
           ],
         },
@@ -5521,6 +5528,7 @@ export class Session3 extends HeyApiClient {
       agent?: string
       model?: ModelRef
       location?: LocationRef
+      permissionMode?: SessionPermissionMode
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5533,6 +5541,7 @@ export class Session3 extends HeyApiClient {
             { in: "body", key: "agent" },
             { in: "body", key: "model" },
             { in: "body", key: "location" },
+            { in: "body", key: "permissionMode" },
           ],
         },
       ],
@@ -5648,6 +5657,45 @@ export class Session3 extends HeyApiClient {
       ThrowOnError
     >({
       url: "/api/session/{sessionID}/model",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Set session permission mode
+   *
+   * Set the backend permission policy used by subsequent session operations.
+   */
+  public setPermissionMode<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      permissionMode?: SessionPermissionMode
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "body", key: "permissionMode" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2SessionSetPermissionModeResponses,
+      V2SessionSetPermissionModeErrors,
+      ThrowOnError
+    >({
+      url: "/api/session/{sessionID}/permission-mode",
       ...options,
       ...params,
       headers: {

@@ -47,7 +47,6 @@ import { ModelSelectorPopover, ModelSelectorPopoverV2 } from "@/components/dialo
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import { useCommand } from "@/context/command"
-import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -73,6 +72,7 @@ import {
   type PromptInputSubmission,
 } from "./prompt-input/contracts"
 import { createPromptSubmit } from "./prompt-input/submit"
+import { createPromptPermissionController, PromptPermissionSelect } from "./prompt-permission-select"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -124,9 +124,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const comments = useComments()
   const dialog = useDialog()
   const command = useCommand()
-  const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
+  const permissionControl = createPromptPermissionController(() => props.controls.session.id)
   const tabs = () => props.controls.session.tabs
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
@@ -1192,12 +1192,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
   // Check provider variants directly: `variants` also includes the UI-only default option.
   const showVariantControl = createMemo(() => props.controls.model.selection.variant.list().length > 0)
-  const accepting = createMemo(() => {
-    const id = props.controls.session.id
-    if (!id) return permission.isAutoAcceptingDirectory(sdk().directory)
-    return permission.isAutoAccepting(id, sdk().directory)
-  })
-
   const { abort, handleSubmit } =
     props.submission ??
     createPromptSubmit({
@@ -1205,7 +1199,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       info,
       imageAttachments,
       commentCount,
-      autoAccept: () => accepting(),
+      permissionMode: permissionControl.current,
       mode: () => store.mode,
       working,
       editor: () => editorRef,
@@ -1501,7 +1495,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           onMouseDown={(e) => {
             const target = e.target
             if (!(target instanceof HTMLElement)) return
-            if (target.closest('[data-action="prompt-attach"], [data-action="prompt-submit"]')) {
+            // Portalled menu events still bubble through the composer in Solid.
+            if (
+              target.closest(
+                '[data-action="prompt-attach"], [data-action="prompt-permission"], [data-slot="prompt-permission-menu"], [data-action="prompt-submit"]',
+              )
+            ) {
               return
             }
             editorRef?.focus()
@@ -1575,6 +1574,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
+              <PromptPermissionSelect controller={permissionControl} onClose={restoreFocus} />
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
@@ -1662,6 +1662,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         options={props.controls.agents.options}
                         current={props.controls.agents.current}
                         onSelect={(value) => {
+                          if (value === undefined || value === props.controls.agents.current) return
                           props.controls.agents.select(value)
                           restoreFocus()
                         }}
@@ -1769,6 +1770,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             current={props.controls.model.selection.variant.current() ?? "default"}
                             label={(x) => (x === "default" ? language.t("common.default") : x)}
                             onSelect={(value) => {
+                              if (value === undefined || value === (props.controls.model.selection.variant.current() ?? "default")) return
                               props.controls.model.selection.variant.set(value === "default" ? undefined : value)
                               restoreFocus()
                             }}

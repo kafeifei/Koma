@@ -1127,6 +1127,18 @@ export const dict = {
   "session.delete.confirm": 'Delete session "{{name}}"?',
   "session.delete.button": "Delete session",
 
+  "prompt.permission.ariaLabel": "Permissions",
+  "prompt.permission.default.label": "Default permissions",
+  "prompt.permission.default.description": "Follow permission rules and ask when approval is needed.",
+  "prompt.permission.auto.label": "Auto-approve",
+  "prompt.permission.auto.description":
+    "Automatically approve requests that need approval while keeping explicit denials blocked.",
+  "prompt.permission.full.label": "Full Access",
+  "prompt.permission.full.description": "Allow all permission requests for this conversation.",
+  "prompt.permission.updateFailed.title": "Could not change permissions",
+  "prompt.permission.updateFailed.description": "This server does not support session permission modes.",
+  "prompt.permission.updateFailed.unconfirmed": "The server did not confirm the selected permission mode.",
+
   "workspace.new": "New workspace",
   "workspace.newTask": "New task",
   "workspace.activeTasks": "All tasks",

@@ -11,13 +11,44 @@ const sessionA = session("ses_server_a", directoryA, "Server A session")
 const childSessionA = { ...session("ses_server_a_child", directoryA, "Server A child session"), parentID: sessionA.id }
 const sessionB = session("ses_server_b", directoryB, "Server B session")
 
+test("composer permission choice stays with the remote session and follows settings", async ({ page }) => {
+  const requests: PermissionRequestTrace[] = []
+  await mockServers(page, requests)
+  await configureServers(page)
+
+  await page.goto(`/server/${base64Encode(serverB)}/session/${sessionB.id}`)
+  const control = page.locator('[data-action="prompt-permission"]')
+  await expect(control).toBeEnabled()
+  await expect(control).toContainText("Default permissions")
+  requests.length = 0
+  await control.click()
+  await page.getByRole("menuitemradio", { name: /^Auto-approve/ }).click()
+  await expect(control).toContainText("Auto-approve")
+  await expect.poll(() => requests.some((request) => new URL(request.url).origin === serverB)).toBe(true)
+  expect(requests.every((request) => new URL(request.url).origin === serverB)).toBe(true)
+
+  await page.goto(`/server/${base64Encode(serverA)}/session/${sessionA.id}`)
+  await expect(control).toBeEnabled()
+  await expect(control).toContainText("Default permissions")
+  await page.goto(`/server/${base64Encode(serverB)}/session/${sessionB.id}`)
+  await expect(control).toBeEnabled()
+  await expect(control).toContainText("Auto-approve")
+  await page.keyboard.press("Control+,")
+  const setting = page.locator('[data-action="settings-auto-accept-permissions"]')
+  await expect(setting.getByRole("switch")).toBeChecked()
+  await setting.locator('[data-slot="switch-control"]').click()
+  await expect(setting.getByRole("switch")).not.toBeChecked()
+  await page.keyboard.press("Escape")
+  await expect(control).toContainText("Default permissions")
+})
+
 test("session settings use the remote server context", async ({ page }) => {
-  const permissionRequests: string[] = []
+  const permissionRequests: PermissionRequestTrace[] = []
   await mockServers(page, permissionRequests)
   await configureServers(page)
 
   await page.goto(`/server/${base64Encode(serverB)}/session/${sessionB.id}`)
-  await expect(page.getByText(sessionB.title).first()).toBeVisible()
+  await expect(page.getByRole("heading", { name: sessionB.title, exact: true })).toBeVisible()
   await page.keyboard.press("Control+,")
 
   const dialog = page.locator(".settings-v2-dialog")
@@ -31,53 +62,37 @@ test("session settings use the remote server context", async ({ page }) => {
   await expect
     .poll(() =>
       permissionRequests.some((request) => {
-        const url = new URL(request)
-        return url.origin === serverB && url.searchParams.get("directory") === directoryB
+        const url = new URL(request.url)
+        return url.origin === serverB && request.directory === directoryB
       }),
     )
     .toBe(true)
-  expect(permissionRequests.every((request) => new URL(request).origin === serverB)).toBe(true)
+  expect(permissionRequests.every((request) => new URL(request.url).origin === serverB)).toBe(true)
 
   await dialog.getByRole("tab", { name: "Models" }).click()
   await expect(dialog.getByRole("switch", { name: "Server B Model" })).toBeEnabled()
   await expect(dialog.getByRole("switch", { name: "Server A Model" })).toHaveCount(0)
 })
 
-test("auto-accept responds for an unfocused server session", async ({ page }) => {
-  const permissionRequests: string[] = []
-  const permissionResponses: PermissionResponse[] = []
-  const transport = await installSseTransport<{ directory: string; payload: Record<string, unknown> }>(page, {
-    server: serverA,
-    retry: 20,
-  })
-  await mockServers(page, permissionRequests, permissionResponses)
+test("permission events never cause frontend auto-approval for an unfocused session", async ({ page }) => {
+  const requests: PermissionRequestTrace[] = []
+  const replies: PermissionResponse[] = []
+  const transport = await installSseTransport(page, { server: serverA, retry: 20 })
+  await mockServers(page, requests, replies)
   await configureServers(page, [
     { type: "session", server: serverA, sessionId: sessionA.id },
     { type: "session", server: serverB, sessionId: sessionB.id },
   ])
-
-  const hrefB = `/server/${base64Encode(serverB)}/session/${sessionB.id}`
   await page.goto(`/server/${base64Encode(serverA)}/session/${sessionA.id}`)
-  await expect(page.getByText(sessionA.title).first()).toBeVisible()
-  await page.keyboard.press("Control+,")
-  const autoAccept = page.locator(".settings-v2-dialog").locator('[data-action="settings-auto-accept-permissions"]')
-  await autoAccept.locator('[data-slot="switch-control"]').click()
-  await expect(autoAccept.getByRole("switch")).toBeChecked()
-  await expect
-    .poll(() =>
-      permissionRequests.some((request) => {
-        const url = new URL(request)
-        return url.origin === serverA && url.searchParams.get("directory") === directoryA
-      }),
-    )
-    .toBe(true)
-  await page.keyboard.press("Escape")
-
-  await page.locator(`[data-titlebar-tab-slot]:has(a[href="${hrefB}"])`).click()
-  await expect(page).toHaveURL(new RegExp(`${hrefB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`))
-  await expect(page.getByText(sessionB.title).first()).toBeVisible()
+  const control = page.locator('[data-action="prompt-permission"]')
+  await expect(control).toBeEnabled()
+  await control.click()
+  await page.getByRole("menuitemradio", { name: /^Auto-approve/ }).click()
+  await expect(control).toContainText("Auto-approve")
+  const hrefB = `/server/${base64Encode(serverB)}/session/${sessionB.id}`
+  await page.locator(`[data-component="task-sidebar"] a[href="${hrefB}"]`).click()
+  await expect(page.getByRole("heading", { name: sessionB.title, exact: true })).toBeVisible()
   await transport.waitForConnection()
-
   await transport.send({
     directory: directoryA,
     payload: {
@@ -93,54 +108,24 @@ test("auto-accept responds for an unfocused server session", async ({ page }) =>
       },
     },
   })
-
-  await expect
-    .poll(() => permissionResponses)
-    .toEqual([
-      {
-        origin: serverA,
-        directory: directoryA,
-        sessionID: sessionA.id,
-        permissionID: "permission-background-a",
-        body: { response: "once" },
-      },
-    ])
-
+  // Synchronize on a subsequent visible server update, so the permission event has been processed.
   await transport.send({
     directory: directoryA,
     payload: {
-      id: "event-permission-background-a-child",
-      type: "permission.asked",
+      id: "event-background-title",
+      type: "session.updated",
       properties: {
-        id: "permission-background-a-child",
-        sessionID: childSessionA.id,
-        permission: "bash",
-        patterns: ["git diff"],
-        metadata: {},
-        always: [],
+        info: { ...sessionA, title: "Background permission event processed", permissionMode: "auto" },
       },
     },
   })
-
-  await expect
-    .poll(() => permissionResponses)
-    .toEqual([
-      {
-        origin: serverA,
-        directory: directoryA,
-        sessionID: sessionA.id,
-        permissionID: "permission-background-a",
-        body: { response: "once" },
-      },
-      {
-        origin: serverA,
-        directory: directoryA,
-        sessionID: childSessionA.id,
-        permissionID: "permission-background-a-child",
-        body: { response: "once" },
-      },
-    ])
+  await expect(
+    page.locator('[data-component="task-sidebar"]').getByText("Background permission event processed", { exact: true }),
+  ).toBeVisible()
+  expect(replies).toEqual([])
 })
+
+type PermissionRequestTrace = { url: string; directory?: string }
 
 type PermissionResponse = {
   origin: string
@@ -152,23 +137,41 @@ type PermissionResponse = {
 
 async function configureServers(page: Page, tabs: { type: "session"; server: string; sessionId: string }[] = []) {
   await page.addInitScript(
-    ({ serverB, tabs }) => {
+    ({ serverA, serverB, directoryA, directoryB, tabs }) => {
+      localStorage.setItem("opencode.settings.dat:defaultServerUrl", serverA)
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
-      localStorage.setItem("opencode.global.dat:server", JSON.stringify({ list: [serverB] }))
+      localStorage.setItem(
+        "opencode.global.dat:server",
+        JSON.stringify({
+          list: [serverA, serverB],
+          projects: {
+            local: [{ worktree: directoryA, expanded: true }],
+            [serverA]: [{ worktree: directoryA, expanded: true }],
+            [serverB]: [{ worktree: directoryB, expanded: true }],
+          },
+        }),
+      )
       localStorage.setItem("opencode.window.browser.dat:tabs", JSON.stringify(tabs))
     },
-    { serverB, tabs },
+    { serverA, serverB, directoryA, directoryB, tabs },
   )
 }
 
-async function mockServers(page: Page, permissionRequests: string[], permissionResponses: PermissionResponse[] = []) {
+async function mockServers(
+  page: Page,
+  permissionRequests: PermissionRequestTrace[],
+  permissionResponses: PermissionResponse[] = [],
+) {
+  const localSessions = [sessionA, childSessionA, sessionB].map((item) => ({ ...item, permissionMode: "default" }))
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url())
     if (url.origin !== serverA && url.origin !== serverB) return route.fallback()
     const remote = url.origin === serverB
     const directory = remote ? directoryB : directoryA
-    const sessions = remote ? [sessionB] : [sessionA, childSessionA]
-    const requestDirectory = url.searchParams.get("directory")
+    const sessions = localSessions.filter((item) => (remote ? item.id === sessionB.id : item.id !== sessionB.id))
+    const encodedDirectory = route.request().headers()["x-opencode-directory"]
+    const requestDirectory =
+      url.searchParams.get("directory") ?? (encodedDirectory ? decodeURIComponent(encodedDirectory) : undefined)
     const response = url.pathname.match(/^\/session\/([^/]+)\/permissions\/([^/]+)$/)
     if (route.request().method() === "POST" && response) {
       permissionResponses.push({
@@ -206,18 +209,25 @@ async function mockServers(page: Page, permissionRequests: string[], permissionR
     if (url.pathname === "/api/project/current")
       return json(route, { id: remote ? sessionB.projectID : "project-server-a", directory })
     if (url.pathname === "/api/session") return json(route, { data: sessions.map(currentSession), cursor: {} })
+    if (url.pathname === "/session" || url.pathname === "/experimental/session") return json(route, sessions)
     if (url.pathname === "/api/session/active") return json(route, { data: {} })
     const currentSessionInfo = sessions.find((session) => url.pathname === `/api/session/${session.id}`)
     if (currentSessionInfo) return json(route, { data: currentSession(currentSessionInfo) })
     if (sessions.some((session) => url.pathname === `/api/session/${session.id}/message`))
       return json(route, { data: [], cursor: {} })
     const current = sessions.find((session) => url.pathname === `/session/${session.id}`)
-    if (current) return json(route, current)
+    if (current) {
+      if (route.request().method() === "PATCH") {
+        current.permissionMode = route.request().postDataJSON().permissionMode
+        permissionRequests.push({ url: url.toString(), directory: requestDirectory })
+      }
+      return json(route, current)
+    }
     if (/^\/session\/[^/]+$/.test(url.pathname)) return json(route, { name: "NotFoundError" }, 404)
     if (/^\/session\/[^/]+\/message$/.test(url.pathname)) return json(route, [])
     if (/^\/session\/[^/]+\/(children|todo|diff)$/.test(url.pathname)) return json(route, [])
     if (url.pathname === "/permission") {
-      permissionRequests.push(url.toString())
+      permissionRequests.push({ url: url.toString(), directory: requestDirectory })
       return json(route, [])
     }
     if (["/skill", "/command", "/lsp", "/formatter", "/question", "/vcs/diff", "/pty/shells"].includes(url.pathname))

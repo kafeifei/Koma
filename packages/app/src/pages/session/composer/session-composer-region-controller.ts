@@ -36,6 +36,7 @@ export function createSessionComposerRegionController(input: {
   revert: Accessor<SessionComposerRevertDock | undefined>
   onResponseSubmit: () => void
   openParent: () => void
+  restoreFocus?: () => void
   setPromptRef: (el: HTMLDivElement) => void
   setDockRef: (el: HTMLDivElement) => void
 }) {
@@ -127,6 +128,8 @@ export function createSessionComposerRegionController(input: {
     revert: input.revert,
     onResponseSubmit: input.onResponseSubmit,
     openParent: input.openParent,
+    restoreFocus: input.restoreFocus ?? (() => undefined),
+    sessionID: input.sessionID,
     setPromptRef: input.setPromptRef,
     setDockRef: input.setDockRef,
     parentID,

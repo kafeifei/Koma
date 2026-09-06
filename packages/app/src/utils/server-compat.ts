@@ -1,10 +1,10 @@
-import type { ServerApi } from "./server"
+import { PermissionModeError } from "@/utils/server-errors"
+import type { ServerApi, ServerSessionInfo } from "./server"
 import type { ServerProtocol } from "./server-protocol"
 import type { AgentPartInput, FilePartInput, OpencodeClient, Session, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type {
   Project,
   ProjectCurrent,
-  SessionApi,
   SessionCommandInput,
   SessionCommandOutput,
   SessionCompactInput,
@@ -19,16 +19,23 @@ import type {
 type LegacyClient = OpencodeClient
 type LegacyFor = (directory?: string) => LegacyClient
 type CompatibleSessionApi = Omit<
-  SessionApi,
-  "prompt" | "command" | "shell" | "compact" | "rename" | "archive" | "remove"
+  ServerApi["session"],
+  "prompt" | "command" | "shell" | "compact" | "rename" | "archive" | "remove" | "setPermissionMode"
 > & {
   prompt: (input: SessionPromptInput & LegacyPrompt) => Promise<SessionPromptOutput>
   command: (input: SessionCommandInput) => Promise<SessionCommandOutput>
   shell: (input: SessionShellInput & LegacyPrompt) => Promise<SessionShellOutput>
   compact: (input: SessionCompactInput & { model?: LegacyPrompt["model"] }) => Promise<SessionCompactOutput>
-  rename: (input: Parameters<SessionApi["rename"]>[0] & LegacyLocation) => ReturnType<SessionApi["rename"]>
-  // archive: (input: Parameters<SessionApi["archive"]>[0] & LegacyLocation) => ReturnType<SessionApi["archive"]>
-  remove: (input: Parameters<SessionApi["remove"]>[0] & LegacyLocation) => ReturnType<SessionApi["remove"]>
+  rename: (
+    input: Parameters<ServerApi["session"]["rename"]>[0] & LegacyLocation,
+  ) => ReturnType<ServerApi["session"]["rename"]>
+  setPermissionMode: (
+    input: Parameters<ServerApi["session"]["setPermissionMode"]>[0] & LegacyLocation,
+  ) => ReturnType<ServerApi["session"]["setPermissionMode"]>
+  // archive: (input: Parameters<ServerApi["session"]["archive"]>[0] & LegacyLocation) => ReturnType<ServerApi["session"]["archive"]>
+  remove: (
+    input: Parameters<ServerApi["session"]["remove"]>[0] & LegacyLocation,
+  ) => ReturnType<ServerApi["session"]["remove"]>
 }
 type CompatiblePermissionApi = Omit<ServerApi["permission"], "reply"> & {
   reply: (
@@ -58,7 +65,7 @@ function mime(uri: string) {
   return match?.[1] ?? "application/octet-stream"
 }
 
-function sessionInfo(session: Session): SessionInfo {
+function sessionInfo(session: Session): ServerSessionInfo {
   return {
     id: session.id,
     parentID: session.parentID,
@@ -73,6 +80,7 @@ function sessionInfo(session: Session): SessionInfo {
     tokens: session.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: session.time,
     title: session.title,
+    permissionMode: session.permissionMode ?? "default",
     location: { directory: session.directory, workspaceID: session.workspaceID },
     subpath: session.path,
     revert: session.revert && {
@@ -163,8 +171,16 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       async create(value?: Parameters<ServerApi["session"]["create"]>[0]) {
         const result = await legacy(value?.location ?? undefined).session.create({
           directory: directory(value?.location ?? undefined),
+          permissionMode: value?.permissionMode,
         })
         if (!result.data) throw new Error("Failed to create session")
+        if (
+          value?.permissionMode !== undefined &&
+          value.permissionMode !== "default" &&
+          result.data.permissionMode !== value.permissionMode
+        ) {
+          throw new PermissionModeError()
+        }
         return sessionInfo(result.data)
       },
       async get(value: Parameters<ServerApi["session"]["get"]>[0]) {
@@ -182,6 +198,15 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       },
       async rename(value: Parameters<ServerApi["session"]["rename"]>[0] & LegacyLocation) {
         await legacy(value).session.update({ sessionID: value.sessionID, title: value.title })
+      },
+      async setPermissionMode(value: Parameters<ServerApi["session"]["setPermissionMode"]>[0] & LegacyLocation) {
+        const result = await legacy(value.location ?? value).session.update({
+          sessionID: value.sessionID,
+          permissionMode: value.permissionMode,
+        })
+        if (!result.data || result.data.permissionMode !== value.permissionMode) {
+          throw new PermissionModeError()
+        }
       },
       // async archive(value: Parameters<ServerApi["session"]["archive"]>[0] & LegacyLocation) {
       //   await legacy(value).session.update({ sessionID: value.sessionID, time: { archived: Date.now() } })

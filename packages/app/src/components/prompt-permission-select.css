@@ -1,0 +1,4 @@
+/* The session composer is at z-index 70. Keep its portalled menu above it. */
+[data-popper-positioner]:has([data-slot="prompt-permission-menu"]) {
+  z-index: 80;
+}

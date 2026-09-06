@@ -14,6 +14,7 @@ import { SessionInput } from "./input"
 import { WorkspaceV2 } from "../workspace"
 import { MessageTable, PartTable, SessionInputTable, SessionMessageTable, SessionTable } from "./sql"
 import type { DeepMutable } from "../schema"
+import type { PermissionMode } from "@opencode-ai/schema/session-permission-mode"
 
 type DatabaseService = Database.Interface["db"]
 
@@ -40,7 +41,7 @@ function usage(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"] |
   return { cost: value.cost as Usage["cost"], tokens: value.tokens as Usage["tokens"] }
 }
 
-function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInsert {
+function sessionRow(info: SessionV1.SessionInfo, permissionMode?: PermissionMode): typeof SessionTable.$inferInsert {
   return {
     id: info.id,
     project_id: info.projectID,
@@ -67,6 +68,7 @@ function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInse
     tokens_cache_write: (info.tokens ?? { cache: { write: 0 } }).cache.write,
     revert: info.revert ? { ...info.revert, messageID: SessionMessage.ID.make(info.revert.messageID) } : null,
     permission: info.permission ? [...info.permission] : undefined,
+    permission_mode: permissionMode,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
@@ -215,7 +217,7 @@ const layer = Layer.effectDiscard(
       Effect.gen(function* () {
         const stored = yield* db
           .insert(SessionTable)
-          .values(sessionRow(event.data.info))
+          .values(sessionRow(event.data.info, event.data.permissionMode))
           .onConflictDoNothing()
           .returning({ sessionID: SessionTable.id })
           .get()
@@ -344,6 +346,17 @@ const layer = Layer.effectDiscard(
           .pipe(Effect.orDie)
         yield* run(db, event)
       }),
+    )
+    yield* events.project(SessionEvent.PermissionModeChanged, (event) =>
+      db
+        .update(SessionTable)
+        .set({
+          permission_mode: event.data.permissionMode,
+          time_updated: DateTime.toEpochMillis(event.data.timestamp),
+        })
+        .where(eq(SessionTable.id, event.data.sessionID))
+        .run()
+        .pipe(Effect.orDie),
     )
     yield* events.project(SessionEvent.Prompted, (event) =>
       Effect.gen(function* () {

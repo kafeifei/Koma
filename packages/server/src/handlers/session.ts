@@ -73,6 +73,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               agent: ctx.payload.agent,
               model: ctx.payload.model,
               location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
+              permissionMode: ctx.payload.permissionMode,
             }),
           }
         }),
@@ -133,6 +134,27 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               ),
             ),
           )
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "session.setPermissionMode",
+        Effect.fn(function* (ctx) {
+          yield* session
+            .setPermissionMode({
+              sessionID: ctx.params.sessionID,
+              permissionMode: ctx.payload.permissionMode,
+            })
+            .pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
+                ),
+              ),
+            )
           return HttpApiSchema.NoContent.make()
         }),
       )

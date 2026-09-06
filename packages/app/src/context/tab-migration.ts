@@ -1,5 +1,12 @@
 import type { ServerConnection } from "./server"
-import type { Tab } from "./tabs"
+import type { PermissionMode, Tab } from "./tabs"
+
+function permissionMode(tab: Record<string, unknown>): PermissionMode | undefined {
+  if (tab.permissionMode === "default" || tab.permissionMode === "auto" || tab.permissionMode === "full") {
+    return tab.permissionMode
+  }
+  if (typeof tab.autoAccept === "boolean") return tab.autoAccept ? "auto" : "default"
+}
 
 export function migrateTabs(value: unknown, fallback: ServerConnection.Key): Tab[] {
   if (!Array.isArray(value)) return []
@@ -16,7 +23,17 @@ export function migrateTabs(value: unknown, fallback: ServerConnection.Key): Tab
       typeof tab.directory === "string" &&
       (tab.worktree === undefined || typeof tab.worktree === "string")
     ) {
-      return [{ type: tab.type, server, draftID: tab.draftID, directory: tab.directory, worktree: tab.worktree }]
+      const mode = permissionMode(tab as Record<string, unknown>)
+      return [
+        {
+          type: tab.type,
+          server,
+          draftID: tab.draftID,
+          directory: tab.directory,
+          worktree: tab.worktree,
+          ...(mode ? { permissionMode: mode } : {}),
+        },
+      ]
     }
     return []
   })

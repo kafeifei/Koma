@@ -1255,10 +1255,13 @@ const layer = Layer.effect(
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
+              sys.skills(
+                session.permissionMode === "full" ? { ...agent, permission: [] } : agent,
+                session.permissionMode,
+              ),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
-              sys.mcp(agent, session.permission),
+              sys.mcp(agent, session.permission, session.permissionMode),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [
@@ -1273,6 +1276,7 @@ const layer = Layer.effect(
               user: lastUser,
               agent,
               permission: session.permission,
+              permissionMode: session.permissionMode,
               sessionID,
               parentSessionID: session.parentID,
               system,

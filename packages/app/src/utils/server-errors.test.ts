@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { SessionNotFoundError } from "@opencode-ai/sdk/v2/client"
 import type { ConfigInvalidError, ProviderModelNotFoundError } from "./server-errors"
-import { formatServerError, isSessionNotFoundError, parseReadableConfigInvalidError } from "./server-errors"
+import {
+  PermissionModeError,
+  formatServerError,
+  isSessionNotFoundError,
+  parseReadableConfigInvalidError,
+} from "./server-errors"
 
 function fill(text: string, vars?: Record<string, string | number>) {
   if (!vars) return text
@@ -172,4 +177,15 @@ describe("isSessionNotFoundError", () => {
       ),
     ).toBe(false)
   })
+})
+
+test("formats permission mode failures through localized messages", () => {
+  const messages: Record<string, string> = {
+    "prompt.permission.updateFailed.description": "unsupported-localized",
+    "prompt.permission.updateFailed.unconfirmed": "unconfirmed-localized",
+  }
+  expect(formatServerError(new PermissionModeError(), (key) => messages[key] ?? key)).toBe("unsupported-localized")
+  expect(formatServerError(new PermissionModeError("unconfirmed"), (key) => messages[key] ?? key)).toBe(
+    "unconfirmed-localized",
+  )
 })

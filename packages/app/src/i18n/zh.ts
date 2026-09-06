@@ -1106,6 +1106,17 @@ export const dict = {
   "session.delete.confirm": '删除会话 "{{name}}"？',
   "session.delete.button": "删除会话",
 
+  "prompt.permission.ariaLabel": "权限",
+  "prompt.permission.default.label": "默认权限",
+  "prompt.permission.default.description": "遵循权限规则，需要批准时询问。",
+  "prompt.permission.auto.label": "自动批准",
+  "prompt.permission.auto.description": "自动批准需要确认的请求，仍阻止明确禁止的操作。",
+  "prompt.permission.full.label": "Full Access",
+  "prompt.permission.full.description": "允许此聊天的所有权限请求。",
+  "prompt.permission.updateFailed.title": "无法更改权限",
+  "prompt.permission.updateFailed.description": "此服务器不支持会话权限模式。",
+  "prompt.permission.updateFailed.unconfirmed": "服务器未确认所选的权限档位。",
+
   "workspace.new": "新建工作区",
   "workspace.newTask": "新建任务",
   "workspace.activeTasks": "全部任务",

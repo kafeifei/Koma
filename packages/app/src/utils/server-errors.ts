@@ -25,7 +25,27 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
   return out
 }
 
+export class PermissionModeError extends Error {
+  constructor(readonly reason: "unsupported" | "unconfirmed" = "unsupported") {
+    super("Permission update failed")
+    this.name = "PermissionModeError"
+  }
+}
+
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
+  if (error instanceof PermissionModeError) {
+    return error.reason === "unconfirmed"
+      ? tr(
+          translate,
+          "prompt.permission.updateFailed.unconfirmed",
+          "The server did not confirm the selected permission mode.",
+        )
+      : tr(
+          translate,
+          "prompt.permission.updateFailed.description",
+          "This server does not support session permission modes.",
+        )
+  }
   const unwrapped = unwrapNamedError(error)
   if (isConfigInvalidErrorLike(unwrapped)) return parseReadableConfigInvalidError(unwrapped, translate)
   if (isProviderModelNotFoundErrorLike(unwrapped)) return parseReadableProviderModelNotFoundError(unwrapped, translate)

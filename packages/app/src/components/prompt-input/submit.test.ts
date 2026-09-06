@@ -10,9 +10,9 @@ const createdSessions: string[] = []
 const sessionCreateInputs: Array<{
   agent?: string
   model?: { id: string; providerID: string; variant?: string }
+  permissionMode?: "default" | "auto" | "full"
   location?: { directory: string }
 }> = []
-const enabledAutoAccept: Array<{ server: string; sessionID: string; directory: string }> = []
 const optimistic: Array<{
   directory?: string
   sessionID?: string
@@ -38,7 +38,8 @@ let params: { id?: string } = {}
 let search: { draftId?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
-let permissionServer = "server-a"
+let permissionMode: "default" | "auto" | "full" = "default"
+let echoPermissionMode = true
 let createSessionGate: Promise<void> | undefined
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
@@ -85,6 +86,7 @@ const clientFor = (directory: string) => {
             projectID: "project",
             agent: input.agent,
             model: input.model,
+            permissionMode: echoPermissionMode ? input.permissionMode : undefined,
             cost: 0,
             tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
             time: { created: 1, updated: 1 },
@@ -135,6 +137,7 @@ beforeAll(async () => {
   mock.module("@opencode-ai/ui/toast", () => ({
     Toast: { Region: () => null },
     showToast: () => 0,
+    toaster: { dismiss: () => undefined },
   }))
 
   mock.module("@opencode-ai/core/util/encode", () => ({
@@ -157,15 +160,6 @@ beforeAll(async () => {
       },
     }),
   }))
-
-  mock.module("@/context/permission", () => {
-    const state = (server: string) => ({
-      enableAutoAccept(sessionID: string, directory: string) {
-        enabledAutoAccept.push({ server, sessionID, directory })
-      },
-    })
-    return { usePermission: () => ({ currentServerState: () => state(permissionServer) }) }
-  })
 
   mock.module("@/context/server", () => ({
     useServer: () => ({ key: "server-key" }),
@@ -282,7 +276,6 @@ beforeEach(() => {
   createdClients.length = 0
   createdSessions.length = 0
   sessionCreateInputs.length = 0
-  enabledAutoAccept.length = 0
   optimistic.length = 0
   optimisticSeeded.length = 0
   promoted.length = 0
@@ -298,7 +291,8 @@ beforeEach(() => {
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
-  permissionServer = "server-a"
+  permissionMode = "default"
+  echoPermissionMode = true
   createSessionGate = undefined
   serverSessionSyncs = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
@@ -311,7 +305,7 @@ describe("prompt submit worktree selection", () => {
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "shell",
       working: () => false,
       editor: () => undefined,
@@ -338,11 +332,13 @@ describe("prompt submit worktree selection", () => {
       {
         agent: "agent",
         model: { id: "model", providerID: "provider", variant: undefined },
+        permissionMode: "default",
         location: { directory: "/repo/worktree-a" },
       },
       {
         agent: "agent",
         model: { id: "model", providerID: "provider", variant: undefined },
+        permissionMode: "default",
         location: { directory: "/repo/worktree-b" },
       },
     ])
@@ -359,13 +355,13 @@ describe("prompt submit worktree selection", () => {
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
   })
 
-  test("applies auto-accept to newly created sessions", async () => {
+  test("includes the permission mode in session creation", async () => {
     const submit = createPromptSubmit({
       prompt,
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => true,
+      permissionMode: () => "auto",
       mode: () => "shell",
       working: () => false,
       editor: () => undefined,
@@ -384,10 +380,36 @@ describe("prompt submit worktree selection", () => {
 
     await submit.handleSubmit(event)
 
-    expect(enabledAutoAccept).toEqual([{ server: "server-a", sessionID: "session-1", directory: "/repo/worktree-a" }])
+    expect(sessionCreateInputs[0]).toMatchObject({ permissionMode: "auto" })
   })
 
-  test("keeps auto-accept bound to the submission server", async () => {
+  test("does not send the prompt when the server ignores a non-default mode", async () => {
+    echoPermissionMode = false
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      permissionMode: () => "full",
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(sentShell).toEqual([])
+    expect(promoted).toEqual([])
+  })
+
+  test("captures the permission mode before asynchronous session creation", async () => {
     let release = () => {}
     createSessionGate = new Promise<void>((resolve) => {
       release = resolve
@@ -397,7 +419,7 @@ describe("prompt submit worktree selection", () => {
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => true,
+      permissionMode: () => permissionMode,
       mode: () => "shell",
       working: () => false,
       editor: () => undefined,
@@ -413,11 +435,11 @@ describe("prompt submit worktree selection", () => {
     })
 
     const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
-    permissionServer = "server-b"
+    permissionMode = "full"
     release()
     await result
 
-    expect(enabledAutoAccept).toEqual([{ server: "server-a", sessionID: "session-1", directory: "/repo/worktree-a" }])
+    expect(sessionCreateInputs[0]).toMatchObject({ permissionMode: "default" })
   })
 
   test("promotes drafts using the selected project's server", async () => {
@@ -427,7 +449,7 @@ describe("prompt submit worktree selection", () => {
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
@@ -456,7 +478,7 @@ describe("prompt submit worktree selection", () => {
       info: () => ({ id: "session-1" }),
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
@@ -505,7 +527,7 @@ describe("prompt submit worktree selection", () => {
       info: () => ({ id: "session-1" }),
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
@@ -544,7 +566,7 @@ describe("prompt submit worktree selection", () => {
       info: () => ({ id: "session-1" }),
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
@@ -572,7 +594,7 @@ describe("prompt submit worktree selection", () => {
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
