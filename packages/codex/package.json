@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "1.18.29",
+  "name": "@opencode-ai/codex",
+  "description": "Native Codex app-server transport and browser-safe projection",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "generate:protocol": "bun ./script/generate-protocol.ts",
+    "check:protocol": "bun ./script/generate-protocol.ts --check",
+    "probe:app-server": "bun ./script/probe-app-server.ts",
+    "test": "bun test --timeout 30000 --only-failures",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./history": "./src/history.ts",
+    "./projection": "./src/projection.ts",
+    "./protocol": "./src/protocol/generated/index.ts",
+    "./protocol/v2": "./src/protocol/generated/v2/index.ts",
+    "./session": "./src/session.ts",
+    "./transport": "./src/transport.ts",
+    "./host": "./src/host.ts",
+    "./worktree-access": "./src/worktree-access.ts",
+    "./view": "./src/view.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  },
+  "dependencies": {
+    "@opencode-ai/schema": "workspace:*",
+    "@opencode-ai/core": "workspace:*",
+    "effect": "catalog:",
+    "ajv": "8.20.0"
+  }
+}

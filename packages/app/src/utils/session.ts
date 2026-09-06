@@ -3,10 +3,13 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { ServerSessionInfo } from "./server"
 import { withTimestampedFallback } from "./session-title"
 
-export function normalizeSessionInfo(input: ServerSessionInfo | SessionInfo | Session): Session {
+export type AppSession = Session & { engine?: "opencode" | "codex" }
+
+export function normalizeSessionInfo(input: ServerSessionInfo | SessionInfo | Session): AppSession {
   if (!("location" in input)) return input
   return {
     id: input.id,
+    ...("engine" in input && (input.engine === "opencode" || input.engine === "codex") ? { engine: input.engine } : {}),
     slug: input.id,
     projectID: input.projectID,
     workspaceID: input.location.workspaceID,

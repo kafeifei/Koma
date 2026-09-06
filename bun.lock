@@ -39,6 +39,7 @@
         "@kobalte/core": "catalog:",
         "@opencode-ai/client": "file:vendor/opencode-ai-client-1.17.13-v2.tgz",
         "@opencode-ai/core": "workspace:*",
+        "@opencode-ai/lab-client": "workspace:@opencode-ai/client@*",
         "@opencode-ai/schema": "workspace:*",
         "@opencode-ai/sdk": "workspace:*",
         "@opencode-ai/session-ui": "workspace:*",
@@ -153,6 +154,22 @@
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+      },
+    },
+    "packages/codex": {
+      "name": "@opencode-ai/codex",
+      "version": "1.18.29",
+      "dependencies": {
+        "@opencode-ai/core": "workspace:*",
+        "@opencode-ai/schema": "workspace:*",
+        "ajv": "8.20.0",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@types/node": "catalog:",
         "@typescript/native-preview": "catalog:",
       },
     },
@@ -599,6 +616,7 @@
         "@octokit/rest": "catalog:",
         "@openauthjs/openauth": "catalog:",
         "@opencode-ai/codemode": "workspace:*",
+        "@opencode-ai/codex": "workspace:*",
         "@opencode-ai/llm": "workspace:*",
         "@opencode-ai/plugin": "workspace:*",
         "@opencode-ai/protocol": "workspace:*",
@@ -785,6 +803,7 @@
       "name": "@opencode-ai/server",
       "version": "1.18.29",
       "dependencies": {
+        "@opencode-ai/codex": "workspace:*",
         "@opencode-ai/core": "workspace:*",
         "@opencode-ai/protocol": "workspace:*",
         "drizzle-orm": "catalog:",
@@ -1949,6 +1968,8 @@
 
     "@opencode-ai/codemode": ["@opencode-ai/codemode@workspace:packages/codemode"],
 
+    "@opencode-ai/codex": ["@opencode-ai/codex@workspace:packages/codex"],
+
     "@opencode-ai/console-app": ["@opencode-ai/console-app@workspace:packages/console/app"],
 
     "@opencode-ai/console-core": ["@opencode-ai/console-core@workspace:packages/console/core"],
@@ -1976,6 +1997,8 @@
     "@opencode-ai/http-recorder": ["@opencode-ai/http-recorder@workspace:packages/http-recorder"],
 
     "@opencode-ai/httpapi-codegen": ["@opencode-ai/httpapi-codegen@workspace:packages/httpapi-codegen"],
+
+    "@opencode-ai/lab-client": ["@opencode-ai/client@workspace:packages/client"],
 
     "@opencode-ai/llm": ["@opencode-ai/llm@workspace:packages/llm"],
 

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { adaptServerEvent, coalesceServerEvents, enqueueServerEvent, resumeStreamAfterPageShow } from "./server-sdk"
+import {
+  adaptServerEvent,
+  adaptStreamEvent,
+  coalesceServerEvents,
+  enqueueServerEvent,
+  resumeStreamAfterPageShow,
+} from "./server-sdk"
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
 import type { Event } from "@opencode-ai/sdk/v2/client"
 
@@ -27,6 +33,21 @@ describe("adaptServerEvent", () => {
     expect(adaptServerEvent(current)).toMatchObject({
       type: "permission.asked",
       properties: { id: "perm_1", sessionID: "ses_1", permission: "read", patterns: ["src/**"] },
+      current,
+    })
+  })
+
+  test("preserves external events before the vendored event reducer", () => {
+    const current = {
+      id: "evt_external",
+      type: "session.external.changed",
+      data: { sessionID: "ses_codex", epoch: "runtime", revision: 2, refresh: true },
+    } as Extract<Parameters<typeof adaptStreamEvent>[0], { type: "session.external.changed" }>
+
+    expect(adaptStreamEvent(current)).toEqual({
+      id: "evt_external",
+      type: "session.external.changed",
+      properties: { sessionID: "ses_codex", epoch: "runtime", revision: 2, refresh: true },
       current,
     })
   })

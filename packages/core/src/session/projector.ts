@@ -217,7 +217,10 @@ const layer = Layer.effectDiscard(
       Effect.gen(function* () {
         const stored = yield* db
           .insert(SessionTable)
-          .values(sessionRow(event.data.info, event.data.permissionMode))
+          .values({
+            ...sessionRow(event.data.info, event.data.permissionMode),
+            engine: event.data.info.engine ?? "opencode",
+          })
           .onConflictDoNothing()
           .returning({ sessionID: SessionTable.id })
           .get()

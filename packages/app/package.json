@@ -95,6 +95,7 @@
     "solid-js": "catalog:",
     "solid-list": "catalog:",
     "solid-presence": "0.2.0",
-    "tailwindcss": "catalog:"
+    "tailwindcss": "catalog:",
+    "@opencode-ai/lab-client": "workspace:@opencode-ai/client@*"
   }
 }

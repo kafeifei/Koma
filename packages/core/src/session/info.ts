@@ -18,6 +18,7 @@ export function fromRow(
 ): SessionSchema.Info {
   return SessionSchema.Info.make({
     id: SessionSchema.ID.make(row.id),
+    engine: row.engine,
     projectID: ProjectV2.ID.make(row.project_id),
     title: row.title,
     parentID: row.parent_id ? SessionSchema.ID.make(row.parent_id) : undefined,

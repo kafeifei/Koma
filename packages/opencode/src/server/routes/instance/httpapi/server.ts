@@ -3,6 +3,9 @@ import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { HttpClient, HttpMiddleware, HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { CodexHost } from "@opencode-ai/codex/host"
+import { CodexWorktreeAccess } from "@opencode-ai/codex/worktree-access"
+import { CodexAccess } from "@/worktree/codex-access"
 import * as Observability from "@opencode-ai/core/observability"
 import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
@@ -210,6 +213,7 @@ type RouteRequirements =
   | HttpRouter.Request<"GlobalRequires", never>
 
 const app = LayerNode.group([
+  CodexHost.node,
   Npm.node,
   FSUtil.node,
   Database.node,
@@ -303,7 +307,7 @@ export function createRoutes(
     ),
     Layer.provide(locationServiceMapV2),
 
-    Layer.provide(AppNodeBuilderV1.build(app)),
+    Layer.provide(AppNodeBuilderV1.build(app, [[CodexWorktreeAccess.node, CodexAccess.node]])),
     // Must stay last: layers provided later in this pipe build beneath earlier ones,
     // so Observability must come after every service graph. Otherwise eagerly forked
     // fibers (e.g. the ModelsDev background refresh) capture Effect's default stdout

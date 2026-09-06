@@ -26,6 +26,7 @@ import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { useI18n } from "@opencode-ai/ui/context/i18n"
 import { normalize } from "./session-diff"
+import { isMessageStreaming, messageFieldAvailable } from "./message-availability"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -208,9 +209,7 @@ export function SessionTurn(
   const pending = createMemo(() => {
     if (typeof props.active === "boolean") return
     const messages = allMessages() ?? emptyMessages
-    return messages.findLast(
-      (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
-    )
+    return messages.findLast((item): item is AssistantMessage => item.role === "assistant" && isMessageStreaming(item))
   })
 
   const pendingUser = createMemo(() => {
@@ -336,6 +335,7 @@ export function SessionTurn(
     return showAssistantCopyPartID() ?? null
   })
   const turnDurationMs = createMemo(() => {
+    if (!messageFieldAvailable(message(), "time")) return undefined
     const start = message()?.time.created
     if (typeof start !== "number") return undefined
 

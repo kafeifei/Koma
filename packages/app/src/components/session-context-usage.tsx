@@ -9,6 +9,8 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { useFile } from "@/context/file"
 import { useLayout } from "@/context/layout"
 import { useSync } from "@/context/sync"
+import { useServerSync } from "@/context/server-sync"
+import { getExternalSessionMetrics } from "@/components/session/session-external-metrics"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useSDK } from "@/context/sdk"
@@ -45,6 +47,7 @@ function openSessionContext(args: {
 
 export function SessionContextUsage(props: SessionContextUsageProps) {
   const sync = useSync()
+  const serverSync = useServerSync()
   const file = useFile()
   const layout = useLayout()
   const language = useLanguage()
@@ -52,6 +55,10 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const settings = useSettings()
   const providers = useProviders(() => sdk().directory)
   const { params, tabs, view } = useSessionLayout()
+  const external = () => !!params.id && serverSync().external.isExternal(params.id)
+  const native = createMemo(() =>
+    getExternalSessionMetrics(params.id ? serverSync().external.data.snapshots[params.id] : undefined),
+  )
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
   const variant = createMemo(() => props.variant ?? "button")
@@ -76,8 +83,14 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const context = createMemo(() => getSessionContext(messages(), [...providers.all().values()]))
   const cost = createMemo(() => {
+    if (external()) return native().cost === undefined ? "—" : usd().format(native().cost!)
     return usd().format(info()?.cost ?? 0)
   })
+  const usage = () => (external() ? native().usage : (context()?.usage ?? 0))
+  const tokens = () =>
+    external()
+      ? (native().current?.toLocaleString(language.intl()) ?? "—")
+      : (context()?.total.toLocaleString(language.intl()) ?? "0")
   const contextVisible = createMemo(() => view().reviewPanel.opened() && tabState.activeTab() === "context")
   const hasOtherTabs = createMemo(() =>
     tabs()
@@ -104,36 +117,37 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const circle = () => (
     <div class="flex items-center justify-center">
-      <ProgressCircle
-        size={16}
-        strokeWidth={2}
-        percentage={context()?.usage ?? 0}
-        style={
-          variant() === "indicator"
-            ? {
-                "--progress-circle-background": "var(--v2-background-bg-layer-04, var(--border-weak-base))",
-                "--progress-circle-background-overlay": "var(--v2-overlay-simple-overlay-pressed, transparent)",
-                "--progress-circle-progress": "var(--v2-icon-icon-base, var(--icon-base))",
-              }
-            : undefined
-        }
-      />
+      <Show when={usage() !== undefined} fallback={<span aria-label={language.t("common.unknown")}>—</span>}>
+        <ProgressCircle
+          size={16}
+          strokeWidth={2}
+          percentage={usage() ?? 0}
+          style={
+            variant() === "indicator"
+              ? {
+                  "--progress-circle-background": "var(--v2-background-bg-layer-04, var(--border-weak-base))",
+                  "--progress-circle-background-overlay": "var(--v2-overlay-simple-overlay-pressed, transparent)",
+                  "--progress-circle-progress": "var(--v2-icon-icon-base, var(--icon-base))",
+                }
+              : undefined
+          }
+        />
+      </Show>
     </div>
   )
   const circleV2 = () => (
     <div class="flex items-center justify-center">
-      <ProgressCircleV2 percentage={context()?.usage ?? 0} />
+      <Show when={usage() !== undefined} fallback={<span aria-label={language.t("common.unknown")}>—</span>}>
+        <ProgressCircleV2 percentage={usage() ?? 0} />
+      </Show>
     </div>
   )
 
   const tooltipValue = () => (
     <div class="flex w-[120px] flex-col gap-2">
       <ContextTooltipRow name={language.t("context.usage.cost")} value={cost()} />
-      <ContextTooltipRow name={language.t("context.usage.usage")} value={`${context()?.usage ?? 0}%`} />
-      <ContextTooltipRow
-        name={language.t("context.usage.tokens")}
-        value={context()?.total.toLocaleString(language.intl()) ?? "0"}
-      />
+      <ContextTooltipRow name={language.t("context.usage.usage")} value={usage() === undefined ? "—" : `${usage()}%`} />
+      <ContextTooltipRow name={language.t("context.usage.tokens")} value={tokens()} />
     </div>
   )
 

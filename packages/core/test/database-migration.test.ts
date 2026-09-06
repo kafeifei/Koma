@@ -16,6 +16,7 @@ import eventSourcedSessionInputMigration from "@opencode-ai/core/database/migrat
 import contextEpochAgentMigration from "@opencode-ai/core/database/migration/20260605042240_add_context_epoch_agent"
 import simplifyIntegrationCredentialsMigration from "@opencode-ai/core/database/migration/20260611192811_lush_chimera"
 import simplifySessionInputMigration from "@opencode-ai/core/database/migration/20260622202450_simplify_session_input"
+import sessionExternalMigration from "@opencode-ai/core/database/migration/20260906155326_session-external"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -39,6 +40,28 @@ const run = <A, E>(effect: Effect.Effect<A, E, SqlClientService>) =>
 const makeDb = EffectDrizzleSqlite.makeWithDefaults()
 
 describe("DatabaseMigration", () => {
+  test("adds external ownership while preserving legacy Session and message records", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, title text NOT NULL, metadata text)`)
+        yield* db.run(sql`CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, data text NOT NULL)`)
+        yield* db.run(sql`INSERT INTO session VALUES ('ses_existing', 'kept title', '{"kept":true}')`)
+        yield* db.run(sql`INSERT INTO message VALUES ('msg_existing', 'ses_existing', 'kept transcript')`)
+        yield* DatabaseMigration.applyOnly(db, [sessionExternalMigration])
+        yield* DatabaseMigration.applyOnly(db, [sessionExternalMigration])
+        expect(yield* db.all(sql`SELECT id, title, metadata, engine FROM session`)).toEqual([
+          { id: "ses_existing", title: "kept title", metadata: '{"kept":true}', engine: "opencode" },
+        ])
+        expect(yield* db.all(sql`SELECT * FROM message`)).toEqual([
+          { id: "msg_existing", session_id: "ses_existing", data: "kept transcript" },
+        ])
+        expect(yield* db.all(sql`SELECT * FROM session_external_binding`)).toHaveLength(0)
+        expect(yield* db.all(sql`SELECT * FROM session_external_delivery`)).toHaveLength(0)
+      }),
+    )
+  })
+
   test("defaults missing workspace names while preserving legacy workspace data", async () => {
     await run(
       Effect.gen(function* () {

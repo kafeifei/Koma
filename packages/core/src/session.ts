@@ -39,6 +39,7 @@ import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
 import { PermissionMode } from "@opencode-ai/schema/session-permission-mode"
 import { SessionPermissionMode } from "./session/permission-mode"
+import { SessionEngineGuard } from "./session/external/guard"
 
 export const RevertState = Revert.State
 export type RevertState = Revert.State
@@ -381,6 +382,7 @@ const layer = Layer.effect(
       prompt: Effect.fn("V2Session.prompt")((input) =>
         Effect.uninterruptible(
           Effect.gen(function* () {
+            yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "prompt").pipe(Effect.orDie)
             yield* result.get(input.sessionID)
             const prompt = resolvePrompt(input.prompt)
             const messageID = input.id ?? SessionMessage.ID.create()
@@ -412,6 +414,7 @@ const layer = Layer.effect(
         return yield* new OperationUnavailableError({ operation: "skill" })
       }),
       switchAgent: Effect.fn("V2Session.switchAgent")(function* (input) {
+        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "switchAgent").pipe(Effect.orDie)
         yield* result.get(input.sessionID)
         yield* events.publish(SessionEvent.AgentSwitched, {
           sessionID: input.sessionID,
@@ -421,6 +424,7 @@ const layer = Layer.effect(
         })
       }),
       switchModel: Effect.fn("V2Session.switchModel")(function* (input) {
+        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "switchModel").pipe(Effect.orDie)
         const session = yield* result.get(input.sessionID)
         if (
           session.model?.providerID === input.model.providerID &&
@@ -436,6 +440,7 @@ const layer = Layer.effect(
         })
       }),
       setPermissionMode: Effect.fn("V2Session.setPermissionMode")(function* (input) {
+        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "setPermissionMode").pipe(Effect.orDie)
         yield* result.get(input.sessionID)
         yield* events.publish(SessionEvent.PermissionModeChanged, {
           sessionID: input.sessionID,
@@ -444,6 +449,7 @@ const layer = Layer.effect(
         })
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
+        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "compact").pipe(Effect.orDie)
         yield* result.get(input.sessionID)
         return yield* new OperationUnavailableError({ operation: "compact" })
       }),
@@ -453,14 +459,17 @@ const layer = Layer.effect(
       }),
       active: execution.active,
       resume: Effect.fn("V2Session.resume")(function* (sessionID) {
+        yield* SessionEngineGuard.requireOpenCode(db, sessionID, "resume").pipe(Effect.orDie)
         yield* result.get(sessionID)
         yield* execution.resume(sessionID)
       }),
-      interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
-        Effect.uninterruptible(execution.interrupt(sessionID)),
-      ),
+      interrupt: Effect.fn("V2Session.interrupt")(function* (sessionID) {
+        yield* SessionEngineGuard.requireOpenCode(db, sessionID, "interrupt").pipe(Effect.orDie)
+        yield* Effect.uninterruptible(execution.interrupt(sessionID))
+      }),
       revert: {
         stage: Effect.fn("V2Session.revert.stage")(function* (input) {
+          yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "revert").pipe(Effect.orDie)
           const session = yield* result.get(input.sessionID)
           return yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
             Effect.provideService(Database.Service, database),
@@ -469,6 +478,7 @@ const layer = Layer.effect(
           )
         }),
         clear: Effect.fn("V2Session.revert.clear")(function* (sessionID) {
+          yield* SessionEngineGuard.requireOpenCode(db, sessionID, "unrevert").pipe(Effect.orDie)
           const session = yield* result.get(sessionID)
           yield* SessionRevert.clear(session).pipe(
             Effect.provideService(EventV2.Service, events),
@@ -476,6 +486,7 @@ const layer = Layer.effect(
           )
         }),
         commit: Effect.fn("V2Session.revert.commit")(function* (sessionID) {
+          yield* SessionEngineGuard.requireOpenCode(db, sessionID, "revertCommit").pipe(Effect.orDie)
           const session = yield* result.get(sessionID)
           yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
         }),

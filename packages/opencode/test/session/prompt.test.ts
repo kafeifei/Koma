@@ -26,7 +26,7 @@ import { Image } from "../../src/image/image"
 import { Question } from "../../src/question"
 import { Todo } from "../../src/session/todo"
 import { Session } from "@/session/session"
-import { SessionMessageTable } from "@opencode-ai/core/session/sql"
+import { SessionMessageTable, SessionTable, MessageTable, PartTable } from "@opencode-ai/core/session/sql"
 import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -487,6 +487,43 @@ const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
 })
 
 // Loop semantics
+
+noLLMServer.instance("rejects an external engine before legacy execution or history mutation", () =>
+  Effect.gen(function* () {
+    const state = yield* boot()
+    const database = yield* Database.Service
+    const revert = yield* SessionRevert.Service
+    yield* database.db
+      .update(SessionTable)
+      .set({ engine: "codex" })
+      .where(eq(SessionTable.id, state.chat.id))
+      .run()
+      .pipe(Effect.orDie)
+    const operations: Effect.Effect<unknown, unknown>[] = [
+      state.prompt.prompt({ sessionID: state.chat.id, parts: [{ type: "text", text: "must not execute" }] }),
+      state.prompt.loop({ sessionID: state.chat.id }),
+      state.prompt.shell({ sessionID: state.chat.id, agent: "build", command: "printf forbidden" }),
+      state.prompt.command({ sessionID: state.chat.id, command: "external-command", arguments: "" }),
+      state.prompt.cancel(state.chat.id),
+      state.sessions.fork({ sessionID: state.chat.id }),
+      state.sessions.remove(state.chat.id),
+      revert.revert({ sessionID: state.chat.id, messageID: MessageID.ascending() }),
+      state.sessions.setPermissionMode({ sessionID: state.chat.id, permissionMode: "full" }),
+    ]
+    for (const operation of operations) {
+      const exit = yield* Effect.exit(operation)
+      expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain("cannot operate on a codex Session")
+    }
+    expect(
+      yield* database.db.select().from(MessageTable).where(eq(MessageTable.session_id, state.chat.id)).all(),
+    ).toHaveLength(0)
+    expect(
+      yield* database.db.select().from(PartTable).where(eq(PartTable.session_id, state.chat.id)).all(),
+    ).toHaveLength(0)
+    yield* state.sessions.setTitle({ sessionID: state.chat.id, title: "native task renamed" })
+    expect(yield* state.sessions.get(state.chat.id)).toMatchObject({ engine: "codex", title: "native task renamed" })
+  }),
+)
 
 noLLMServer.instance(
   "rejects a prompt before writing history while managed archive is pending",

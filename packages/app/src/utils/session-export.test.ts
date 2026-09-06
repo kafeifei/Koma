@@ -1,3 +1,4 @@
+import type { LabSnapshotOutput } from "@opencode-ai/lab-client"
 import { describe, expect, test } from "bun:test"
 import { fetchSessionExport, sessionExportFilename } from "./session-export"
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
@@ -58,4 +59,53 @@ describe("fetchSessionExport", () => {
       }),
     ).rejects.toThrow("Session not found: ses_missing")
   })
+})
+
+test("exports the native snapshot without reading or fabricating an OpenCode transcript", async () => {
+  const info = { id: "ses_native", title: "Native" } as Session
+  const snapshot: LabSnapshotOutput = {
+    descriptor: {
+      sessionID: info.id,
+      engine: "codex",
+      epoch: "fixture",
+      revision: 1,
+      runtimeStatus: "idle",
+      queuePaused: true,
+      settings: {},
+      capabilities: { prompt: true, steer: true, queue: "host", compact: false, images: true, permissions: true },
+    },
+    messages: [{ id: "msg_native", type: "assistant", time: {}, orderKey: "0", content: [] }],
+    messageOrder: ["msg_native"],
+    partOrder: {},
+    interactions: [],
+    deliveries: [],
+    children: [],
+    turnDiffs: {},
+    usage: { status: "unavailable" },
+    contextWindow: { status: "unavailable" },
+    cost: { status: "unavailable" },
+    sessionDiff: { status: "unavailable" },
+  }
+  let loaded = false
+  const result = await fetchSessionExport({
+    sessionID: info.id,
+    external: {
+      isExternal: () => true,
+      load: async () => {
+        loaded = true
+        return true
+      },
+      data: { snapshots: { [info.id]: snapshot } },
+    },
+    client: {
+      session: {
+        get: async () => ({ data: info }),
+        messages: async () => {
+          throw new Error("OpenCode history must not be queried")
+        },
+      },
+    },
+  })
+  expect(loaded).toBe(true)
+  expect(result).toEqual({ format: "opencode-lab-native-v1", engine: "codex", info, snapshot })
 })

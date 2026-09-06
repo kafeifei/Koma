@@ -15,7 +15,8 @@
     "@opencode-ai/core": "workspace:*",
     "@opencode-ai/protocol": "workspace:*",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "@opencode-ai/codex": "workspace:*"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",

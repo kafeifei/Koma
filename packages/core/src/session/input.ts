@@ -10,6 +10,7 @@ import { SessionMessage } from "./message"
 import { Prompt } from "./prompt"
 import { SessionSchema } from "./schema"
 import { SessionInputTable, SessionMessageTable } from "./sql"
+import { SessionEngineGuard } from "./external/guard"
 
 type DatabaseService = Database.Interface["db"]
 
@@ -48,6 +49,7 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
     readonly delivery: Delivery
   },
 ) {
+  yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "admit").pipe(Effect.orDie)
   const existing = yield* find(db, input.id)
   if (existing !== undefined) return existing
   const timestamp = yield* DateTime.now
@@ -248,6 +250,7 @@ export const promoteSteers = Effect.fn("SessionInput.promoteSteers")(function* (
   sessionID: SessionSchema.ID,
   cutoff: number,
 ) {
+  yield* SessionEngineGuard.requireOpenCode(db, sessionID, "promoteSteers").pipe(Effect.orDie)
   const rows = yield* db
     .select()
     .from(SessionInputTable)
@@ -270,6 +273,7 @@ export const promoteNextQueued = Effect.fn("SessionInput.promoteNextQueued")(fun
   events: EventV2.Interface,
   sessionID: SessionSchema.ID,
 ) {
+  yield* SessionEngineGuard.requireOpenCode(db, sessionID, "promoteQueue").pipe(Effect.orDie)
   const row = yield* db
     .select()
     .from(SessionInputTable)

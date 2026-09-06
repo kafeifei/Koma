@@ -22,6 +22,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { buildPrompt } from "@opencode-ai/core/session/compaction"
 import { SessionCompactionEvent } from "@opencode-ai/schema/session-compaction-event"
+import { SessionEngineGuard } from "@opencode-ai/core/session/external/guard"
 
 export const Event = SessionCompactionEvent
 
@@ -271,6 +272,9 @@ const layer = Layer.effect(
     // goes backwards through parts until there are PRUNE_PROTECT tokens worth of tool
     // calls, then erases output of older tool calls to free context space
     const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID }) {
+      yield* SessionEngineGuard.check(yield* session.get(input.sessionID).pipe(Effect.orDie), "compactPrune").pipe(
+        Effect.orDie,
+      )
       const cfg = yield* config.get()
       if (!cfg.compaction?.prune) return
       yield* Effect.logInfo("pruning")
@@ -323,6 +327,9 @@ const layer = Layer.effect(
       auto: boolean
       overflow?: boolean
     }) {
+      yield* SessionEngineGuard.check(yield* session.get(input.sessionID).pipe(Effect.orDie), "compact").pipe(
+        Effect.orDie,
+      )
       const parent = input.messages.findLast((m) => m.info.id === input.parentID)
       if (!parent || parent.info.role !== "user") {
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
@@ -563,6 +570,9 @@ const layer = Layer.effect(
       auto: boolean
       overflow?: boolean
     }) {
+      yield* SessionEngineGuard.check(yield* session.get(input.sessionID).pipe(Effect.orDie), "compactCreate").pipe(
+        Effect.orDie,
+      )
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user",

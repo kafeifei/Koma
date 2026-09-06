@@ -1,3 +1,5 @@
+import { useServerSync } from "@/context/server-sync"
+import { messageFieldAvailable } from "@opencode-ai/session-ui/message-availability"
 import {
   createEffect,
   createMemo,
@@ -264,6 +266,8 @@ export function MessageTimeline(props: {
   const serverSDK = useServerSDK()
   const sdk = useSDK()
   const sync = useSync()
+  const serverSync = useServerSync()
+  const external = () => !!params.id && serverSync().external.isExternal(params.id)
   const settings = useSettings()
   const dialog = useDialog()
   const sessionArchive = useSessionArchive()
@@ -301,7 +305,7 @@ export function MessageTimeline(props: {
   const titleValue = createMemo(() => info()?.title)
   const titleLabel = createMemo(() => sessionTitle(titleValue()))
   const shareUrl = createMemo(() => info()?.share?.url)
-  const shareEnabled = createMemo(() => sync().data.config.share !== "disabled")
+  const shareEnabled = createMemo(() => !external() && sync().data.config.share !== "disabled")
   const parentID = createMemo(() => info()?.parentID)
   const parent = createMemo(() => {
     const id = parentID()
@@ -798,6 +802,7 @@ export function MessageTimeline(props: {
       const data = await fetchSessionExport({
         sessionID,
         client: sdk().client,
+        external: serverSync().external,
       })
       const filename = sessionExportFilename(data.info)
       downloadSessionExport(filename, data)
@@ -817,6 +822,7 @@ export function MessageTimeline(props: {
   }
 
   const deleteSession = async (sessionID: string) => {
+    if (serverSync().external.isExternal(sessionID)) return
     const session = sync().session.get(sessionID)
     if (!session) return false
 
@@ -942,7 +948,7 @@ export function MessageTimeline(props: {
 
   const turnDurationMs = (userMessageID: string) => {
     const message = messageByID().get(userMessageID)
-    if (!message || message.role !== "user") return
+    if (!message || message.role !== "user" || !messageFieldAvailable(message, "time")) return
     const end = (assistantMessagesByParent().get(userMessageID) ?? emptyAssistantMessages).reduce<number | undefined>(
       (max, item) => {
         const completed = item.time.completed
@@ -1141,7 +1147,7 @@ export function MessageTimeline(props: {
                     <Message
                       message={message()}
                       parts={getMsgParts(userMessageRow().userMessageID)}
-                      actions={props.actions}
+                      actions={external() ? { openAttachment: props.actions?.openAttachment } : props.actions}
                       useV2Actions={settings.general.newLayoutDesigns()}
                       comments={messageComments()}
                     />
@@ -1554,12 +1560,14 @@ export function MessageTimeline(props: {
                                 <DropdownMenu.Item onSelect={() => void sessionArchive.archive(id)}>
                                   <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
-                                <DropdownMenu.Separator />
-                                <DropdownMenu.Item
-                                  onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
-                                >
-                                  <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                                </DropdownMenu.Item>
+                                <Show when={!external()}>
+                                  <DropdownMenu.Separator />
+                                  <DropdownMenu.Item
+                                    onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
+                                  >
+                                    <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+                                  </DropdownMenu.Item>
+                                </Show>
                               </DropdownMenu.Content>
                             </DropdownMenu.Portal>
                           </DropdownMenu>
@@ -1628,10 +1636,12 @@ export function MessageTimeline(props: {
                               <MenuV2.Item onSelect={() => void sessionArchive.archive(id)}>
                                 {language.t("common.archive")}
                               </MenuV2.Item>
-                              <MenuV2.Separator />
-                              <MenuV2.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}>
-                                {language.t("common.delete")}...
-                              </MenuV2.Item>
+                              <Show when={!external()}>
+                                <MenuV2.Separator />
+                                <MenuV2.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}>
+                                  {language.t("common.delete")}...
+                                </MenuV2.Item>
+                              </Show>
                             </MenuV2.Content>
                           </MenuV2.Portal>
                         </MenuV2>

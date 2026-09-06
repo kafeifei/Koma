@@ -23,6 +23,31 @@ describe("prompt state initialization", () => {
       expect(prompt.current()).toEqual(DEFAULT_PROMPT)
       expect(prompt.cursor()).toBeUndefined()
       expect(prompt.model.current()).toBeUndefined()
+      expect(prompt.engine.current()).toBe("opencode")
+      expect(prompt.codex.current()).toEqual({})
+      expect(prompt.externalRequest.current()).toBeUndefined()
+      dispose()
+    })
+  })
+
+  test("keeps engine settings and external retry identity when the submitted text is reset", () => {
+    createRoot((dispose) => {
+      const prompt = createPromptState({
+        prompt: "hello",
+        engine: "codex",
+        codex: { model: "gpt-6", effort: "high", permission: "workspace" },
+      })
+      const request = { requestID: "request-1", fingerprint: "same-input", operation: "create" as const }
+
+      prompt.externalRequest.set(request)
+      prompt.codex.set({ model: "gpt-6", effort: "high", permission: "full" })
+      prompt.reset()
+
+      expect(prompt.current()).toEqual(DEFAULT_PROMPT)
+      expect(prompt.engine.current()).toBe("codex")
+      expect(prompt.codex.current()).toEqual({ model: "gpt-6", effort: "high", permission: "full" })
+      expect(prompt.codex.revision()).toBe(1)
+      expect(prompt.externalRequest.current()).toEqual(request)
       dispose()
     })
   })

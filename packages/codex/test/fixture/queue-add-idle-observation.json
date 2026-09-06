@@ -1,0 +1,22 @@
+{
+  "codexVersion": "0.153.4",
+  "isolatedCodexHome": true,
+  "authenticated": false,
+  "initializeCapabilities": {
+    "experimentalApi": true,
+    "requestAttestation": false
+  },
+  "queueAddResponse": {
+    "queuedSubmissionReturned": true
+  },
+  "immediateQueueListResponse": {
+    "dataLength": 0,
+    "nextCursor": null
+  },
+  "isolatedRolloutItems": [
+    "task_started",
+    "user_message"
+  ],
+  "modelOutputObserved": false,
+  "conclusion": "Adding to an idle native queue immediately starts a turn; it is not a paused Lab queue."
+}

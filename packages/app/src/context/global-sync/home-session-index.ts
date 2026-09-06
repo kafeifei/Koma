@@ -2,6 +2,7 @@ import type { Event, Session, SessionV2Info, V2SessionListResponse } from "@open
 import type { QueryClient } from "@tanstack/solid-query"
 import { trimSessions } from "./session-trim"
 import { pathKey } from "@/utils/path-key"
+import type { AppSession } from "@/utils/session"
 
 export const HOME_V2_SESSION_PAGE_LIMIT = 5_000
 
@@ -14,7 +15,7 @@ export type HomeSessionEvents = {
   entries: Array<{ sequence: number; event: HomeSessionEvent }>
 }
 export type HomeSessionIndex = {
-  sessions: Session[]
+  sessions: AppSession[]
   eventSequence: number
 }
 
@@ -136,6 +137,30 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
         return { ...index, sessions: index.sessions.toSpliced(at, 1) }
       })
     },
+    activity(sessionID: string, activityAt: number) {
+      if (!queryClient.getQueryState(indexKey)) return
+      const update = (session: Session) =>
+        session.id !== sessionID || (session.time.updated ?? session.time.created) >= activityAt
+          ? session
+          : { ...session, time: { ...session.time, updated: activityAt } }
+      queryClient.setQueryData<HomeSessionIndex>(indexKey, (index) =>
+        index ? { ...index, sessions: index.sessions.map(update) } : index,
+      )
+      queryClient.setQueryData<HomeSessionEvents>(eventsKey, (events) =>
+        events
+          ? {
+              ...events,
+              entries: events.entries.map((entry) => ({
+                ...entry,
+                event: {
+                  ...entry.event,
+                  properties: { ...entry.event.properties, info: update(entry.event.properties.info) },
+                },
+              })),
+            }
+          : events,
+      )
+    },
     refresh(event: Event["type"]) {
       const result = homeSessionIndexRefresh(event, connected)
       connected = result.connected
@@ -150,7 +175,7 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
 // multiple directories. A bounded page could omit an old session updated today.
 // Once released, use client.v2.project.list() and client.v2.session.list({
 // parentID: null, order: "desc" }), then remove this adapter and its V1 fields.
-export function parseHomeSessionIndex(sessions: SessionV2Info[]): Session[] {
+export function parseHomeSessionIndex(sessions: SessionV2Info[]): AppSession[] {
   return sessions.flatMap((item) => {
     if (item.parentID) return []
     return [toLegacySummary(item)]
@@ -174,9 +199,12 @@ export function applyHomeSessionEvent(sessions: Session[], event: HomeSessionEve
   return sessions.with(index, info)
 }
 
-function toLegacySummary(session: SessionV2Info): Session {
+function toLegacySummary(session: SessionV2Info): AppSession {
   return {
     id: session.id,
+    ...("engine" in session && (session.engine === "opencode" || session.engine === "codex")
+      ? { engine: session.engine }
+      : {}),
     slug: session.id,
     projectID: session.projectID,
     workspaceID: session.location.workspaceID,

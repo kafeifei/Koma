@@ -1,10 +1,11 @@
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
+import { OpenCode } from "@opencode-ai/lab-client"
 import type { Event } from "@opencode-ai/sdk/v2/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { type Accessor, batch, createMemo, createResource, onCleanup, onMount } from "solid-js"
-import { createApiForServer, createSdkForServer, type ServerApi } from "@/utils/server"
+import { authTokenFromCredentials, createApiForServer, createSdkForServer, type ServerApi } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { ServerConnection, useServer } from "./server"
@@ -18,7 +19,28 @@ const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
 
 const isStreamClosed = (error: unknown, signal?: AbortSignal) => isAbortError(error) || signal?.aborted === true
-export type ServerEvent = Event & { current?: OpenCodeEvent }
+type LabEvent = import("@opencode-ai/lab-client").OpenCodeEvent
+type LabExternalEvent = Extract<LabEvent, { type: "session.external.changed" | "session.external.engine.changed" }>
+type LabExternalChanged = Extract<LabExternalEvent, { type: "session.external.changed" }>
+type LabExternalEngineChanged = Extract<LabExternalEvent, { type: "session.external.engine.changed" }>
+type ExternalServerEvent =
+  | {
+      id?: string
+      type: LabExternalChanged["type"]
+      properties: LabExternalChanged["data"]
+      current?: LabExternalChanged
+    }
+  | {
+      id?: string
+      type: LabExternalEngineChanged["type"]
+      properties: LabExternalEngineChanged["data"]
+      current?: LabExternalEngineChanged
+    }
+export type ServerEvent = (Event & { current?: OpenCodeEvent }) | ExternalServerEvent
+
+function isExternalStreamEvent(event: { type: string }): event is LabExternalEvent {
+  return event.type === "session.external.changed" || event.type === "session.external.engine.changed"
+}
 type QueuedServerEvent = { directory: string; payload: ServerEvent }
 type CurrentDelta = Extract<
   OpenCodeEvent,
@@ -54,6 +76,11 @@ export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
   if (event.type === "question.v2.rejected")
     return { id: event.id, type: "question.rejected", properties: event.data, current: event } as ServerEvent
   return { id: event.id, type: event.type, properties: event.data, current: event } as ServerEvent
+}
+
+export function adaptStreamEvent(event: OpenCodeEvent | LabExternalEvent): ServerEvent {
+  if (!isExternalStreamEvent(event)) return adaptServerEvent(event)
+  return { id: event.id, type: event.type, properties: event.data, current: event } as ExternalServerEvent
 }
 
 const coalescedKey = (event: QueuedServerEvent) => {
@@ -138,7 +165,8 @@ export function coalesceServerEvents(events: QueuedServerEvent[]) {
   return output
 }
 
-function currentDelta(event: OpenCodeEvent | undefined): CurrentDelta | undefined {
+function currentDelta(event: OpenCodeEvent | LabExternalEvent | undefined): CurrentDelta | undefined {
+  if (!event || isExternalStreamEvent(event)) return
   if (
     event?.type === "session.text.delta" ||
     event?.type === "session.reasoning.delta" ||
@@ -165,6 +193,7 @@ export function resumeStreamAfterPageShow(event: PageTransitionEvent, start: () 
 }
 
 type ServerEventEmitter = ReturnType<typeof createGlobalEmitter<{ [key: string]: ServerEvent }>>
+type LabApi = ReturnType<typeof OpenCode.make>["lab"]
 type ServerSDKBase = {
   server: ServerConnection.Any
   scope: ServerScope
@@ -174,6 +203,7 @@ type ServerSDKBase = {
   client: ReturnType<typeof createSdkForServer>
   api: CompatibleApi
   currentApi: ServerApi
+  lab: LabApi
   event: {
     on: ServerEventEmitter["on"]
     listen: ServerEventEmitter["listen"]
@@ -200,6 +230,15 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   })()
 
   const eventApi = createApiForServer({ server: server.http, fetch: eventFetch })
+  const headers = server.http.password
+    ? {
+        Authorization: `Basic ${authTokenFromCredentials({
+          username: server.http.username,
+          password: server.http.password,
+        })}`,
+      }
+    : undefined
+  const lab = OpenCode.make({ baseUrl: server.http.url, fetch: platform.fetch, headers }).lab
   const eventSdk = createSdkForServer({
     signal: abort.signal,
     fetch: eventFetch,
@@ -283,7 +322,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             const legacy = "payload" in event
             if (legacy && event.payload.type === "sync") continue
             const directory = legacy ? (event.directory ?? "global") : (event.location?.directory ?? "global")
-            const payload = legacy ? (event.payload as Event) : adaptServerEvent(event)
+            const current = event as OpenCodeEvent | LabExternalEvent
+            const payload = legacy ? (event.payload as ServerEvent) : adaptStreamEvent(current)
             if (enqueueServerEvent(queue, { directory, payload })) schedule()
 
             if (Date.now() - yielded < STREAM_YIELD_MS) continue
@@ -357,6 +397,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     client: sdk,
     api,
     currentApi,
+    lab,
     event: {
       on: emitter.on.bind(emitter),
       listen: emitter.listen.bind(emitter),
@@ -418,6 +459,7 @@ function createDirSdkContext(directory: string, serverSDK: ServerSDKBase) {
   const emitter = createGlobalEmitter<SDKEventMap>()
 
   const unsub = serverSDK.event.on(directory, (event) => {
+    if (event.type === "session.external.changed" || event.type === "session.external.engine.changed") return
     emitter.emit(event.type, event)
   })
   onCleanup(unsub)

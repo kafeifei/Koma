@@ -47,6 +47,11 @@ import { ServerConnection, useServer } from "./server"
 import { retry } from "@opencode-ai/core/util/retry"
 import type { ServerScope } from "@/utils/server-scope"
 import { createHomeSessionIndexCache } from "./global-sync/home-session-index"
+import {
+  createSessionExternalContext,
+  isSessionExternalEvent,
+  type SessionExternalCacheTarget,
+} from "./session-external"
 import { persisted } from "@/utils/persist"
 import type { ServerApi } from "@/utils/server"
 import type {
@@ -225,9 +230,19 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     return sdk
   }
 
+  let externalTarget: SessionExternalCacheTarget | undefined
+  const external = createSessionExternalContext({
+    api: serverSDK.lab,
+    target: () => {
+      if (!externalTarget) throw new Error("External session cache is not ready")
+      return externalTarget
+    },
+  })
   const session = createServerSession(serverSDK.client, serverSDK.api.session, serverSDK.api.message, {
     protocol: serverSDK.protocol,
+    external,
   })
+  externalTarget = session.external
   const queryOptionsApi = makeQueryOptionsApi(
     serverSDK.scope,
     () => serverSDK.client,
@@ -423,11 +438,15 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
                 ? loadRootSessionsV1({ client: sdkFor(directory), directory, limit })
                 : loadRootSessions({ api: serverSDK.api.session, directory, limit }),
             )
-            .then((x) => {
+            .then(async (x) => {
               const nonArchived = (x.data ?? [])
                 .filter((s) => !!s?.id)
                 .filter((s) => !s.time?.archived)
                 .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+              external.observe(nonArchived)
+              await external.describe(nonArchived.map((item) => item.id)).catch((error) => {
+                console.warn("Failed to describe session engines", error)
+              })
               const limit = Math.max(store.limit, options?.limit ?? 0, sessionMeta.get(key)?.limit ?? 0)
               const childSessions = store.session.filter((s) => !!s.parentID)
               const next = trimSessions([...nonArchived, ...childSessions], {
@@ -559,13 +578,35 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     const eventType: string = event.type
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
+    if (event.type === "session.external.changed" || event.type === "session.external.engine.changed") {
+      const current = event.current
+      const externalEvent = (
+        current && isSessionExternalEvent(current) ? current : { type: event.type, data: event.properties }
+      ) as Parameters<typeof external.apply>[0]
+      external.apply(externalEvent)
+      if (externalEvent.type === "session.external.changed" && externalEvent.data.activityAt !== undefined) {
+        homeSessions.activity(externalEvent.data.sessionID, externalEvent.data.activityAt)
+        const info = session.get(externalEvent.data.sessionID)
+        if (info && (info.time.updated ?? info.time.created) < externalEvent.data.activityAt) {
+          const next = { ...info, time: { ...info.time, updated: externalEvent.data.activityAt } }
+          session.remember(next)
+          indexSession(next)
+        }
+      }
+      return
+    }
     if (event.current) session.applyV2(event.current)
     session.apply(event)
+    if (eventType === "server.connected") external.reconnect()
     if (eventType === "session.next.permission-mode.changed") {
       refreshPermissionModes((event.properties as { sessionID: string }).sessionID)
     }
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       homeSessions.apply(event)
+    }
+    if (event.type === "session.created") {
+      external.observe([event.properties.info])
+      void external.describe([event.properties.info.id]).catch(() => undefined)
     }
     homeSessions.refresh(event.type)
     if (eventType === "integration.connection.updated") void refreshProviders()
@@ -715,6 +756,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     updateConfig: updateConfigMutation.mutateAsync,
     project: projectApi,
     session,
+    external,
     homeSessions,
     mcp: {
       toggle: async (directory: string, name: string) => {

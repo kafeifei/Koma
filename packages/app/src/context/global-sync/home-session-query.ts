@@ -32,6 +32,10 @@ export function createHomeSessionQuery(context: Accessor<ServerCtx | undefined>)
           sequence,
           signal,
         )
+        ctx.sync.external.observe(result.sessions)
+        await ctx.sync.external.describe(result.sessions.map((session) => session.id)).catch((error) => {
+          console.warn("Failed to describe home session engines", error)
+        })
         cache.complete(sequence)
         return result
       },

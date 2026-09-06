@@ -1,3 +1,4 @@
+import type { LabSnapshotOutput } from "@opencode-ai/lab-client"
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
 
 // Matches the exact `{ info, messages: [{ info, parts }] }` structure produced by `opencode export` CLI
@@ -19,7 +20,21 @@ export type SessionExportClient = {
 export async function fetchSessionExport(input: {
   sessionID: string
   client: SessionExportClient
-}): Promise<SessionExportData> {
+  external?: {
+    isExternal(sessionID: string): boolean
+    load(sessionID: string, options?: { force?: boolean }): Promise<boolean>
+    data: { snapshots: Record<string, LabSnapshotOutput | undefined> }
+  }
+}): Promise<
+  SessionExportData | { format: "opencode-lab-native-v1"; engine: "codex"; info: Session; snapshot: LabSnapshotOutput }
+> {
+  if (input.external?.isExternal(input.sessionID)) {
+    await input.external.load(input.sessionID, { force: true })
+    const info = (await input.client.session.get({ sessionID: input.sessionID })).data
+    const snapshot = input.external.data.snapshots[input.sessionID]
+    if (!info || !snapshot) throw new Error(`Native session is unavailable: ${input.sessionID}`)
+    return { format: "opencode-lab-native-v1", engine: "codex", info, snapshot }
+  }
   const [sessionRes, messagesRes] = await Promise.all([
     input.client.session.get({ sessionID: input.sessionID }),
     input.client.session.messages({ sessionID: input.sessionID }),

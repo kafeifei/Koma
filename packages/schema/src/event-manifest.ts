@@ -23,6 +23,7 @@ import { Reference } from "./reference"
 import { ServerEvent } from "./server-event"
 import { SessionCompactionEvent } from "./session-compaction-event"
 import { SessionEvent } from "./session-event"
+import { SessionExternal } from "./session-external"
 import { SessionStatusEvent } from "./session-status-event"
 import { SessionTodo } from "./session-todo"
 import { SessionV1 } from "./session-v1"
@@ -52,6 +53,7 @@ const featureDefinitions = Event.inventory(
   ...FileSystemWatcher.Event.Definitions,
   ...Pty.Event.Definitions,
   ...Question.Event.Definitions,
+  ...SessionExternal.Definitions,
 )
 
 export const ServerDefinitions = Event.inventory(

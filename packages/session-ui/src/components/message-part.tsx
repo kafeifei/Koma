@@ -32,6 +32,7 @@ import {
   QuestionInfo,
 } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
+import { isMessageStreaming, messageFieldAvailable, toolDisplayState } from "./message-availability"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type UiI18n, useI18n } from "@opencode-ai/ui/context/i18n"
@@ -1235,6 +1236,7 @@ export function UserMessageDisplay(props: {
   const agents = createMemo(() => (props.parts?.filter((p) => p.type === "agent") as AgentPart[]) ?? [])
 
   const model = createMemo(() => {
+    if (!messageFieldAvailable(props.message, "model")) return ""
     const providerID = props.message.model?.providerID
     const modelID = props.message.model?.modelID
     if (!providerID || !modelID) return ""
@@ -1244,13 +1246,14 @@ export function UserMessageDisplay(props: {
   const timefmt = createMemo(() => new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }))
 
   const stamp = createMemo(() => {
+    if (!messageFieldAvailable(props.message, "time")) return ""
     const created = props.message.time?.created
     if (typeof created !== "number") return ""
     return timefmt().format(created)
   })
 
   const metaHead = createMemo(() => {
-    const agent = props.message.agent
+    const agent = messageFieldAvailable(props.message, "agent") ? props.message.agent : undefined
     const items = [agent ? agent[0]?.toUpperCase() + agent.slice(1) : "", model()]
     return items.filter((x) => !!x).join("\u00A0\u00B7\u00A0")
   })
@@ -1678,9 +1681,8 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               tool={part().tool}
               sessionID={part().sessionID}
               metadata={partMetadata()}
-              // @ts-expect-error
-              output={part().state.output}
-              status={part().state.status}
+              output={toolDisplayState(part()).output}
+              status={toolDisplayState(part()).status}
               hideDetails={inspect() || props.hideDetails}
               onTriggerClick={inspect() ? handleTriggerClick : undefined}
               clickable={inspect()}
@@ -1729,6 +1731,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   )
 
   const model = createMemo(() => {
+    if (!messageFieldAvailable(props.message, "model")) return ""
     if (props.message.role !== "assistant") return ""
     const message = props.message as AssistantMessage
     const match = data.store.provider?.all?.get(message.providerID)
@@ -1736,6 +1739,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   })
 
   const duration = createMemo(() => {
+    if (!messageFieldAvailable(props.message, "time")) return ""
     if (props.message.role !== "assistant") return ""
     const message = props.message as AssistantMessage
     const completed = message.time.completed
@@ -1758,7 +1762,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 
   const meta = createMemo(() => {
     if (props.message.role !== "assistant") return ""
-    const agent = (props.message as AssistantMessage).agent
+    const agent = messageFieldAvailable(props.message, "agent") ? (props.message as AssistantMessage).agent : undefined
     const items = [
       agent ? agent[0]?.toUpperCase() + agent.slice(1) : "",
       model(),
@@ -1768,9 +1772,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     return items.filter((x) => !!x).join(" \u00B7 ")
   })
 
-  const streaming = createMemo(
-    () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
-  )
+  const streaming = createMemo(() => isMessageStreaming(props.message))
   const text = () => readPartText(data.store.part_text_accum_delta, part())
   const isLastTextPart = createMemo(() => {
     const last = (data.store.part?.[props.message.id] ?? [])
@@ -1826,9 +1828,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
   const data = useData()
   const part = () => props.part as ReasoningPart
-  const streaming = createMemo(
-    () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
-  )
+  const streaming = createMemo(() => isMessageStreaming(props.message))
   const text = () => readPartText(data.store.part_text_accum_delta, part())
 
   return (

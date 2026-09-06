@@ -700,6 +700,138 @@ const adaptGroup17 = (raw: RawClient["server.projectCopy"]) => ({
   refresh: Endpoint17_2(raw),
 })
 
+const Endpoint18_0 = (raw: RawClient["server.lab"]) => () =>
+  raw["lab.engines"]({}).pipe(Effect.mapError(mapClientError))
+
+const Endpoint18_1 = (raw: RawClient["server.lab"]) => () =>
+  raw["lab.account"]({}).pipe(Effect.mapError(mapClientError))
+
+const Endpoint18_2 = (raw: RawClient["server.lab"]) => () => raw["lab.login"]({}).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_3Request = Parameters<RawClient["server.lab"]["lab.cancelLogin"]>[0]
+type Endpoint18_3Input = { readonly loginID: Endpoint18_3Request["payload"]["loginID"] }
+const Endpoint18_3 = (raw: RawClient["server.lab"]) => (input: Endpoint18_3Input) =>
+  raw["lab.cancelLogin"]({ payload: { loginID: input["loginID"] } }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_4Request = Parameters<RawClient["server.lab"]["lab.describe"]>[0]
+type Endpoint18_4Input = { readonly sessionIDs: Endpoint18_4Request["payload"]["sessionIDs"] }
+const Endpoint18_4 = (raw: RawClient["server.lab"]) => (input: Endpoint18_4Input) =>
+  raw["lab.describe"]({ payload: { sessionIDs: input["sessionIDs"] } }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_5Request = Parameters<RawClient["server.lab"]["lab.create"]>[0]
+type Endpoint18_5Input = {
+  readonly requestID: Endpoint18_5Request["payload"]["requestID"]
+  readonly engine: Endpoint18_5Request["payload"]["engine"]
+  readonly location: Endpoint18_5Request["payload"]["location"]
+  readonly input: Endpoint18_5Request["payload"]["input"]
+  readonly delivery: Endpoint18_5Request["payload"]["delivery"]
+}
+const Endpoint18_5 = (raw: RawClient["server.lab"]) => (input: Endpoint18_5Input) =>
+  raw["lab.create"]({
+    payload: {
+      requestID: input["requestID"],
+      engine: input["engine"],
+      location: input["location"],
+      input: input["input"],
+      delivery: input["delivery"],
+    },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_6Request = Parameters<RawClient["server.lab"]["lab.snapshot"]>[0]
+type Endpoint18_6Input = { readonly sessionID: Endpoint18_6Request["params"]["sessionID"] }
+const Endpoint18_6 = (raw: RawClient["server.lab"]) => (input: Endpoint18_6Input) =>
+  raw["lab.snapshot"]({ params: { sessionID: input["sessionID"] } }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_7Request = Parameters<RawClient["server.lab"]["lab.submit"]>[0]
+type Endpoint18_7Input = {
+  readonly sessionID: Endpoint18_7Request["params"]["sessionID"]
+  readonly requestID: Endpoint18_7Request["payload"]["requestID"]
+  readonly input: Endpoint18_7Request["payload"]["input"]
+  readonly delivery: Endpoint18_7Request["payload"]["delivery"]
+}
+const Endpoint18_7 = (raw: RawClient["server.lab"]) => (input: Endpoint18_7Input) =>
+  raw["lab.submit"]({
+    params: { sessionID: input["sessionID"] },
+    payload: { requestID: input["requestID"], input: input["input"], delivery: input["delivery"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_8Request = Parameters<RawClient["server.lab"]["lab.delivery"]>[0]
+type Endpoint18_8Input = {
+  readonly sessionID: Endpoint18_8Request["params"]["sessionID"]
+  readonly requestID: Endpoint18_8Request["params"]["requestID"]
+}
+const Endpoint18_8 = (raw: RawClient["server.lab"]) => (input: Endpoint18_8Input) =>
+  raw["lab.delivery"]({ params: { sessionID: input["sessionID"], requestID: input["requestID"] } }).pipe(
+    Effect.mapError(mapClientError),
+  )
+
+type Endpoint18_9Request = Parameters<RawClient["server.lab"]["lab.queue"]>[0]
+type Endpoint18_9Input = {
+  readonly sessionID: Endpoint18_9Request["params"]["sessionID"]
+  readonly action: Endpoint18_9Request["payload"]["action"]
+  readonly requestID: Endpoint18_9Request["payload"]["requestID"]
+  readonly revision: Endpoint18_9Request["payload"]["revision"]
+}
+const Endpoint18_9 = (raw: RawClient["server.lab"]) => (input: Endpoint18_9Input) =>
+  raw["lab.queue"]({
+    params: { sessionID: input["sessionID"] },
+    payload: { action: input["action"], requestID: input["requestID"], revision: input["revision"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_10Request = Parameters<RawClient["server.lab"]["lab.interrupt"]>[0]
+type Endpoint18_10Input = { readonly sessionID: Endpoint18_10Request["params"]["sessionID"] }
+const Endpoint18_10 = (raw: RawClient["server.lab"]) => (input: Endpoint18_10Input) =>
+  raw["lab.interrupt"]({ params: { sessionID: input["sessionID"] } }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_11Request = Parameters<RawClient["server.lab"]["lab.reply"]>[0]
+type Endpoint18_11Input = {
+  readonly sessionID: Endpoint18_11Request["params"]["sessionID"]
+  readonly interactionID: Endpoint18_11Request["params"]["interactionID"]
+  readonly revision: Endpoint18_11Request["payload"]["revision"]
+  readonly choiceID?: Endpoint18_11Request["payload"]["choiceID"]
+  readonly answers?: Endpoint18_11Request["payload"]["answers"]
+  readonly content?: Endpoint18_11Request["payload"]["content"]
+}
+const Endpoint18_11 = (raw: RawClient["server.lab"]) => (input: Endpoint18_11Input) =>
+  raw["lab.reply"]({
+    params: { sessionID: input["sessionID"], interactionID: input["interactionID"] },
+    payload: {
+      revision: input["revision"],
+      choiceID: input["choiceID"],
+      answers: input["answers"],
+      content: input["content"],
+    },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint18_12Request = Parameters<RawClient["server.lab"]["lab.settings"]>[0]
+type Endpoint18_12Input = {
+  readonly sessionID: Endpoint18_12Request["params"]["sessionID"]
+  readonly model?: Endpoint18_12Request["payload"]["model"]
+  readonly effort?: Endpoint18_12Request["payload"]["effort"]
+  readonly permission?: Endpoint18_12Request["payload"]["permission"]
+}
+const Endpoint18_12 = (raw: RawClient["server.lab"]) => (input: Endpoint18_12Input) =>
+  raw["lab.settings"]({
+    params: { sessionID: input["sessionID"] },
+    payload: { model: input["model"], effort: input["effort"], permission: input["permission"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+const adaptGroup18 = (raw: RawClient["server.lab"]) => ({
+  engines: Endpoint18_0(raw),
+  account: Endpoint18_1(raw),
+  login: Endpoint18_2(raw),
+  cancelLogin: Endpoint18_3(raw),
+  describe: Endpoint18_4(raw),
+  create: Endpoint18_5(raw),
+  snapshot: Endpoint18_6(raw),
+  submit: Endpoint18_7(raw),
+  delivery: Endpoint18_8(raw),
+  queue: Endpoint18_9(raw),
+  interrupt: Endpoint18_10(raw),
+  reply: Endpoint18_11(raw),
+  settings: Endpoint18_12(raw),
+})
+
 const adaptClient = (raw: RawClient) => ({
   health: adaptGroup0(raw["server.health"]),
   location: adaptGroup1(raw["server.location"]),
@@ -719,6 +851,7 @@ const adaptClient = (raw: RawClient) => ({
   questions: adaptGroup15(raw["server.question"]),
   references: adaptGroup16(raw["server.reference"]),
   projectCopies: adaptGroup17(raw["server.projectCopy"]),
+  lab: adaptGroup18(raw["server.lab"]),
 })
 
 export const make = (options?: { readonly baseUrl?: URL | string }) =>

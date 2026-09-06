@@ -68,6 +68,8 @@ export type Event =
   | EventQuestionV2Asked
   | EventQuestionV2Replied
   | EventQuestionV2Rejected
+  | EventSessionExternalChanged
+  | EventSessionExternalEngineChanged
   | EventTodoUpdated
   | EventLspUpdated
   | EventPermissionAsked
@@ -172,6 +174,7 @@ export type SessionPermissionMode = "default" | "auto" | "full"
 
 export type Session = {
   id: string
+  engine?: SessionEngine
   slug: string
   projectID: string
   workspaceID?: string
@@ -1374,6 +1377,32 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "session.external.changed"
+        properties: {
+          sessionID: string
+          epoch: string
+          revision: number
+          descriptor?: SessionExternalDescriptor
+          messages?: Array<SessionExternalMessage>
+          append?: {
+            messageID: string
+            partID: string
+            type: "text" | "reasoning"
+            delta: string
+          }
+          refresh?: boolean
+          activityAt?: number
+        }
+      }
+    | {
+        id: string
+        type: "session.external.engine.changed"
+        properties: {
+          engine: "codex"
+        }
+      }
+    | {
+        id: string
         type: "todo.updated"
         properties: {
           sessionID: string
@@ -2228,6 +2257,7 @@ export type ProjectSummary = {
 
 export type GlobalSession = {
   id: string
+  engine?: SessionEngine
   slug: string
   projectID: string
   workspaceID?: string
@@ -2593,6 +2623,12 @@ export type NotFoundError = {
   }
 }
 
+export type ConflictError = {
+  _tag: "ConflictError"
+  message: string
+  resource?: string
+}
+
 export type SessionBusyError = {
   _tag: "SessionBusyError"
   sessionID: string
@@ -2755,12 +2791,6 @@ export type PromptInput = {
   text: string
   files?: Array<PromptInputFileAttachment>
   agents?: Array<PromptAgentAttachment>
-}
-
-export type ConflictError = {
-  _tag: "ConflictError"
-  message: string
-  resource?: string
 }
 
 export type ServiceUnavailableError = {
@@ -2963,6 +2993,8 @@ export type V2Event =
   | QuestionV2Asked
   | QuestionV2Replied
   | QuestionV2Rejected
+  | SessionExternalChanged
+  | SessionExternalEngineChanged
   | TodoUpdated
   | LspUpdated
   | PermissionAsked
@@ -3003,6 +3035,12 @@ export type ProjectCopyError = {
     message: string
     forceRequired?: boolean
   }
+}
+
+export type LabError = {
+  _tag: "LabError"
+  message: string
+  code: "unavailable" | "conflict" | "notFound" | "invalid" | "nativeError"
 }
 
 export type EffectHttpApiErrorForbidden = {
@@ -3082,6 +3120,8 @@ export type SkillV2Source = SkillV2DirectorySource | SkillV2UrlSource | SkillV2E
 export type MoveSessionDestination = {
   directory: string
 }
+
+export type SessionEngine = "opencode" | "codex"
 
 export type ModelRef = {
   id: string
@@ -3209,6 +3249,197 @@ export type QuestionV2Tool = {
 }
 
 export type QuestionV2Answer = Array<string>
+
+export type SessionExternalRuntimeStatus =
+  | "resolving"
+  | "creating"
+  | "idle"
+  | "active"
+  | "waitingApproval"
+  | "waitingInput"
+  | "interrupting"
+  | "disconnected"
+  | "systemError"
+  | "bindingUnavailable"
+
+export type SessionExternalCapabilities = {
+  prompt: boolean
+  steer: boolean
+  queue: "native" | "host" | "unavailable"
+  compact: boolean
+  images: boolean
+  permissions: boolean
+}
+
+export type SessionExternalSettings = {
+  model?: string
+  effort?: string
+  permission?: "workspace" | "readOnly" | "full"
+}
+
+export type SessionExternalDescriptor = {
+  sessionID: string
+  engine: "opencode" | "codex"
+  epoch: string
+  revision: number
+  runtimeStatus: SessionExternalRuntimeStatus
+  bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+  capabilities: SessionExternalCapabilities
+  queuePaused: boolean
+  settings: SessionExternalSettings
+  pendingSettings?: SessionExternalSettings
+  error?: string
+}
+
+export type SessionMessageAssistantText = {
+  type: "text"
+  id: string
+  text: string
+}
+
+export type SessionMessageToolStatePending = {
+  status: "pending"
+  input: string
+}
+
+export type SessionMessageToolStateRunning = {
+  status: "running"
+  input: {
+    [key: string]: unknown
+  }
+  structured: {
+    [key: string]: unknown
+  }
+  content: Array<LlmToolContent>
+}
+
+export type SessionMessageToolStateCompleted = {
+  status: "completed"
+  input: {
+    [key: string]: unknown
+  }
+  attachments?: Array<PromptFileAttachment>
+  content: Array<LlmToolContent>
+  outputPaths?: Array<string>
+  structured: {
+    [key: string]: unknown
+  }
+  result?: unknown
+}
+
+export type SessionMessageToolStateError = {
+  status: "error"
+  input: {
+    [key: string]: unknown
+  }
+  content: Array<LlmToolContent>
+  structured: {
+    [key: string]: unknown
+  }
+  error: SessionErrorUnknown
+  result?: unknown
+}
+
+export type SessionExternalMessage =
+  | {
+      id: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      text: string
+      files?: Array<PromptFileAttachment>
+      agents?: Array<PromptAgentAttachment>
+      type: "user"
+      orderKey: string
+      time: {
+        created?: number
+        completed?: number
+      }
+    }
+  | {
+      id: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      type: "assistant"
+      snapshot?: {
+        start?: string
+        end?: string
+        files?: Array<string>
+      }
+      finish?: string
+      cost?: number
+      tokens?: {
+        input: number
+        output: number
+        reasoning: number
+        cache: {
+          read: number
+          write: number
+        }
+      }
+      error?: SessionErrorUnknown
+      orderKey: string
+      time: {
+        created?: number
+        completed?: number
+      }
+      content: Array<
+        | SessionMessageAssistantText
+        | {
+            type: "reasoning"
+            id: string
+            text: string
+            providerMetadata?: LlmProviderMetadata
+            time?: {
+              created?: number
+              completed?: number
+            }
+          }
+        | {
+            type: "tool"
+            id: string
+            name: string
+            provider?: {
+              executed: boolean
+              metadata?: LlmProviderMetadata
+              resultMetadata?: LlmProviderMetadata
+            }
+            state:
+              | SessionMessageToolStatePending
+              | SessionMessageToolStateRunning
+              | SessionMessageToolStateCompleted
+              | SessionMessageToolStateError
+              | {
+                  status: "unknown"
+                  input: string
+                  output?: string
+                  nativeStatus?: string
+                }
+            time: {
+              created?: number
+              completed?: number
+              ran?: number
+            }
+          }
+      >
+      streaming?: boolean
+      agent?: string
+      model?: ModelRef
+    }
+  | {
+      id: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      type: "system"
+      text: string
+      orderKey: string
+      time: {
+        created?: number
+        completed?: number
+      }
+    }
 
 export type ProjectVcs = "git"
 
@@ -3969,6 +4200,7 @@ export type AgentV2Info = {
 
 export type SessionV2Info = {
   id: string
+  engine?: SessionEngine
   parentID?: string
   projectID: string
   agent?: string
@@ -4090,12 +4322,6 @@ export type SessionMessageShell = {
   output: string
 }
 
-export type SessionMessageAssistantText = {
-  type: "text"
-  id: string
-  text: string
-}
-
 export type SessionMessageAssistantReasoning = {
   type: "reasoning"
   id: string
@@ -4105,49 +4331,6 @@ export type SessionMessageAssistantReasoning = {
     created: number
     completed?: number
   }
-}
-
-export type SessionMessageToolStatePending = {
-  status: "pending"
-  input: string
-}
-
-export type SessionMessageToolStateRunning = {
-  status: "running"
-  input: {
-    [key: string]: unknown
-  }
-  structured: {
-    [key: string]: unknown
-  }
-  content: Array<LlmToolContent>
-}
-
-export type SessionMessageToolStateCompleted = {
-  status: "completed"
-  input: {
-    [key: string]: unknown
-  }
-  attachments?: Array<PromptFileAttachment>
-  content: Array<LlmToolContent>
-  outputPaths?: Array<string>
-  structured: {
-    [key: string]: unknown
-  }
-  result?: unknown
-}
-
-export type SessionMessageToolStateError = {
-  status: "error"
-  input: {
-    [key: string]: unknown
-  }
-  content: Array<LlmToolContent>
-  structured: {
-    [key: string]: unknown
-  }
-  error: SessionErrorUnknown
-  result?: unknown
 }
 
 export type SessionMessageAssistantTool = {
@@ -5744,6 +5927,52 @@ export type QuestionV2Rejected = {
   }
 }
 
+export type SessionExternalChanged = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.external.changed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    epoch: string
+    revision: number
+    descriptor?: SessionExternalDescriptor
+    messages?: Array<SessionExternalMessage>
+    append?: {
+      messageID: string
+      partID: string
+      type: "text" | "reasoning"
+      delta: string
+    }
+    refresh?: boolean
+    activityAt?: number
+  }
+}
+
+export type SessionExternalEngineChanged = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.external.engine.changed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    engine: "codex"
+  }
+}
+
 export type TodoUpdated = {
   id: string
   metadata?: {
@@ -6235,6 +6464,199 @@ export type ReferenceInfo = {
 
 export type ProjectCopyCopy = {
   directory: string
+}
+
+export type SessionExternalAccount = {
+  authenticated: boolean
+  requiresAuth: boolean
+  label?: string
+  plan?: string
+  loginID?: string
+  loginState?: "pending" | "complete" | "failed"
+  error?: string
+}
+
+export type SessionExternalEngine = {
+  id: "codex"
+  available: boolean
+  version?: string
+  error?: string
+  account: SessionExternalAccount
+  capabilities: SessionExternalCapabilities
+  models: Array<{
+    id: string
+    name: string
+    default: boolean
+    efforts: Array<string>
+    defaultEffort?: string
+  }>
+}
+
+export type SessionExternalLogin = {
+  loginID: string
+  url: string
+}
+
+export type SessionExternalInput = {
+  prompt: Prompt
+  settings: SessionExternalSettings
+}
+
+export type SessionExternalCreate = {
+  requestID: string
+  engine: "codex"
+  location: LocationRef
+  input: SessionExternalInput
+  delivery: "steer" | "queue"
+}
+
+export type SessionExternalDelivery = {
+  sessionID: string
+  requestID: string
+  state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+  delivery: "steer" | "queue"
+  input: SessionExternalInput
+  nativeTurnID?: string
+  nativeItemID?: string
+  error?: string
+  createdAt: number
+}
+
+export type SessionExternalInteraction = {
+  id: string
+  sessionID: string
+  revision: number
+  kind: "command" | "file" | "permissions" | "question" | "form" | "url" | "unsupported"
+  turnRef?: string
+  itemRef?: string
+  title: string
+  description?: string
+  choices: Array<{
+    id: string
+    kind: "allow" | "allowSession" | "deny" | "cancel" | "custom"
+    label?: string
+    scope?: string
+  }>
+  questions?: Array<{
+    id: string
+    header: string
+    question: string
+    options?: Array<{
+      label: string
+      description: string
+    }>
+    multiple?: boolean
+    allowOther?: boolean
+    secret?: boolean
+  }>
+  requestedSchema?: unknown
+  url?: string
+  details?: unknown
+  state: "pending" | "replying" | "resolved" | "expired"
+}
+
+export type SessionExternalSnapshot = {
+  descriptor: SessionExternalDescriptor
+  messages: Array<SessionExternalMessage>
+  messageOrder: Array<string>
+  partOrder: {
+    [key: string]: Array<string>
+  }
+  interactions: Array<SessionExternalInteraction>
+  deliveries: Array<SessionExternalDelivery>
+  usage:
+    | {
+        status: "available"
+        value: {
+          total?: number
+          input: number
+          output: number
+          reasoning: number
+          cache: {
+            read: number
+            write: number
+          }
+        }
+      }
+    | {
+        status: "unavailable" | "loading"
+      }
+  contextWindow:
+    | {
+        status: "available"
+        value: number
+      }
+    | {
+        status: "unavailable" | "loading"
+      }
+  contextTokens?:
+    | {
+        status: "available"
+        value: number
+      }
+    | {
+        status: "unavailable" | "loading"
+      }
+  cost:
+    | {
+        status: "available"
+        value: number
+      }
+    | {
+        status: "unavailable" | "loading"
+      }
+  turnDiffs: {
+    [key: string]:
+      | {
+          status: "available"
+          value: Array<SnapshotFileDiff>
+        }
+      | {
+          status: "unavailable" | "loading"
+        }
+  }
+  sessionDiff:
+    | {
+        status: "available"
+        value: Array<SnapshotFileDiff>
+      }
+    | {
+        status: "unavailable" | "loading"
+      }
+  plan?:
+    | {
+        status: "available"
+        value: {
+          turnID: string
+          explanation?: string
+          steps: Array<{
+            step: string
+            status: "pending" | "inProgress" | "completed"
+          }>
+        }
+      }
+    | {
+        status: "unavailable" | "loading"
+      }
+  children: Array<{
+    sessionID: string
+    nativeThreadID: string
+  }>
+}
+
+export type SessionExternalSubmit = {
+  requestID: string
+  input: SessionExternalInput
+  delivery: "steer" | "queue"
+}
+
+export type SessionExternalReply = {
+  revision: number
+  choiceID?: string
+  answers?: {
+    [key: string]: Array<string>
+  }
+  content?: unknown
 }
 
 export type EventModelsDevRefreshed = {
@@ -6933,6 +7355,34 @@ export type EventQuestionV2Rejected = {
   properties: {
     sessionID: string
     requestID: string
+  }
+}
+
+export type EventSessionExternalChanged = {
+  id: string
+  type: "session.external.changed"
+  properties: {
+    sessionID: string
+    epoch: string
+    revision: number
+    descriptor?: SessionExternalDescriptor
+    messages?: Array<SessionExternalMessage>
+    append?: {
+      messageID: string
+      partID: string
+      type: "text" | "reasoning"
+      delta: string
+    }
+    refresh?: boolean
+    activityAt?: number
+  }
+}
+
+export type EventSessionExternalEngineChanged = {
+  id: string
+  type: "session.external.engine.changed"
+  properties: {
+    engine: "codex"
   }
 }
 
@@ -9688,6 +10138,14 @@ export type SessionCreateErrors = {
    * BadRequest | InvalidRequestError
    */
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionCreateError = SessionCreateErrors[keyof SessionCreateErrors]
@@ -9753,9 +10211,9 @@ export type SessionDeleteErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionDeleteError = SessionDeleteErrors[keyof SessionDeleteErrors]
@@ -9835,9 +10293,9 @@ export type SessionUpdateErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionUpdateError = SessionUpdateErrors[keyof SessionUpdateErrors]
@@ -9906,6 +10364,10 @@ export type SessionTodoErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionTodoError = SessionTodoErrors[keyof SessionTodoErrors]
@@ -9937,6 +10399,14 @@ export type SessionDiffErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionDiffError = SessionDiffErrors[keyof SessionDiffErrors]
@@ -9973,6 +10443,10 @@ export type SessionMessagesErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionMessagesError = SessionMessagesErrors[keyof SessionMessagesErrors]
@@ -10025,6 +10499,10 @@ export type SessionPromptErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionPromptError = SessionPromptErrors[keyof SessionPromptErrors]
@@ -10064,9 +10542,9 @@ export type SessionDeleteMessageErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionDeleteMessageError = SessionDeleteMessageErrors[keyof SessionDeleteMessageErrors]
@@ -10102,6 +10580,10 @@ export type SessionMessageErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionMessageError = SessionMessageErrors[keyof SessionMessageErrors]
@@ -10141,6 +10623,10 @@ export type SessionForkErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionForkError = SessionForkErrors[keyof SessionForkErrors]
@@ -10171,6 +10657,14 @@ export type SessionAbortErrors = {
    * BadRequest | InvalidRequestError
    */
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionAbortError = SessionAbortErrors[keyof SessionAbortErrors]
@@ -10209,6 +10703,10 @@ export type SessionInitErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionInitError = SessionInitErrors[keyof SessionInitErrors]
@@ -10243,6 +10741,10 @@ export type SessionUnshareErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
   /**
    * InternalServerError
    */
@@ -10281,6 +10783,10 @@ export type SessionShareErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
   /**
    * InternalServerError
    */
@@ -10324,9 +10830,9 @@ export type SessionSummarizeErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]
@@ -10376,6 +10882,10 @@ export type SessionPromptAsyncErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionPromptAsyncError = SessionPromptAsyncErrors[keyof SessionPromptAsyncErrors]
@@ -10425,6 +10935,10 @@ export type SessionCommandErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type SessionCommandError = SessionCommandErrors[keyof SessionCommandErrors]
@@ -10471,9 +10985,9 @@ export type SessionShellErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionShellError = SessionShellErrors[keyof SessionShellErrors]
@@ -10515,9 +11029,9 @@ export type SessionRevertErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionRevertError = SessionRevertErrors[keyof SessionRevertErrors]
@@ -10553,9 +11067,9 @@ export type SessionUnrevertErrors = {
    */
   404: NotFoundError
   /**
-   * SessionBusyError
+   * ConflictError | SessionBusyError
    */
-  409: SessionBusyError
+  409: ConflictError | SessionBusyError
 }
 
 export type SessionUnrevertError = SessionUnrevertErrors[keyof SessionUnrevertErrors]
@@ -10593,6 +11107,10 @@ export type PermissionRespondErrors = {
    * NotFoundError | PermissionNotFoundError
    */
   404: NotFoundError | PermissionNotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type PermissionRespondError = PermissionRespondErrors[keyof PermissionRespondErrors]
@@ -10629,6 +11147,10 @@ export type PartDeleteErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type PartDeleteError = PartDeleteErrors[keyof PartDeleteErrors]
@@ -10665,6 +11187,10 @@ export type PartUpdateErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
 }
 
 export type PartUpdateError = PartUpdateErrors[keyof PartUpdateErrors]
@@ -13825,6 +14351,441 @@ export type V2ProjectCopyRefreshResponses = {
 }
 
 export type V2ProjectCopyRefreshResponse = V2ProjectCopyRefreshResponses[keyof V2ProjectCopyRefreshResponses]
+
+export type ServerLabLabEnginesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/lab/engines"
+}
+
+export type ServerLabLabEnginesErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabEnginesError = ServerLabLabEnginesErrors[keyof ServerLabLabEnginesErrors]
+
+export type ServerLabLabEnginesResponses = {
+  /**
+   * Success
+   */
+  200: Array<SessionExternalEngine>
+}
+
+export type ServerLabLabEnginesResponse = ServerLabLabEnginesResponses[keyof ServerLabLabEnginesResponses]
+
+export type ServerLabLabAccountData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/lab/engines/codex/account"
+}
+
+export type ServerLabLabAccountErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabAccountError = ServerLabLabAccountErrors[keyof ServerLabLabAccountErrors]
+
+export type ServerLabLabAccountResponses = {
+  /**
+   * SessionExternal.Account
+   */
+  200: SessionExternalAccount
+}
+
+export type ServerLabLabAccountResponse = ServerLabLabAccountResponses[keyof ServerLabLabAccountResponses]
+
+export type ServerLabLabLoginData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/lab/engines/codex/login"
+}
+
+export type ServerLabLabLoginErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabLoginError = ServerLabLabLoginErrors[keyof ServerLabLabLoginErrors]
+
+export type ServerLabLabLoginResponses = {
+  /**
+   * SessionExternal.Login
+   */
+  200: SessionExternalLogin
+}
+
+export type ServerLabLabLoginResponse = ServerLabLabLoginResponses[keyof ServerLabLabLoginResponses]
+
+export type ServerLabLabCancelLoginData = {
+  body?: {
+    loginID: string
+  }
+  path?: never
+  query?: never
+  url: "/lab/engines/codex/login/cancel"
+}
+
+export type ServerLabLabCancelLoginErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabCancelLoginError = ServerLabLabCancelLoginErrors[keyof ServerLabLabCancelLoginErrors]
+
+export type ServerLabLabCancelLoginResponses = {
+  /**
+   * SessionExternal.Account
+   */
+  200: SessionExternalAccount
+}
+
+export type ServerLabLabCancelLoginResponse = ServerLabLabCancelLoginResponses[keyof ServerLabLabCancelLoginResponses]
+
+export type ServerLabLabDescribeData = {
+  body?: {
+    sessionIDs: Array<string>
+  }
+  path?: never
+  query?: never
+  url: "/lab/sessions/describe"
+}
+
+export type ServerLabLabDescribeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabDescribeError = ServerLabLabDescribeErrors[keyof ServerLabLabDescribeErrors]
+
+export type ServerLabLabDescribeResponses = {
+  /**
+   * Success
+   */
+  200: Array<SessionExternalDescriptor>
+}
+
+export type ServerLabLabDescribeResponse = ServerLabLabDescribeResponses[keyof ServerLabLabDescribeResponses]
+
+export type ServerLabLabCreateData = {
+  body?: SessionExternalCreate
+  path?: never
+  query?: never
+  url: "/lab/sessions"
+}
+
+export type ServerLabLabCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabCreateError = ServerLabLabCreateErrors[keyof ServerLabLabCreateErrors]
+
+export type ServerLabLabCreateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    descriptor: SessionExternalDescriptor
+    delivery: SessionExternalDelivery
+  }
+}
+
+export type ServerLabLabCreateResponse = ServerLabLabCreateResponses[keyof ServerLabLabCreateResponses]
+
+export type ServerLabLabSnapshotData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}"
+}
+
+export type ServerLabLabSnapshotErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabSnapshotError = ServerLabLabSnapshotErrors[keyof ServerLabLabSnapshotErrors]
+
+export type ServerLabLabSnapshotResponses = {
+  /**
+   * SessionExternal.Snapshot
+   */
+  200: SessionExternalSnapshot
+}
+
+export type ServerLabLabSnapshotResponse = ServerLabLabSnapshotResponses[keyof ServerLabLabSnapshotResponses]
+
+export type ServerLabLabSubmitData = {
+  body?: SessionExternalSubmit
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}/input"
+}
+
+export type ServerLabLabSubmitErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabSubmitError = ServerLabLabSubmitErrors[keyof ServerLabLabSubmitErrors]
+
+export type ServerLabLabSubmitResponses = {
+  /**
+   * Success
+   */
+  200: {
+    descriptor: SessionExternalDescriptor
+    delivery: SessionExternalDelivery
+  }
+}
+
+export type ServerLabLabSubmitResponse = ServerLabLabSubmitResponses[keyof ServerLabLabSubmitResponses]
+
+export type ServerLabLabDeliveryData = {
+  body?: never
+  path: {
+    sessionID: string
+    requestID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}/deliveries/{requestID}"
+}
+
+export type ServerLabLabDeliveryErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabDeliveryError = ServerLabLabDeliveryErrors[keyof ServerLabLabDeliveryErrors]
+
+export type ServerLabLabDeliveryResponses = {
+  /**
+   * SessionExternal.Delivery
+   */
+  200: SessionExternalDelivery
+}
+
+export type ServerLabLabDeliveryResponse = ServerLabLabDeliveryResponses[keyof ServerLabLabDeliveryResponses]
+
+export type ServerLabLabQueueData = {
+  body?: {
+    action: "resume" | "withdraw"
+    requestID: string
+    revision: number
+  }
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}/queue"
+}
+
+export type ServerLabLabQueueErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabQueueError = ServerLabLabQueueErrors[keyof ServerLabLabQueueErrors]
+
+export type ServerLabLabQueueResponses = {
+  /**
+   * SessionExternal.Snapshot
+   */
+  200: SessionExternalSnapshot
+}
+
+export type ServerLabLabQueueResponse = ServerLabLabQueueResponses[keyof ServerLabLabQueueResponses]
+
+export type ServerLabLabInterruptData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}/interrupt"
+}
+
+export type ServerLabLabInterruptErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabInterruptError = ServerLabLabInterruptErrors[keyof ServerLabLabInterruptErrors]
+
+export type ServerLabLabInterruptResponses = {
+  /**
+   * SessionExternal.Descriptor
+   */
+  200: SessionExternalDescriptor
+}
+
+export type ServerLabLabInterruptResponse = ServerLabLabInterruptResponses[keyof ServerLabLabInterruptResponses]
+
+export type ServerLabLabReplyData = {
+  body?: SessionExternalReply
+  path: {
+    sessionID: string
+    interactionID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}/interactions/{interactionID}/reply"
+}
+
+export type ServerLabLabReplyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabReplyError = ServerLabLabReplyErrors[keyof ServerLabLabReplyErrors]
+
+export type ServerLabLabReplyResponses = {
+  /**
+   * SessionExternal.Snapshot
+   */
+  200: SessionExternalSnapshot
+}
+
+export type ServerLabLabReplyResponse = ServerLabLabReplyResponses[keyof ServerLabLabReplyResponses]
+
+export type ServerLabLabSettingsData = {
+  body?: SessionExternalSettings
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/lab/sessions/{sessionID}/settings"
+}
+
+export type ServerLabLabSettingsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * LabError
+   */
+  409: LabError
+}
+
+export type ServerLabLabSettingsError = ServerLabLabSettingsErrors[keyof ServerLabLabSettingsErrors]
+
+export type ServerLabLabSettingsResponses = {
+  /**
+   * SessionExternal.Descriptor
+   */
+  200: SessionExternalDescriptor
+}
+
+export type ServerLabLabSettingsResponse = ServerLabLabSettingsResponses[keyof ServerLabLabSettingsResponses]
 
 export type PtyConnectData = {
   body?: never

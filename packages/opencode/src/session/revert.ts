@@ -9,6 +9,7 @@ import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID, PartID } from "./schema"
 import { SessionRunState } from "./run-state"
 import { SessionSummary } from "./summary"
+import { SessionEngineGuard } from "@opencode-ai/core/session/external/guard"
 
 export const RevertInput = Schema.Struct({
   sessionID: SessionID,
@@ -36,6 +37,9 @@ const layer = Layer.effect(
     const state = yield* SessionRunState.Service
 
     const revert = Effect.fn("SessionRevert.revert")(function* (input: RevertInput) {
+      yield* SessionEngineGuard.check(yield* sessions.get(input.sessionID).pipe(Effect.orDie), "revert").pipe(
+        Effect.orDie,
+      )
       yield* state.assertNotBusy(input.sessionID)
       const all = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
       let lastUser: SessionV1.User | undefined
@@ -89,6 +93,9 @@ const layer = Layer.effect(
     })
 
     const unrevert = Effect.fn("SessionRevert.unrevert")(function* (input: { sessionID: SessionID }) {
+      yield* SessionEngineGuard.check(yield* sessions.get(input.sessionID).pipe(Effect.orDie), "unrevert").pipe(
+        Effect.orDie,
+      )
       yield* Effect.logInfo("unreverting", { sessionID: input.sessionID })
       yield* state.assertNotBusy(input.sessionID)
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
@@ -99,6 +106,7 @@ const layer = Layer.effect(
     })
 
     const cleanup = Effect.fn("SessionRevert.cleanup")(function* (session: Session.Info) {
+      yield* SessionEngineGuard.check(session, "revertCleanup").pipe(Effect.orDie)
       if (!session.revert) return
       const sessionID = session.id
       const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)

@@ -34,6 +34,7 @@ test("Lab creates its backend roots and removes state bypasses", async () => {
     OPENCODE_AUTH_CONTENT: "secret",
     OPENCODE_DB: "/formal/opencode.db",
     OPENCODE_PORT: "4096",
+    OPENCODE_CODEX_HOME: "/formal/codex",
     OPENAI_API_KEY: "provider-key",
   }
   const paths = prepareLabEnvironment(environment, userDataPath)
@@ -42,6 +43,8 @@ test("Lab creates its backend roots and removes state bypasses", async () => {
   expect(environment.OPENCODE_AUTH_CONTENT).toBeUndefined()
   expect(environment.OPENCODE_DB).toBeUndefined()
   expect(environment.OPENCODE_PORT).toBeUndefined()
+  expect(environment.OPENCODE_CODEX_HOME).toBeUndefined()
+  expect(environment.OPENCODE_ENABLE_CODEX).toBe("1")
   expect(environment.OPENAI_API_KEY).toBe("provider-key")
   expect(environment.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1")
   expect(environment.OPENCODE_DISABLE_AUTOUPDATE).toBe("1")

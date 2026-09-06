@@ -177,6 +177,32 @@ import type {
   QuestionReplyErrors,
   QuestionReplyResponses,
   QuestionV2Reply,
+  ServerLabLabAccountErrors,
+  ServerLabLabAccountResponses,
+  ServerLabLabCancelLoginErrors,
+  ServerLabLabCancelLoginResponses,
+  ServerLabLabCreateErrors,
+  ServerLabLabCreateResponses,
+  ServerLabLabDeliveryErrors,
+  ServerLabLabDeliveryResponses,
+  ServerLabLabDescribeErrors,
+  ServerLabLabDescribeResponses,
+  ServerLabLabEnginesErrors,
+  ServerLabLabEnginesResponses,
+  ServerLabLabInterruptErrors,
+  ServerLabLabInterruptResponses,
+  ServerLabLabLoginErrors,
+  ServerLabLabLoginResponses,
+  ServerLabLabQueueErrors,
+  ServerLabLabQueueResponses,
+  ServerLabLabReplyErrors,
+  ServerLabLabReplyResponses,
+  ServerLabLabSettingsErrors,
+  ServerLabLabSettingsResponses,
+  ServerLabLabSnapshotErrors,
+  ServerLabLabSnapshotResponses,
+  ServerLabLabSubmitErrors,
+  ServerLabLabSubmitResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -191,6 +217,10 @@ import type {
   SessionDeleteResponses,
   SessionDiffErrors,
   SessionDiffResponses,
+  SessionExternalCreate,
+  SessionExternalReply,
+  SessionExternalSettings,
+  SessionExternalSubmit,
   SessionForkErrors,
   SessionForkResponses,
   SessionGetErrors,
@@ -7232,6 +7262,303 @@ export class V2 extends HeyApiClient {
   }
 }
 
+export class Lab extends HeyApiClient {
+  public engines<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<ServerLabLabEnginesResponses, ServerLabLabEnginesErrors, ThrowOnError>({
+      url: "/lab/engines",
+      ...options,
+    })
+  }
+
+  public account<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<ServerLabLabAccountResponses, ServerLabLabAccountErrors, ThrowOnError>({
+      url: "/lab/engines/codex/account",
+      ...options,
+    })
+  }
+
+  public login<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<ServerLabLabLoginResponses, ServerLabLabLoginErrors, ThrowOnError>({
+      url: "/lab/engines/codex/login",
+      ...options,
+    })
+  }
+
+  public cancelLogin<ThrowOnError extends boolean = false>(
+    parameters?: {
+      loginID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "loginID" }] }])
+    return (options?.client ?? this.client).post<
+      ServerLabLabCancelLoginResponses,
+      ServerLabLabCancelLoginErrors,
+      ThrowOnError
+    >({
+      url: "/lab/engines/codex/login/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public describe<ThrowOnError extends boolean = false>(
+    parameters?: {
+      sessionIDs?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "sessionIDs" }] }])
+    return (options?.client ?? this.client).post<
+      ServerLabLabDescribeResponses,
+      ServerLabLabDescribeErrors,
+      ThrowOnError
+    >({
+      url: "/lab/sessions/describe",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      sessionExternalCreate?: SessionExternalCreate
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "sessionExternalCreate", map: "body" }] }])
+    return (options?.client ?? this.client).post<ServerLabLabCreateResponses, ServerLabLabCreateErrors, ThrowOnError>({
+      url: "/lab/sessions",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public snapshot<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<
+      ServerLabLabSnapshotResponses,
+      ServerLabLabSnapshotErrors,
+      ThrowOnError
+    >({
+      url: "/lab/sessions/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public submit<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      sessionExternalSubmit?: SessionExternalSubmit
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { key: "sessionExternalSubmit", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ServerLabLabSubmitResponses, ServerLabLabSubmitErrors, ThrowOnError>({
+      url: "/lab/sessions/{sessionID}/input",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public delivery<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      requestID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "requestID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ServerLabLabDeliveryResponses,
+      ServerLabLabDeliveryErrors,
+      ThrowOnError
+    >({
+      url: "/lab/sessions/{sessionID}/deliveries/{requestID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public queue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      action?: "resume" | "withdraw"
+      requestID?: string
+      revision?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "body", key: "action" },
+            { in: "body", key: "requestID" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ServerLabLabQueueResponses, ServerLabLabQueueErrors, ThrowOnError>({
+      url: "/lab/sessions/{sessionID}/queue",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public interrupt<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).post<
+      ServerLabLabInterruptResponses,
+      ServerLabLabInterruptErrors,
+      ThrowOnError
+    >({
+      url: "/lab/sessions/{sessionID}/interrupt",
+      ...options,
+      ...params,
+    })
+  }
+
+  public reply<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      interactionID: string
+      sessionExternalReply?: SessionExternalReply
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "interactionID" },
+            { key: "sessionExternalReply", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ServerLabLabReplyResponses, ServerLabLabReplyErrors, ThrowOnError>({
+      url: "/lab/sessions/{sessionID}/interactions/{interactionID}/reply",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public settings<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      sessionExternalSettings?: SessionExternalSettings
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { key: "sessionExternalSettings", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ServerLabLabSettingsResponses,
+      ServerLabLabSettingsErrors,
+      ThrowOnError
+    >({
+      url: "/lab/sessions/{sessionID}/settings",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Lab2 extends HeyApiClient {
+  private _lab?: Lab
+  get lab(): Lab {
+    return (this._lab ??= new Lab({ client: this.client }))
+  }
+}
+
+export class Server extends HeyApiClient {
+  private _lab?: Lab2
+  get lab(): Lab2 {
+    return (this._lab ??= new Lab2({ client: this.client }))
+  }
+}
+
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -7373,5 +7700,10 @@ export class OpencodeClient extends HeyApiClient {
   private _v2?: V2
   get v2(): V2 {
     return (this._v2 ??= new V2({ client: this.client }))
+  }
+
+  private _server?: Server
+  get server(): Server {
+    return (this._server ??= new Server({ client: this.client }))
   }
 }

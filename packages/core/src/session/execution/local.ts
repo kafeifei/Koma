@@ -6,6 +6,7 @@ import { SessionRunner } from "../runner"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { SessionExecution } from "../execution"
+import { SessionEngineGuard } from "../external/guard"
 
 /** Current-process routing for implicit-local Locations. Future remote placement belongs here. */
 const layer = Layer.effect(
@@ -17,6 +18,7 @@ const layer = Layer.effect(
       drain: Effect.fnUntraced(function* (sessionID: SessionSchema.ID, force) {
         const session = yield* store.get(sessionID)
         if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
+        yield* SessionEngineGuard.check(session, "drain").pipe(Effect.orDie)
         return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force })).pipe(
           Effect.provide(locations.get(session.location)),
           Effect.tapCause((cause) =>
@@ -30,9 +32,24 @@ const layer = Layer.effect(
 
     return SessionExecution.Service.of({
       active: coordinator.active,
-      interrupt: coordinator.interrupt,
-      resume: coordinator.run,
-      wake: coordinator.wake,
+      interrupt: (sessionID) =>
+        Effect.gen(function* () {
+          const session = yield* store.get(sessionID)
+          if (session) yield* SessionEngineGuard.check(session, "interrupt").pipe(Effect.orDie)
+          yield* coordinator.interrupt(sessionID)
+        }),
+      resume: (sessionID) =>
+        Effect.gen(function* () {
+          const session = yield* store.get(sessionID)
+          if (session) yield* SessionEngineGuard.check(session, "resume").pipe(Effect.orDie)
+          yield* coordinator.run(sessionID)
+        }),
+      wake: (sessionID) =>
+        Effect.gen(function* () {
+          const session = yield* store.get(sessionID)
+          if (session) yield* SessionEngineGuard.check(session, "wake").pipe(Effect.orDie)
+          yield* coordinator.wake(sessionID)
+        }),
     })
   }),
 )

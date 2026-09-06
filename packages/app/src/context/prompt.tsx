@@ -14,6 +14,9 @@ import {
   type ContextItem,
   type FileContextItem,
   type Prompt,
+  type CodexPromptSettings,
+  type ExternalPromptRequest,
+  type PromptEngine,
   type PromptModel,
   type PromptScope,
   type PromptSession,
@@ -30,11 +33,14 @@ export {
 export type {
   AgentPart,
   ContentPart,
+  CodexPromptSettings,
   ContextItem,
   FileAttachmentPart,
   FileContextItem,
   ImageAttachmentPart,
   Prompt,
+  PromptEngine,
+  ExternalPromptRequest,
   PromptModel,
   PromptStore,
   PromptScope,
@@ -153,6 +159,20 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
       model: {
         current: withSuspense(() => session().model.current()),
         set: (model: PromptModel | undefined) => session().model.set(model),
+      },
+      engine: {
+        current: withSuspense(() => session().engine.current()),
+        set: (engine: PromptEngine) => session().engine.set(engine),
+      },
+      codex: {
+        current: withSuspense(() => session().codex.current()),
+        revision: withSuspense(() => session().codex.revision()),
+        set: (value: CodexPromptSettings, options?: { explicit?: boolean; revision?: number }) =>
+          session().codex.set(value, options),
+      },
+      externalRequest: {
+        current: withSuspense(() => session().externalRequest.current()),
+        set: (value: ExternalPromptRequest | undefined) => session().externalRequest.set(value),
       },
       context: {
         items: withSuspense(() => session().context.items()),

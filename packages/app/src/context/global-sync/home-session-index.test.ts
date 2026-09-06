@@ -42,6 +42,11 @@ describe("Home V2 session index", () => {
     expect(calls).toEqual([{ limit: HOME_V2_SESSION_PAGE_LIMIT, order: "desc" }])
   })
 
+  test("keeps the confirmed engine on shared session summaries", () => {
+    const result = parseHomeSessionIndex([{ ...session({ id: "codex" }), engine: "codex" } as SessionV2Info])
+    expect(result[0]?.engine).toBe("codex")
+  })
+
   test("loads subsequent pages until the session index is complete", async () => {
     const calls: unknown[] = []
     const controller = new AbortController()
@@ -168,6 +173,19 @@ describe("Home V2 session index", () => {
 
     const index = queryClient.getQueryData<{ sessions: Session[] }>(cache.indexKey)
     expect(index?.sessions.map((item) => item.id)).toEqual(["b"])
+  })
+
+  test("applies external activity monotonically to the shared Home index", () => {
+    const queryClient = new QueryClient()
+    const cache = createHomeSessionIndexCache(queryClient, "server")
+    const info = parseHomeSessionIndex([session({ id: "a", updated: 2 })])[0]!
+    queryClient.setQueryData(cache.indexKey, { sessions: [info], eventSequence: 0 })
+
+    cache.activity(info.id, 8)
+    cache.activity(info.id, 4)
+
+    const index = queryClient.getQueryData<import("./home-session-index").HomeSessionIndex>(cache.indexKey)
+    expect(index?.sessions[0]?.time.updated).toBe(8)
   })
 
   test("keeps the session out of the Home list when the index is not mounted", () => {

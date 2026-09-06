@@ -5,6 +5,7 @@ import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionTable } from "@opencode-ai/core/session/sql"
+import { SessionExternalOwnership } from "@opencode-ai/core/session/external/ownership"
 import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
 import fs from "fs/promises"
@@ -28,6 +29,7 @@ const it = testEffect(
       Storage.node,
       Database.node,
       Git.node,
+      SessionExternalOwnership.node,
     ]),
   ),
 )
@@ -119,6 +121,71 @@ const fixture = Effect.fn("WorktreeLifecycleTest.fixture")(function* () {
 })
 
 describe("WorktreeLifecycle", () => {
+  it.live("preserves external worktrees until the current native owner confirms idle", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const ownership = yield* SessionExternalOwnership.Service
+      yield* input.db
+        .update(SessionTable)
+        .set({ engine: "codex" })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      expect(yield* input.lifecycle.prepareArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+      expect(yield* exists(input.directory)).toBe(true)
+
+      yield* ownership.beginGeneration("home", "old-host:1")
+      yield* ownership.confirmIdle({ runtimeScope: "home", generation: "old-host:1", sessionID: input.sessionID })
+      yield* ownership.beginGeneration("home", "new-host:1")
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+      yield* ownership.confirmIdle({ runtimeScope: "home", generation: "new-host:1", sessionID: input.sessionID })
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true })
+      expect(yield* exists(input.directory)).toBe(false)
+    }),
+  )
+
+  it.live("preserves a parent checkout while an external child has unknown execution state", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const ownership = yield* SessionExternalOwnership.Service
+      const child = SessionID.descending()
+      yield* input.db
+        .insert(SessionTable)
+        .values({
+          id: child,
+          engine: "codex",
+          project_id: input.projectID,
+          parent_id: input.sessionID,
+          slug: child,
+          directory: input.directory,
+          title: "native child",
+          version: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+      expect(yield* input.lifecycle.prepareArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+      expect(yield* exists(input.directory)).toBe(true)
+      yield* ownership.beginGeneration("home", "host:1")
+      yield* ownership.confirmIdle({ runtimeScope: "home", generation: "host:1", sessionID: child })
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true })
+      expect(yield* exists(input.directory)).toBe(false)
+    }),
+  )
+
   it.live("uses one lease identity through a symlinked directory path", () =>
     Effect.gen(function* () {
       const input = yield* fixture()

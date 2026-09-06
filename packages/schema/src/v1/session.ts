@@ -12,6 +12,7 @@ import { SessionID } from "../session-id"
 import { WorkspaceID } from "../workspace-id"
 import { PermissionV1 } from "./permission"
 import { PermissionMode } from "../session-permission-mode"
+import { Session } from "../session"
 
 const Timestamp = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 
@@ -543,6 +544,7 @@ const SessionModel = Schema.Struct({
 
 export const SessionInfo = Schema.Struct({
   id: SessionID,
+  engine: optional(Session.Engine),
   slug: Schema.String,
   projectID: Project.ID,
   workspaceID: optional(WorkspaceID),

@@ -4,7 +4,8 @@ import { Database } from "@opencode-ai/core/database/database"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { SessionTable } from "@opencode-ai/core/session/sql"
-import { and, eq, isNull } from "drizzle-orm"
+import { SessionExternalOwnership } from "@opencode-ai/core/session/external/ownership"
+import { and, eq, isNull, ne } from "drizzle-orm"
 import { Context, Effect, Layer, Option, Schema, Scope, Semaphore } from "effect"
 import path from "path"
 import { Git } from "@/git"
@@ -95,6 +96,7 @@ const layer = Layer.effect(
     const fs = yield* FSUtil.Service
     const archive = yield* WorktreeArchive.Service
     const disposal = yield* InstanceDisposal.Service
+    const externalOwnership = yield* SessionExternalOwnership.Service
     const scope = yield* Scope.Scope
     const gates = new Map<string, Gate>()
 
@@ -180,8 +182,25 @@ const layer = Layer.effect(
         gate(directory).blocked = false
       })
 
-    const busy = (owner: Owner) =>
-      [...gate(owner.directory).leases.values()].reduce((total, count) => total + count, 0) > 0
+    const busy = Effect.fnUntraced(function* (owner: Owner) {
+      if ([...gate(owner.directory).leases.values()].some((count) => count > 0)) return true
+      // Native execution does not own OpenCode runner leases after a backend restart.
+      // A persisted binding or an empty inbox is not evidence that its worktree is idle.
+      const external = yield* db
+        .select({ id: SessionTable.id, directory: SessionTable.directory })
+        .from(SessionTable)
+        .where(
+          and(eq(SessionTable.project_id, ProjectV2.ID.make(owner.projectID)), ne(SessionTable.engine, "opencode")),
+        )
+        .all()
+        .pipe(Effect.orDie)
+      for (const session of external) {
+        const directory = yield* fs.resolve(session.directory)
+        if (directory !== owner.directory && !directory.startsWith(`${owner.directory}${path.sep}`)) continue
+        if (!(yield* externalOwnership.isIdle(session.id))) return true
+      }
+      return false
+    })
 
     const familyShared = Effect.fnUntraced(function* (owner: Owner) {
       if (!owner.sessionID) return false
@@ -376,7 +395,7 @@ const layer = Layer.effect(
           yield* write({ ...current, intent: "archive", lastError: undefined }).pipe(
             Effect.onError(() => unblock(current.directory)),
           )
-          return { managed: true, pending: busy(current) }
+          return { managed: true, pending: yield* busy(current) }
         }),
       )
     })
@@ -390,7 +409,7 @@ const layer = Layer.effect(
           const current = yield* get(sessionID)
           if (!current || current.intent !== "archive") return { managed: !!current }
           if (current.phase === "removed") return { managed: true }
-          if (busy(current)) return { managed: true, pending: true }
+          if (yield* busy(current)) return { managed: true, pending: true }
           const row = yield* db
             .select({ archived: SessionTable.time_archived })
             .from(SessionTable)
@@ -497,7 +516,7 @@ const layer = Layer.effect(
             return yield* fail("busy", "worktree archive has not finished removing the checkout", current)
           }
           const shared = yield* familyShared(current)
-          if (busy(current)) {
+          if (yield* busy(current)) {
             return yield* fail("busy", "session or a background child is still using the worktree", current)
           }
           yield* block(current.directory)
@@ -710,7 +729,15 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [Database.node, Storage.node, Git.node, FSUtil.node, WorktreeArchive.node, InstanceDisposal.node],
+  deps: [
+    Database.node,
+    Storage.node,
+    Git.node,
+    FSUtil.node,
+    WorktreeArchive.node,
+    InstanceDisposal.node,
+    SessionExternalOwnership.node,
+  ],
 })
 
 export * as WorktreeLifecycle from "./lifecycle"

@@ -1,6 +1,6 @@
 import type { Message, Session } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode, checksum } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { batch, onCleanup, startTransition, type Accessor } from "solid-js"
@@ -22,6 +22,7 @@ import { createPromptSubmissionState } from "./submission-state"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
 import { blobDataUrl } from "@/utils/draft-store"
+import { uuid } from "@/utils/uuid"
 import type { PermissionMode } from "@/context/tabs"
 import { createPromptSession } from "@/context/prompt-state"
 
@@ -29,6 +30,8 @@ type PendingPrompt = {
   abort: AbortController
   cleanup: VoidFunction
 }
+
+type ExternalDescriptor = NonNullable<ServerSync["external"]["data"]["descriptors"][string]>
 
 const pending = new Map<string, PendingPrompt>()
 
@@ -55,6 +58,24 @@ type FollowupSendInput = {
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
+
+const durableExternalDelivery = (state: string) => state === "pending" || state === "sending" || state === "accepted"
+const blockedExternalStatus = new Set(["disconnected", "systemError", "bindingUnavailable"])
+
+export function canSubmitExternalDescriptor(
+  descriptor: { runtimeStatus: string; capabilities: { prompt: boolean } } | undefined,
+) {
+  return !!descriptor?.capabilities.prompt && !blockedExternalStatus.has(descriptor.runtimeStatus)
+}
+
+const sourceExternalEngine = (sync: ServerSync, sessionID: string) => sync.external.engine(sessionID)
+
+async function resolveExternalEngine(sync: ServerSync, sessionID: string) {
+  const current = sourceExternalEngine(sync, sessionID)
+  if (current) return current
+  await sync.external.describe([sessionID])
+  return sourceExternalEngine(sync, sessionID)
+}
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
   const text = draftText(input.draft.prompt)
@@ -267,9 +288,25 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const sessionID = params.id
     if (!sessionID) return Promise.resolve()
 
-    serverSync().session.set("todo", sessionID, [])
-
-    input.onAbort?.()
+    const external = sourceExternalEngine(serverSync(), sessionID)
+    if (external === "codex")
+      return serverSync()
+        .external.actions.interrupt(sessionID)
+        .then(() => undefined)
+    if (!external) {
+      return serverSync()
+        .external.describe([sessionID])
+        .then(async () => {
+          if (sourceExternalEngine(serverSync(), sessionID) !== "codex") {
+            serverSync().session.set("todo", sessionID, [])
+            input.onAbort?.()
+            await sdk().api.session.interrupt({ sessionID })
+            return
+          }
+          await serverSync().external.actions.interrupt(sessionID)
+        })
+        .catch(() => undefined)
+    }
 
     const key = pendingKey(sessionID)
     const queued = pending.get(key)
@@ -279,6 +316,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       pending.delete(key)
       return Promise.resolve()
     }
+    serverSync().session.set("todo", sessionID, [])
+    input.onAbort?.()
     return sdk()
       .api.session.interrupt({ sessionID })
       .catch(() => {})
@@ -322,7 +361,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
   }
 
-  const creation = { pending: false }
+  const creation = new WeakSet<object>()
   const submit = async (event: Event) => {
     event.preventDefault()
 
@@ -343,6 +382,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
+    const codexPreferences = { ...target.codex.current() }
+    const codexPreferenceRevision = target.codex.revision()
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
       if (input.working()) void abort()
@@ -354,11 +395,78 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
+    const existingID = params.id
+    const isNewSession = !existingID
+    const engine = isNewSession
+      ? target.engine.current()
+      : await resolveExternalEngine(sourceServerSync, existingID).catch((err) => {
+          showToast({
+            title: language.t("prompt.toast.engineUnavailable.title"),
+            description: errorMessage(err),
+          })
+          return undefined
+        })
+    if (!engine) return
+
+    let externalDescriptor: ExternalDescriptor | undefined
+    let externalDesiredSettings: ExternalDescriptor["settings"] | undefined
+    if (engine === "codex") {
+      if (isNewSession) {
+        const engines =
+          sourceServerSync.external.data.engines ??
+          (await sourceServerSync.external.refreshEngines().catch((err) => {
+            showToast({ title: language.t("prompt.toast.codexUnavailable.title"), description: errorMessage(err) })
+            return undefined
+          }))
+        const codex = engines?.find((item) => item.id === "codex")
+        if (!codex?.available || !codex.capabilities.prompt) {
+          showToast({
+            title: language.t("prompt.toast.codexUnavailable.title"),
+            description: codex?.error ?? language.t("prompt.toast.codexUnavailable.description"),
+          })
+          return
+        }
+      }
+      if (!isNewSession) {
+        externalDescriptor =
+          sourceServerSync.external.data.descriptors[existingID!] ??
+          (await sourceServerSync.external
+            .describe([existingID!])
+            .then(() => sourceServerSync.external.data.descriptors[existingID!])
+            .catch((err) => {
+              showToast({ title: language.t("prompt.toast.codexUnavailable.title"), description: errorMessage(err) })
+              return undefined
+            }))
+        if (!externalDescriptor || !canSubmitExternalDescriptor(externalDescriptor)) {
+          showToast({
+            title: language.t("prompt.toast.codexUnavailable.title"),
+            description: externalDescriptor?.error ?? language.t("prompt.toast.codexUnavailable.description"),
+          })
+          return
+        }
+        externalDesiredSettings = { ...externalDescriptor.settings, ...externalDescriptor.pendingSettings }
+      }
+    }
+
+    const customCommand = text.startsWith("/")
+      ? sourceSync.data.command.find((command) => command.name === text.split(" ")[0].slice(1))
+      : undefined
+    if (
+      engine === "codex" &&
+      (mode === "shell" || !!customCommand || currentPrompt.some((part) => part.type === "agent"))
+    ) {
+      showToast({
+        title: language.t("prompt.toast.codexUnsupported.title"),
+        description: language.t("prompt.toast.codexUnsupported.description"),
+      })
+      return
+    }
+
     const modelSelection = input.model ?? local.model
     const currentModel = modelSelection.current()
     const currentAgent = local.agent.current()
     const variant = modelSelection.variant.current()
-    if (!currentModel || !currentAgent) {
+    if (engine === "opencode" && (!currentModel || !currentAgent)) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t("prompt.toast.modelAgentRequired.description"),
@@ -370,7 +478,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.resetHistoryNavigation()
 
     const projectDirectory = sourceSDK.directory
-    const isNewSession = !params.id
     const permissionMode = isNewSession ? input.permissionMode() : undefined
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
@@ -421,11 +528,165 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (active()) input.onNewSessionWorktreeReset?.()
     }
 
+    if (engine === "codex") {
+      const encodedImages = await Promise.all(
+        images.map(async (attachment) => ({
+          ...attachment,
+          dataUrl: await blobDataUrl(attachment.blob, attachment.mime),
+        })),
+      )
+      const { requestParts } = buildRequestParts({
+        prompt: currentPrompt,
+        context,
+        images: encodedImages,
+        text,
+        sessionID: params.id ?? "pending",
+        messageID: Identifier.ascending("message"),
+        sessionDirectory,
+      })
+      const externalPrompt = {
+        text: requestParts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
+        files: requestParts.flatMap((part) => {
+          if (part.type !== "file") return []
+          const source = part.source?.text
+          return [
+            {
+              uri: part.url,
+              mime: part.mime,
+              name: part.filename,
+              source: source ? { start: source.start, end: source.end, text: source.value } : undefined,
+            },
+          ]
+        }),
+      }
+      const requestedDelivery = !isNewSession && input.shouldQueue?.() ? ("queue" as const) : ("steer" as const)
+      const serialized = JSON.stringify({
+        directory: sessionDirectory,
+        prompt: externalPrompt,
+        codexPreferenceRevision,
+      })
+      const fingerprint = checksum(serialized) ?? serialized
+      const remembered = target.externalRequest.current()
+      const delivery =
+        remembered?.fingerprint === fingerprint ? (remembered.delivery ?? requestedDelivery) : requestedDelivery
+      const desiredSettings = externalDesiredSettings ?? codexPreferences
+      const settings =
+        remembered?.fingerprint === fingerprint ? (remembered.settings ?? desiredSettings) : desiredSettings
+      const request =
+        remembered?.fingerprint === fingerprint
+          ? remembered
+          : {
+              requestID: uuid(),
+              fingerprint,
+              operation: isNewSession ? ("create" as const) : ("submit" as const),
+              delivery,
+              settings,
+            }
+      target.externalRequest.set(request)
+      const externalInput = { prompt: externalPrompt, settings }
+
+      const prior =
+        remembered?.fingerprint === fingerprint && existingID
+          ? await sourceServerSync.external.actions
+              .delivery({ sessionID: existingID, requestID: request.requestID })
+              .catch(() => undefined)
+          : undefined
+      const accepted = await (
+        prior && prior.state !== "unknown"
+          ? Promise.resolve({ descriptor: sourceServerSync.external.data.descriptors[existingID!]!, delivery: prior })
+          : request.operation === "create"
+            ? sourceServerSync.external.actions.create({
+                requestID: request.requestID,
+                engine: "codex",
+                location: { directory: sessionDirectory },
+                input: externalInput,
+                delivery,
+              })
+            : sourceServerSync.external.actions.submit({
+                sessionID: existingID!,
+                requestID: request.requestID,
+                input: externalInput,
+                delivery,
+              })
+      ).catch((err) => {
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: errorMessage(err),
+        })
+        return undefined
+      })
+      if (!accepted) return
+
+      const createdSession = isNewSession || request.operation === "create"
+      if (createdSession) {
+        const resolved = await sourceServerSync.session.resolve(accepted.descriptor.sessionID).catch((err) => {
+          showToast({
+            title: language.t("prompt.toast.sessionCreateFailed.title"),
+            description: errorMessage(err),
+          })
+          return undefined
+        })
+        if (!resolved) return
+        seed(sourceServerSync, sessionDirectory, resolved)
+        const scope = { dir: base64Encode(sessionDirectory), id: resolved.id }
+        const destination = draftServer
+          ? tabs.state({ type: "session", server: draftServer, sessionId: resolved.id }, "prompt", () =>
+              createPromptSession(sourceSDK.scope, scope),
+            )
+          : undefined
+        if (destination) await destination.ready.promise
+        const latestSettings = target.codex.current()
+        const latestRevision = target.codex.revision()
+        submission.retarget(destination?.capture() ?? prompt.capture(scope))
+        submission.target().engine.set("codex")
+        submission.target().codex.set(latestSettings, { revision: latestRevision })
+        submission.target().externalRequest.set(request)
+        await startTransition(() => {
+          if (active()) layout.handoff.setTabs(base64Encode(sessionDirectory), resolved.id)
+          if (draftID && draftServer)
+            tabs.promoteDraft(
+              draftID,
+              { server: draftServer, sessionId: resolved.id },
+              active() && target.current() === currentPrompt,
+            )
+          else if (active()) navigate(`/${base64Encode(sessionDirectory)}/session/${resolved.id}`)
+        })
+      }
+
+      if (durableExternalDelivery(accepted.delivery.state)) {
+        if (target.externalRequest.current()?.requestID === request.requestID) target.externalRequest.set(undefined)
+        if (submission.target().externalRequest.current()?.requestID === request.requestID)
+          submission.target().externalRequest.set(undefined)
+        const preferencesUnchanged = submission.target().codex.revision() === codexPreferenceRevision
+        if (preferencesUnchanged) submission.clearContext()
+        const cleared = preferencesUnchanged ? submission.clear() : false
+        if (!preferencesUnchanged && createdSession) submission.preserve()
+        if (cleared && !disposed && submission.current(prompt.capture())) {
+          input.setMode("normal")
+          input.setPopover(null)
+          input.onSubmit?.()
+        }
+        return
+      }
+
+      if (accepted.delivery.state !== "unknown") {
+        if (target.externalRequest.current()?.requestID === request.requestID) target.externalRequest.set(undefined)
+        if (submission.target().externalRequest.current()?.requestID === request.requestID)
+          submission.target().externalRequest.set(undefined)
+      }
+      if (createdSession) submission.preserve()
+      showToast({
+        title: language.t("prompt.toast.promptSendFailed.title"),
+        description: accepted.delivery.error ?? language.t("common.requestFailed"),
+      })
+      return
+    }
+
     if (!session && isNewSession) {
       const created = await sourceSDK.api.session
         .create({
-          agent: currentAgent.name,
-          model: { id: currentModel.id, providerID: currentModel.provider.id, variant },
+          agent: currentAgent!.name,
+          model: { id: currentModel!.id, providerID: currentModel!.provider.id, variant },
           permissionMode,
           location: { directory: sessionDirectory },
         })
@@ -455,8 +716,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         await startTransition(() => {
           if (!session) return
           local.session.promote(sessionDirectory, session.id, {
-            agent: currentAgent.name,
-            model: { providerID: currentModel.provider.id, modelID: currentModel.id },
+            agent: currentAgent!.name,
+            model: { providerID: currentModel!.provider.id, modelID: currentModel!.id },
             variant: variant ?? null,
           })
           if (active()) layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
@@ -479,10 +740,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const model = {
-      modelID: currentModel.id,
-      providerID: currentModel.provider.id,
+      modelID: currentModel!.id,
+      providerID: currentModel!.provider.id,
     }
-    const agent = currentAgent.name
+    const agent = currentAgent!.name
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -680,11 +941,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     abort,
     handleSubmit: (event: Event) => {
       event.preventDefault()
-      if (creation.pending) return Promise.resolve()
       if (params.id) return submit(event)
-      creation.pending = true
+      const target = prompt.capture()
+      if (creation.has(target)) return Promise.resolve()
+      creation.add(target)
       return submit(event).finally(() => {
-        creation.pending = false
+        creation.delete(target)
       })
     },
   }

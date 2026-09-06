@@ -14,6 +14,7 @@ const bypassVariables = [
   "OPENCODE_TUI_CONFIG",
   "OPENCODE_PORT",
   "OPENCODE_DISABLE_CHANNEL_DB",
+  "OPENCODE_CODEX_HOME",
 ] as const
 
 export function labBackendEnvironment(userDataPath: string) {
@@ -33,6 +34,7 @@ export function prepareLabEnvironment(environment: NodeJS.ProcessEnv, userDataPa
   Object.assign(environment, paths, {
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    OPENCODE_ENABLE_CODEX: "1",
   })
   return paths
 }

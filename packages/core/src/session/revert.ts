@@ -10,6 +10,7 @@ import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { SessionMessageTable } from "./sql"
+import { SessionEngineGuard } from "./external/guard"
 
 export class MessageNotFoundError extends Schema.TaggedErrorClass<MessageNotFoundError>()(
   "Session.MessageNotFoundError",
@@ -62,6 +63,7 @@ export const stage = Effect.fn("SessionRevert.stage")(function* (input: {
   readonly messageID: SessionMessage.ID
   readonly files?: boolean
 }) {
+  yield* SessionEngineGuard.check(input.session, "revert").pipe(Effect.orDie)
   const snapshot = yield* Snapshot.Service
   const events = yield* EventV2.Service
   const original = input.session.revert?.snapshot
@@ -96,6 +98,7 @@ export const stage = Effect.fn("SessionRevert.stage")(function* (input: {
 })
 
 export const clear = Effect.fn("SessionRevert.clear")(function* (session: SessionSchema.Info) {
+  yield* SessionEngineGuard.check(session, "unrevert").pipe(Effect.orDie)
   if (!session.revert) return
   const snapshot = yield* Snapshot.Service
   const original = session.revert.snapshot ? Snapshot.ID.make(session.revert.snapshot) : undefined
@@ -111,6 +114,7 @@ export const clear = Effect.fn("SessionRevert.clear")(function* (session: Sessio
 })
 
 export const commit = Effect.fn("SessionRevert.commit")(function* (session: SessionSchema.Info) {
+  yield* SessionEngineGuard.check(session, "revertCommit").pipe(Effect.orDie)
   if (!session.revert) return
   const events = yield* EventV2.Service
   yield* events.publish(SessionEvent.RevertEvent.Committed, {

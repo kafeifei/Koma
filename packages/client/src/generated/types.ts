@@ -101,6 +101,14 @@ export type ProjectCopyError = {
 export const isProjectCopyError = (value: unknown): value is ProjectCopyError =>
   typeof value === "object" && value !== null && "name" in value && value["name"] === "ProjectCopyError"
 
+export type LabError = {
+  readonly _tag: "LabError"
+  readonly message: string
+  readonly code: "unavailable" | "conflict" | "notFound" | "invalid" | "nativeError"
+}
+export const isLabError = (value: unknown): value is LabError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "LabError"
+
 export type HealthGetOutput = { readonly healthy: true }
 
 export type LocationGetInput = {
@@ -234,6 +242,7 @@ export type SessionsListInput = {
 export type SessionsListOutput = {
   readonly data: ReadonlyArray<{
     readonly id: string
+    readonly engine?: "opencode" | "codex"
     readonly parentID?: string
     readonly projectID: string
     readonly agent?: string
@@ -308,6 +317,7 @@ export type SessionsCreateInput = {
 export type SessionsCreateOutput = {
   readonly data: {
     readonly id: string
+    readonly engine?: "opencode" | "codex"
     readonly parentID?: string
     readonly projectID: string
     readonly agent?: string
@@ -347,6 +357,7 @@ export type SessionsGetInput = { readonly sessionID: { readonly sessionID: strin
 export type SessionsGetOutput = {
   readonly data: {
     readonly id: string
+    readonly engine?: "opencode" | "codex"
     readonly parentID?: string
     readonly projectID: string
     readonly agent?: string
@@ -2850,3 +2861,1486 @@ export type ProjectCopiesRefreshInput = {
 }
 
 export type ProjectCopiesRefreshOutput = void
+
+export type LabEnginesOutput = ReadonlyArray<{
+  readonly id: "codex"
+  readonly available: boolean
+  readonly version?: string
+  readonly error?: string
+  readonly account: {
+    readonly authenticated: boolean
+    readonly requiresAuth: boolean
+    readonly label?: string
+    readonly plan?: string
+    readonly loginID?: string
+    readonly loginState?: "pending" | "complete" | "failed"
+    readonly error?: string
+  }
+  readonly capabilities: {
+    readonly prompt: boolean
+    readonly steer: boolean
+    readonly queue: "native" | "host" | "unavailable"
+    readonly compact: boolean
+    readonly images: boolean
+    readonly permissions: boolean
+  }
+  readonly models: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly default: boolean
+    readonly efforts: ReadonlyArray<string>
+    readonly defaultEffort?: string
+  }>
+}>
+
+export type LabAccountOutput = {
+  readonly authenticated: boolean
+  readonly requiresAuth: boolean
+  readonly label?: string
+  readonly plan?: string
+  readonly loginID?: string
+  readonly loginState?: "pending" | "complete" | "failed"
+  readonly error?: string
+}
+
+export type LabLoginOutput = { readonly loginID: string; readonly url: string }
+
+export type LabCancelLoginInput = { readonly loginID: { readonly loginID: string }["loginID"] }
+
+export type LabCancelLoginOutput = {
+  readonly authenticated: boolean
+  readonly requiresAuth: boolean
+  readonly label?: string
+  readonly plan?: string
+  readonly loginID?: string
+  readonly loginState?: "pending" | "complete" | "failed"
+  readonly error?: string
+}
+
+export type LabDescribeInput = { readonly sessionIDs: { readonly sessionIDs: ReadonlyArray<string> }["sessionIDs"] }
+
+export type LabDescribeOutput = ReadonlyArray<{
+  readonly sessionID: string
+  readonly engine: "opencode" | "codex"
+  readonly epoch: string
+  readonly revision: number
+  readonly runtimeStatus:
+    | "resolving"
+    | "creating"
+    | "idle"
+    | "active"
+    | "waitingApproval"
+    | "waitingInput"
+    | "interrupting"
+    | "disconnected"
+    | "systemError"
+    | "bindingUnavailable"
+  readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+  readonly capabilities: {
+    readonly prompt: boolean
+    readonly steer: boolean
+    readonly queue: "native" | "host" | "unavailable"
+    readonly compact: boolean
+    readonly images: boolean
+    readonly permissions: boolean
+  }
+  readonly queuePaused: boolean
+  readonly settings: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }
+  readonly pendingSettings?: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }
+  readonly error?: string
+}>
+
+export type LabCreateInput = {
+  readonly requestID: {
+    readonly requestID: string
+    readonly engine: "codex"
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["requestID"]
+  readonly engine: {
+    readonly requestID: string
+    readonly engine: "codex"
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["engine"]
+  readonly location: {
+    readonly requestID: string
+    readonly engine: "codex"
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["location"]
+  readonly input: {
+    readonly requestID: string
+    readonly engine: "codex"
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["input"]
+  readonly delivery: {
+    readonly requestID: string
+    readonly engine: "codex"
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["delivery"]
+}
+
+export type LabCreateOutput = {
+  readonly descriptor: {
+    readonly sessionID: string
+    readonly engine: "opencode" | "codex"
+    readonly epoch: string
+    readonly revision: number
+    readonly runtimeStatus:
+      | "resolving"
+      | "creating"
+      | "idle"
+      | "active"
+      | "waitingApproval"
+      | "waitingInput"
+      | "interrupting"
+      | "disconnected"
+      | "systemError"
+      | "bindingUnavailable"
+    readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+    readonly capabilities: {
+      readonly prompt: boolean
+      readonly steer: boolean
+      readonly queue: "native" | "host" | "unavailable"
+      readonly compact: boolean
+      readonly images: boolean
+      readonly permissions: boolean
+    }
+    readonly queuePaused: boolean
+    readonly settings: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly pendingSettings?: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly error?: string
+  }
+  readonly delivery: {
+    readonly sessionID: string
+    readonly requestID: string
+    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly delivery: "steer" | "queue"
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly nativeTurnID?: string
+    readonly nativeItemID?: string
+    readonly error?: string
+    readonly createdAt: number
+  }
+}
+
+export type LabSnapshotInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type LabSnapshotOutput = {
+  readonly descriptor: {
+    readonly sessionID: string
+    readonly engine: "opencode" | "codex"
+    readonly epoch: string
+    readonly revision: number
+    readonly runtimeStatus:
+      | "resolving"
+      | "creating"
+      | "idle"
+      | "active"
+      | "waitingApproval"
+      | "waitingInput"
+      | "interrupting"
+      | "disconnected"
+      | "systemError"
+      | "bindingUnavailable"
+    readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+    readonly capabilities: {
+      readonly prompt: boolean
+      readonly steer: boolean
+      readonly queue: "native" | "host" | "unavailable"
+      readonly compact: boolean
+      readonly images: boolean
+      readonly permissions: boolean
+    }
+    readonly queuePaused: boolean
+    readonly settings: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly pendingSettings?: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly error?: string
+  }
+  readonly messages: ReadonlyArray<
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly type: "user"
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "assistant"
+        readonly snapshot?: { readonly start?: string; readonly end?: string; readonly files?: ReadonlyArray<string> }
+        readonly finish?: string
+        readonly cost?: number
+        readonly tokens?: {
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: { readonly read: number; readonly write: number }
+        }
+        readonly error?: { readonly type: "unknown"; readonly message: string }
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+        readonly content: ReadonlyArray<
+          | { readonly type: "text"; readonly id: string; readonly text: string }
+          | {
+              readonly type: "reasoning"
+              readonly id: string
+              readonly text: string
+              readonly providerMetadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+              readonly time?: { readonly created?: number; readonly completed?: number }
+            }
+          | {
+              readonly type: "tool"
+              readonly id: string
+              readonly name: string
+              readonly provider?: {
+                readonly executed: boolean
+                readonly metadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+                readonly resultMetadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+              }
+              readonly state:
+                | { readonly status: "pending"; readonly input: string }
+                | {
+                    readonly status: "running"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                  }
+                | {
+                    readonly status: "completed"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly attachments?: ReadonlyArray<{
+                      readonly uri: string
+                      readonly mime: string
+                      readonly name?: string
+                      readonly description?: string
+                      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                    }>
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                    readonly outputPaths?: ReadonlyArray<string>
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly result?: JsonValue
+                  }
+                | {
+                    readonly status: "error"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly error: { readonly type: "unknown"; readonly message: string }
+                    readonly result?: JsonValue
+                  }
+                | {
+                    readonly status: "unknown"
+                    readonly input: string
+                    readonly output?: string
+                    readonly nativeStatus?: string
+                  }
+              readonly time: { readonly created?: number; readonly completed?: number; readonly ran?: number }
+            }
+        >
+        readonly streaming?: boolean
+        readonly agent?: string
+        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "system"
+        readonly text: string
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+      }
+  >
+  readonly messageOrder: ReadonlyArray<string>
+  readonly partOrder: { readonly [x: string]: ReadonlyArray<string> }
+  readonly interactions: ReadonlyArray<{
+    readonly id: string
+    readonly sessionID: string
+    readonly revision: number
+    readonly kind: "command" | "file" | "permissions" | "question" | "form" | "url" | "unsupported"
+    readonly turnRef?: string
+    readonly itemRef?: string
+    readonly title: string
+    readonly description?: string
+    readonly choices: ReadonlyArray<{
+      readonly id: string
+      readonly kind: "allow" | "allowSession" | "deny" | "cancel" | "custom"
+      readonly label?: string
+      readonly scope?: string
+    }>
+    readonly questions?: ReadonlyArray<{
+      readonly id: string
+      readonly header: string
+      readonly question: string
+      readonly options?: ReadonlyArray<{ readonly label: string; readonly description: string }>
+      readonly multiple?: boolean
+      readonly allowOther?: boolean
+      readonly secret?: boolean
+    }>
+    readonly requestedSchema?: JsonValue
+    readonly url?: string
+    readonly details?: JsonValue
+    readonly state: "pending" | "replying" | "resolved" | "expired"
+  }>
+  readonly deliveries: ReadonlyArray<{
+    readonly sessionID: string
+    readonly requestID: string
+    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly delivery: "steer" | "queue"
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly nativeTurnID?: string
+    readonly nativeItemID?: string
+    readonly error?: string
+    readonly createdAt: number
+  }>
+  readonly usage:
+    | {
+        readonly status: "available"
+        readonly value: {
+          readonly total?: number
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: { readonly read: number; readonly write: number }
+        }
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly contextWindow:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly contextTokens?:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly cost:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly turnDiffs: {
+    readonly [x: string]:
+      | {
+          readonly status: "available"
+          readonly value: ReadonlyArray<{
+            readonly file?: string
+            readonly patch?: string
+            readonly additions: number
+            readonly deletions: number
+            readonly status?: "added" | "deleted" | "modified"
+          }>
+        }
+      | { readonly status: "unavailable" | "loading" }
+  }
+  readonly sessionDiff:
+    | {
+        readonly status: "available"
+        readonly value: ReadonlyArray<{
+          readonly file?: string
+          readonly patch?: string
+          readonly additions: number
+          readonly deletions: number
+          readonly status?: "added" | "deleted" | "modified"
+        }>
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly plan?:
+    | {
+        readonly status: "available"
+        readonly value: {
+          readonly turnID: string
+          readonly explanation?: string
+          readonly steps: ReadonlyArray<{
+            readonly step: string
+            readonly status: "pending" | "inProgress" | "completed"
+          }>
+        }
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly children: ReadonlyArray<{ readonly sessionID: string; readonly nativeThreadID: string }>
+}
+
+export type LabSubmitInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly requestID: {
+    readonly requestID: string
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["requestID"]
+  readonly input: {
+    readonly requestID: string
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["input"]
+  readonly delivery: {
+    readonly requestID: string
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly delivery: "steer" | "queue"
+  }["delivery"]
+}
+
+export type LabSubmitOutput = {
+  readonly descriptor: {
+    readonly sessionID: string
+    readonly engine: "opencode" | "codex"
+    readonly epoch: string
+    readonly revision: number
+    readonly runtimeStatus:
+      | "resolving"
+      | "creating"
+      | "idle"
+      | "active"
+      | "waitingApproval"
+      | "waitingInput"
+      | "interrupting"
+      | "disconnected"
+      | "systemError"
+      | "bindingUnavailable"
+    readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+    readonly capabilities: {
+      readonly prompt: boolean
+      readonly steer: boolean
+      readonly queue: "native" | "host" | "unavailable"
+      readonly compact: boolean
+      readonly images: boolean
+      readonly permissions: boolean
+    }
+    readonly queuePaused: boolean
+    readonly settings: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly pendingSettings?: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly error?: string
+  }
+  readonly delivery: {
+    readonly sessionID: string
+    readonly requestID: string
+    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly delivery: "steer" | "queue"
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly nativeTurnID?: string
+    readonly nativeItemID?: string
+    readonly error?: string
+    readonly createdAt: number
+  }
+}
+
+export type LabDeliveryInput = {
+  readonly sessionID: { readonly sessionID: string; readonly requestID: string }["sessionID"]
+  readonly requestID: { readonly sessionID: string; readonly requestID: string }["requestID"]
+}
+
+export type LabDeliveryOutput = {
+  readonly sessionID: string
+  readonly requestID: string
+  readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+  readonly delivery: "steer" | "queue"
+  readonly input: {
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly settings: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+  }
+  readonly nativeTurnID?: string
+  readonly nativeItemID?: string
+  readonly error?: string
+  readonly createdAt: number
+}
+
+export type LabQueueInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly action: {
+    readonly action: "resume" | "withdraw"
+    readonly requestID: string
+    readonly revision: number
+  }["action"]
+  readonly requestID: {
+    readonly action: "resume" | "withdraw"
+    readonly requestID: string
+    readonly revision: number
+  }["requestID"]
+  readonly revision: {
+    readonly action: "resume" | "withdraw"
+    readonly requestID: string
+    readonly revision: number
+  }["revision"]
+}
+
+export type LabQueueOutput = {
+  readonly descriptor: {
+    readonly sessionID: string
+    readonly engine: "opencode" | "codex"
+    readonly epoch: string
+    readonly revision: number
+    readonly runtimeStatus:
+      | "resolving"
+      | "creating"
+      | "idle"
+      | "active"
+      | "waitingApproval"
+      | "waitingInput"
+      | "interrupting"
+      | "disconnected"
+      | "systemError"
+      | "bindingUnavailable"
+    readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+    readonly capabilities: {
+      readonly prompt: boolean
+      readonly steer: boolean
+      readonly queue: "native" | "host" | "unavailable"
+      readonly compact: boolean
+      readonly images: boolean
+      readonly permissions: boolean
+    }
+    readonly queuePaused: boolean
+    readonly settings: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly pendingSettings?: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly error?: string
+  }
+  readonly messages: ReadonlyArray<
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly type: "user"
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "assistant"
+        readonly snapshot?: { readonly start?: string; readonly end?: string; readonly files?: ReadonlyArray<string> }
+        readonly finish?: string
+        readonly cost?: number
+        readonly tokens?: {
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: { readonly read: number; readonly write: number }
+        }
+        readonly error?: { readonly type: "unknown"; readonly message: string }
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+        readonly content: ReadonlyArray<
+          | { readonly type: "text"; readonly id: string; readonly text: string }
+          | {
+              readonly type: "reasoning"
+              readonly id: string
+              readonly text: string
+              readonly providerMetadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+              readonly time?: { readonly created?: number; readonly completed?: number }
+            }
+          | {
+              readonly type: "tool"
+              readonly id: string
+              readonly name: string
+              readonly provider?: {
+                readonly executed: boolean
+                readonly metadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+                readonly resultMetadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+              }
+              readonly state:
+                | { readonly status: "pending"; readonly input: string }
+                | {
+                    readonly status: "running"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                  }
+                | {
+                    readonly status: "completed"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly attachments?: ReadonlyArray<{
+                      readonly uri: string
+                      readonly mime: string
+                      readonly name?: string
+                      readonly description?: string
+                      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                    }>
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                    readonly outputPaths?: ReadonlyArray<string>
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly result?: JsonValue
+                  }
+                | {
+                    readonly status: "error"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly error: { readonly type: "unknown"; readonly message: string }
+                    readonly result?: JsonValue
+                  }
+                | {
+                    readonly status: "unknown"
+                    readonly input: string
+                    readonly output?: string
+                    readonly nativeStatus?: string
+                  }
+              readonly time: { readonly created?: number; readonly completed?: number; readonly ran?: number }
+            }
+        >
+        readonly streaming?: boolean
+        readonly agent?: string
+        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "system"
+        readonly text: string
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+      }
+  >
+  readonly messageOrder: ReadonlyArray<string>
+  readonly partOrder: { readonly [x: string]: ReadonlyArray<string> }
+  readonly interactions: ReadonlyArray<{
+    readonly id: string
+    readonly sessionID: string
+    readonly revision: number
+    readonly kind: "command" | "file" | "permissions" | "question" | "form" | "url" | "unsupported"
+    readonly turnRef?: string
+    readonly itemRef?: string
+    readonly title: string
+    readonly description?: string
+    readonly choices: ReadonlyArray<{
+      readonly id: string
+      readonly kind: "allow" | "allowSession" | "deny" | "cancel" | "custom"
+      readonly label?: string
+      readonly scope?: string
+    }>
+    readonly questions?: ReadonlyArray<{
+      readonly id: string
+      readonly header: string
+      readonly question: string
+      readonly options?: ReadonlyArray<{ readonly label: string; readonly description: string }>
+      readonly multiple?: boolean
+      readonly allowOther?: boolean
+      readonly secret?: boolean
+    }>
+    readonly requestedSchema?: JsonValue
+    readonly url?: string
+    readonly details?: JsonValue
+    readonly state: "pending" | "replying" | "resolved" | "expired"
+  }>
+  readonly deliveries: ReadonlyArray<{
+    readonly sessionID: string
+    readonly requestID: string
+    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly delivery: "steer" | "queue"
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly nativeTurnID?: string
+    readonly nativeItemID?: string
+    readonly error?: string
+    readonly createdAt: number
+  }>
+  readonly usage:
+    | {
+        readonly status: "available"
+        readonly value: {
+          readonly total?: number
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: { readonly read: number; readonly write: number }
+        }
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly contextWindow:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly contextTokens?:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly cost:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly turnDiffs: {
+    readonly [x: string]:
+      | {
+          readonly status: "available"
+          readonly value: ReadonlyArray<{
+            readonly file?: string
+            readonly patch?: string
+            readonly additions: number
+            readonly deletions: number
+            readonly status?: "added" | "deleted" | "modified"
+          }>
+        }
+      | { readonly status: "unavailable" | "loading" }
+  }
+  readonly sessionDiff:
+    | {
+        readonly status: "available"
+        readonly value: ReadonlyArray<{
+          readonly file?: string
+          readonly patch?: string
+          readonly additions: number
+          readonly deletions: number
+          readonly status?: "added" | "deleted" | "modified"
+        }>
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly plan?:
+    | {
+        readonly status: "available"
+        readonly value: {
+          readonly turnID: string
+          readonly explanation?: string
+          readonly steps: ReadonlyArray<{
+            readonly step: string
+            readonly status: "pending" | "inProgress" | "completed"
+          }>
+        }
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly children: ReadonlyArray<{ readonly sessionID: string; readonly nativeThreadID: string }>
+}
+
+export type LabInterruptInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type LabInterruptOutput = {
+  readonly sessionID: string
+  readonly engine: "opencode" | "codex"
+  readonly epoch: string
+  readonly revision: number
+  readonly runtimeStatus:
+    | "resolving"
+    | "creating"
+    | "idle"
+    | "active"
+    | "waitingApproval"
+    | "waitingInput"
+    | "interrupting"
+    | "disconnected"
+    | "systemError"
+    | "bindingUnavailable"
+  readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+  readonly capabilities: {
+    readonly prompt: boolean
+    readonly steer: boolean
+    readonly queue: "native" | "host" | "unavailable"
+    readonly compact: boolean
+    readonly images: boolean
+    readonly permissions: boolean
+  }
+  readonly queuePaused: boolean
+  readonly settings: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }
+  readonly pendingSettings?: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }
+  readonly error?: string
+}
+
+export type LabReplyInput = {
+  readonly sessionID: { readonly sessionID: string; readonly interactionID: string }["sessionID"]
+  readonly interactionID: { readonly sessionID: string; readonly interactionID: string }["interactionID"]
+  readonly revision: {
+    readonly revision: number
+    readonly choiceID?: string
+    readonly answers?: { readonly [x: string]: ReadonlyArray<string> }
+    readonly content?: JsonValue
+  }["revision"]
+  readonly choiceID?: {
+    readonly revision: number
+    readonly choiceID?: string
+    readonly answers?: { readonly [x: string]: ReadonlyArray<string> }
+    readonly content?: JsonValue
+  }["choiceID"]
+  readonly answers?: {
+    readonly revision: number
+    readonly choiceID?: string
+    readonly answers?: { readonly [x: string]: ReadonlyArray<string> }
+    readonly content?: JsonValue
+  }["answers"]
+  readonly content?: {
+    readonly revision: number
+    readonly choiceID?: string
+    readonly answers?: { readonly [x: string]: ReadonlyArray<string> }
+    readonly content?: JsonValue
+  }["content"]
+}
+
+export type LabReplyOutput = {
+  readonly descriptor: {
+    readonly sessionID: string
+    readonly engine: "opencode" | "codex"
+    readonly epoch: string
+    readonly revision: number
+    readonly runtimeStatus:
+      | "resolving"
+      | "creating"
+      | "idle"
+      | "active"
+      | "waitingApproval"
+      | "waitingInput"
+      | "interrupting"
+      | "disconnected"
+      | "systemError"
+      | "bindingUnavailable"
+    readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+    readonly capabilities: {
+      readonly prompt: boolean
+      readonly steer: boolean
+      readonly queue: "native" | "host" | "unavailable"
+      readonly compact: boolean
+      readonly images: boolean
+      readonly permissions: boolean
+    }
+    readonly queuePaused: boolean
+    readonly settings: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly pendingSettings?: {
+      readonly model?: string
+      readonly effort?: string
+      readonly permission?: "workspace" | "readOnly" | "full"
+    }
+    readonly error?: string
+  }
+  readonly messages: ReadonlyArray<
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly type: "user"
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "assistant"
+        readonly snapshot?: { readonly start?: string; readonly end?: string; readonly files?: ReadonlyArray<string> }
+        readonly finish?: string
+        readonly cost?: number
+        readonly tokens?: {
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: { readonly read: number; readonly write: number }
+        }
+        readonly error?: { readonly type: "unknown"; readonly message: string }
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+        readonly content: ReadonlyArray<
+          | { readonly type: "text"; readonly id: string; readonly text: string }
+          | {
+              readonly type: "reasoning"
+              readonly id: string
+              readonly text: string
+              readonly providerMetadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+              readonly time?: { readonly created?: number; readonly completed?: number }
+            }
+          | {
+              readonly type: "tool"
+              readonly id: string
+              readonly name: string
+              readonly provider?: {
+                readonly executed: boolean
+                readonly metadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+                readonly resultMetadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
+              }
+              readonly state:
+                | { readonly status: "pending"; readonly input: string }
+                | {
+                    readonly status: "running"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                  }
+                | {
+                    readonly status: "completed"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly attachments?: ReadonlyArray<{
+                      readonly uri: string
+                      readonly mime: string
+                      readonly name?: string
+                      readonly description?: string
+                      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                    }>
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                    readonly outputPaths?: ReadonlyArray<string>
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly result?: JsonValue
+                  }
+                | {
+                    readonly status: "error"
+                    readonly input: { readonly [x: string]: JsonValue }
+                    readonly content: ReadonlyArray<
+                      | { readonly type: "text"; readonly text: string }
+                      | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+                    >
+                    readonly structured: { readonly [x: string]: JsonValue }
+                    readonly error: { readonly type: "unknown"; readonly message: string }
+                    readonly result?: JsonValue
+                  }
+                | {
+                    readonly status: "unknown"
+                    readonly input: string
+                    readonly output?: string
+                    readonly nativeStatus?: string
+                  }
+              readonly time: { readonly created?: number; readonly completed?: number; readonly ran?: number }
+            }
+        >
+        readonly streaming?: boolean
+        readonly agent?: string
+        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "system"
+        readonly text: string
+        readonly orderKey: string
+        readonly time: { readonly created?: number; readonly completed?: number }
+      }
+  >
+  readonly messageOrder: ReadonlyArray<string>
+  readonly partOrder: { readonly [x: string]: ReadonlyArray<string> }
+  readonly interactions: ReadonlyArray<{
+    readonly id: string
+    readonly sessionID: string
+    readonly revision: number
+    readonly kind: "command" | "file" | "permissions" | "question" | "form" | "url" | "unsupported"
+    readonly turnRef?: string
+    readonly itemRef?: string
+    readonly title: string
+    readonly description?: string
+    readonly choices: ReadonlyArray<{
+      readonly id: string
+      readonly kind: "allow" | "allowSession" | "deny" | "cancel" | "custom"
+      readonly label?: string
+      readonly scope?: string
+    }>
+    readonly questions?: ReadonlyArray<{
+      readonly id: string
+      readonly header: string
+      readonly question: string
+      readonly options?: ReadonlyArray<{ readonly label: string; readonly description: string }>
+      readonly multiple?: boolean
+      readonly allowOther?: boolean
+      readonly secret?: boolean
+    }>
+    readonly requestedSchema?: JsonValue
+    readonly url?: string
+    readonly details?: JsonValue
+    readonly state: "pending" | "replying" | "resolved" | "expired"
+  }>
+  readonly deliveries: ReadonlyArray<{
+    readonly sessionID: string
+    readonly requestID: string
+    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly delivery: "steer" | "queue"
+    readonly input: {
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly settings: {
+        readonly model?: string
+        readonly effort?: string
+        readonly permission?: "workspace" | "readOnly" | "full"
+      }
+    }
+    readonly nativeTurnID?: string
+    readonly nativeItemID?: string
+    readonly error?: string
+    readonly createdAt: number
+  }>
+  readonly usage:
+    | {
+        readonly status: "available"
+        readonly value: {
+          readonly total?: number
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: { readonly read: number; readonly write: number }
+        }
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly contextWindow:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly contextTokens?:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly cost:
+    | { readonly status: "available"; readonly value: number }
+    | { readonly status: "unavailable" | "loading" }
+  readonly turnDiffs: {
+    readonly [x: string]:
+      | {
+          readonly status: "available"
+          readonly value: ReadonlyArray<{
+            readonly file?: string
+            readonly patch?: string
+            readonly additions: number
+            readonly deletions: number
+            readonly status?: "added" | "deleted" | "modified"
+          }>
+        }
+      | { readonly status: "unavailable" | "loading" }
+  }
+  readonly sessionDiff:
+    | {
+        readonly status: "available"
+        readonly value: ReadonlyArray<{
+          readonly file?: string
+          readonly patch?: string
+          readonly additions: number
+          readonly deletions: number
+          readonly status?: "added" | "deleted" | "modified"
+        }>
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly plan?:
+    | {
+        readonly status: "available"
+        readonly value: {
+          readonly turnID: string
+          readonly explanation?: string
+          readonly steps: ReadonlyArray<{
+            readonly step: string
+            readonly status: "pending" | "inProgress" | "completed"
+          }>
+        }
+      }
+    | { readonly status: "unavailable" | "loading" }
+  readonly children: ReadonlyArray<{ readonly sessionID: string; readonly nativeThreadID: string }>
+}
+
+export type LabSettingsInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly model?: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }["model"]
+  readonly effort?: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }["effort"]
+  readonly permission?: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }["permission"]
+}
+
+export type LabSettingsOutput = {
+  readonly sessionID: string
+  readonly engine: "opencode" | "codex"
+  readonly epoch: string
+  readonly revision: number
+  readonly runtimeStatus:
+    | "resolving"
+    | "creating"
+    | "idle"
+    | "active"
+    | "waitingApproval"
+    | "waitingInput"
+    | "interrupting"
+    | "disconnected"
+    | "systemError"
+    | "bindingUnavailable"
+  readonly bindingState?: "pending" | "creating" | "bound" | "unknown" | "failed"
+  readonly capabilities: {
+    readonly prompt: boolean
+    readonly steer: boolean
+    readonly queue: "native" | "host" | "unavailable"
+    readonly compact: boolean
+    readonly images: boolean
+    readonly permissions: boolean
+  }
+  readonly queuePaused: boolean
+  readonly settings: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }
+  readonly pendingSettings?: {
+    readonly model?: string
+    readonly effort?: string
+    readonly permission?: "workspace" | "readOnly" | "full"
+  }
+  readonly error?: string
+}

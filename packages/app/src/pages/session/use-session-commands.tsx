@@ -1,3 +1,4 @@
+import { useServerSync } from "@/context/server-sync"
 import { useNavigate } from "@solidjs/router"
 import { useCommand, type CommandOption } from "@/context/command"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -50,6 +51,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const sdk = useSDK()
   const settings = useSettings()
   const sync = useSync()
+  const serverSync = useServerSync()
+  const external = () => !!params.id && serverSync().external.isExternal(params.id)
   const terminal = useTerminal()
   const layout = useLayout()
   const local = useLocal()
@@ -243,6 +246,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       const data = await fetchSessionExport({
         sessionID,
         client: sdk().client,
+        external: serverSync().external,
       })
       const filename = sessionExportFilename(data.info)
       downloadSessionExport(filename, data)
@@ -425,7 +429,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const shareCmds = () => {
-    if (sync().data.config.share === "disabled") return []
+    if (external() || sync().data.config.share === "disabled") return []
     return [
       sessionCommand({
         id: "session.share",
@@ -467,7 +471,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.undo"),
       description: language.t("command.session.undo.description"),
       slash: "undo",
-      disabled: !params.id || visibleUserMessages().length === 0,
+      disabled: external() || !params.id || visibleUserMessages().length === 0,
       onSelect: undo,
     }),
     sessionCommand({
@@ -475,7 +479,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.redo"),
       description: language.t("command.session.redo.description"),
       slash: "redo",
-      disabled: !params.id || !info()?.revert?.messageID,
+      disabled: external() || !params.id || !info()?.revert?.messageID,
       onSelect: redo,
     }),
     sessionCommand({
@@ -483,7 +487,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.compact"),
       description: language.t("command.session.compact.description"),
       slash: "compact",
-      disabled: !params.id || visibleUserMessages().length === 0,
+      disabled: external() || !params.id || visibleUserMessages().length === 0,
       onSelect: compact,
     }),
     sessionCommand({
@@ -491,7 +495,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.fork"),
       description: language.t("command.session.fork.description"),
       slash: "fork",
-      disabled: !params.id || visibleUserMessages().length === 0,
+      disabled: external() || !params.id || visibleUserMessages().length === 0,
       onSelect: fork,
     }),
     sessionCommand({

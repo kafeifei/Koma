@@ -31,6 +31,7 @@ import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
+import { SessionEngineGuard } from "../external/guard"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
@@ -393,6 +394,7 @@ const layer = Layer.effect(
       readonly sessionID: SessionSchema.ID
       readonly force: boolean
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "runner").pipe(Effect.orDie)
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return

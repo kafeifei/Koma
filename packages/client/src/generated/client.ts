@@ -114,6 +114,29 @@ import type {
   ProjectCopiesRemoveOutput,
   ProjectCopiesRefreshInput,
   ProjectCopiesRefreshOutput,
+  LabEnginesOutput,
+  LabAccountOutput,
+  LabLoginOutput,
+  LabCancelLoginInput,
+  LabCancelLoginOutput,
+  LabDescribeInput,
+  LabDescribeOutput,
+  LabCreateInput,
+  LabCreateOutput,
+  LabSnapshotInput,
+  LabSnapshotOutput,
+  LabSubmitInput,
+  LabSubmitOutput,
+  LabDeliveryInput,
+  LabDeliveryOutput,
+  LabQueueInput,
+  LabQueueOutput,
+  LabInterruptInput,
+  LabInterruptOutput,
+  LabReplyInput,
+  LabReplyOutput,
+  LabSettingsInput,
+  LabSettingsOutput,
 } from "./types"
 import { ClientError } from "./client-error"
 
@@ -998,6 +1021,163 @@ export function make(options: ClientOptions) {
             successStatus: 204,
             declaredStatuses: [400, 401],
             empty: true,
+          },
+          requestOptions,
+        ),
+    },
+    lab: {
+      engines: (requestOptions?: RequestOptions) =>
+        request<LabEnginesOutput>(
+          { method: "GET", path: `/lab/engines`, successStatus: 200, declaredStatuses: [409, 401, 400], empty: false },
+          requestOptions,
+        ),
+      account: (requestOptions?: RequestOptions) =>
+        request<LabAccountOutput>(
+          {
+            method: "GET",
+            path: `/lab/engines/codex/account`,
+            successStatus: 200,
+            declaredStatuses: [409, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      login: (requestOptions?: RequestOptions) =>
+        request<LabLoginOutput>(
+          {
+            method: "POST",
+            path: `/lab/engines/codex/login`,
+            successStatus: 200,
+            declaredStatuses: [409, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      cancelLogin: (input: LabCancelLoginInput, requestOptions?: RequestOptions) =>
+        request<LabCancelLoginOutput>(
+          {
+            method: "POST",
+            path: `/lab/engines/codex/login/cancel`,
+            body: { loginID: input["loginID"] },
+            successStatus: 200,
+            declaredStatuses: [409, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      describe: (input: LabDescribeInput, requestOptions?: RequestOptions) =>
+        request<LabDescribeOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/describe`,
+            body: { sessionIDs: input["sessionIDs"] },
+            successStatus: 200,
+            declaredStatuses: [409, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      create: (input: LabCreateInput, requestOptions?: RequestOptions) =>
+        request<LabCreateOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions`,
+            body: {
+              requestID: input["requestID"],
+              engine: input["engine"],
+              location: input["location"],
+              input: input["input"],
+              delivery: input["delivery"],
+            },
+            successStatus: 200,
+            declaredStatuses: [409, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      snapshot: (input: LabSnapshotInput, requestOptions?: RequestOptions) =>
+        request<LabSnapshotOutput>(
+          {
+            method: "GET",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}`,
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      submit: (input: LabSubmitInput, requestOptions?: RequestOptions) =>
+        request<LabSubmitOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/input`,
+            body: { requestID: input["requestID"], input: input["input"], delivery: input["delivery"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      delivery: (input: LabDeliveryInput, requestOptions?: RequestOptions) =>
+        request<LabDeliveryOutput>(
+          {
+            method: "GET",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/deliveries/${encodeURIComponent(input.requestID)}`,
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      queue: (input: LabQueueInput, requestOptions?: RequestOptions) =>
+        request<LabQueueOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/queue`,
+            body: { action: input["action"], requestID: input["requestID"], revision: input["revision"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      interrupt: (input: LabInterruptInput, requestOptions?: RequestOptions) =>
+        request<LabInterruptOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/interrupt`,
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      reply: (input: LabReplyInput, requestOptions?: RequestOptions) =>
+        request<LabReplyOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/interactions/${encodeURIComponent(input.interactionID)}/reply`,
+            body: {
+              revision: input["revision"],
+              choiceID: input["choiceID"],
+              answers: input["answers"],
+              content: input["content"],
+            },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      settings: (input: LabSettingsInput, requestOptions?: RequestOptions) =>
+        request<LabSettingsOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/settings`,
+            body: { model: input["model"], effort: input["effort"], permission: input["permission"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
           },
           requestOptions,
         ),

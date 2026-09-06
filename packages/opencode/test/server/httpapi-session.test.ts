@@ -235,6 +235,72 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.instance("rejects OpenCode operations on Codex sessions before side effects", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const session = yield* createSession({ title: "Native Codex" })
+      const database = yield* Database.Service
+      yield* database.db
+        .update(SessionTable)
+        .set({ engine: "codex" })
+        .where(eq(SessionTable.id, session.id))
+        .run()
+        .pipe(Effect.orDie)
+      const headers = { "x-opencode-directory": test.directory, "content-type": "application/json" }
+      const paths = [
+        { path: SessionPaths.messages, method: "GET" },
+        { path: SessionPaths.diff, method: "GET" },
+        { path: SessionPaths.share, method: "POST" },
+        { path: SessionPaths.share, method: "DELETE" },
+        { path: SessionPaths.abort, method: "POST" },
+        { path: SessionPaths.remove, method: "DELETE" },
+        { path: SessionPaths.fork, method: "POST" },
+        {
+          path: SessionPaths.promptAsync,
+          method: "POST",
+          body: { parts: [{ type: "text", text: "must not execute" }] },
+        },
+        { path: SessionPaths.update, method: "PATCH", body: { title: "must not change", permissionMode: "full" } },
+      ]
+      for (const item of paths) {
+        const response = yield* request(pathFor(item.path, { sessionID: session.id }), {
+          headers,
+          method: item.method,
+          body: item.body ? JSON.stringify(item.body) : undefined,
+        })
+        expect(response.status, item.path).toBe(409)
+        expect(yield* responseJson(response)).toMatchObject({ _tag: "ConflictError", resource: session.id })
+      }
+      const unchanged = yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: session.id }), {
+        headers,
+      })
+      expect(unchanged.title).toBe("Native Codex")
+      expect(unchanged.engine).toBe("codex")
+      expect(unchanged.share).toBeUndefined()
+      const renamed = yield* requestJson<Session.Info>(pathFor(SessionPaths.update, { sessionID: session.id }), {
+        headers,
+        method: "PATCH",
+        body: JSON.stringify({ title: "Renamed Codex" }),
+      })
+      expect(renamed.title).toBe("Renamed Codex")
+      expect(renamed.engine).toBe("codex")
+      const messages = yield* database.db
+        .select()
+        .from(SessionMessageTable)
+        .where(eq(SessionMessageTable.session_id, session.id))
+        .all()
+        .pipe(Effect.orDie)
+      const inputs = yield* database.db
+        .select()
+        .from(SessionInputTable)
+        .where(eq(SessionInputTable.session_id, session.id))
+        .all()
+        .pipe(Effect.orDie)
+      expect(messages).toHaveLength(0)
+      expect(inputs).toHaveLength(0)
+    }),
+  )
+
   it.effect("maps busy sessions to public session busy errors", () =>
     Effect.gen(function* () {
       const sessionID = SessionID.descending()

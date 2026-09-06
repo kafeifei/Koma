@@ -399,6 +399,7 @@ export function currentSession(session: { id: string } & Record<string, unknown>
   const time = session.time && typeof session.time === "object" ? session.time : {}
   return {
     id: session.id,
+    engine: session.engine,
     parentID: session.parentID,
     permissionMode: session.permissionMode,
     projectID: session.projectID ?? "project",

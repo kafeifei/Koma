@@ -8,6 +8,15 @@ import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, on, Show } from "solid-js"
 import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
+import {
+  CodexEffortSelect,
+  CodexModelSelect,
+  CodexPermissionSelect,
+  createCodexPromptController,
+  type CodexPromptController,
+  PromptEngineSelect,
+} from "@/components/codex-prompt-controls"
+import { CodexSessionControls } from "@/components/codex-session-controls"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import type { PromptInputProps } from "@/components/prompt-input/contracts"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
@@ -28,6 +37,7 @@ import { type ImageAttachmentPart, usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { useServerSync } from "@/context/server-sync"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { showToast } from "@/utils/toast"
 import { PromptInputV2, type PromptInputV2Suggestion } from "@opencode-ai/session-ui/v2/prompt-input"
@@ -50,6 +60,9 @@ export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "sub
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
   readonly permission: PromptPermissionController
+  readonly engine: () => "opencode" | "codex"
+  readonly codex: CodexPromptController
+  readonly sessionID: () => string | undefined
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
@@ -61,30 +74,55 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
     <div class="flex flex-col gap-3">
       <PromptInputV2
         controller={props.controller}
+        disabled={props.controller.engine() === "codex" && props.controller.codex.busy()}
         borderUnderlay={props.borderUnderlay}
         class={props.class}
-        variantControlVisible={!props.controller.model.loading}
+        variantControlVisible={props.controller.engine() === "opencode" && !props.controller.model.loading}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
         permissionControl={
-          <PromptPermissionSelect controller={props.controller.permission} onClose={props.controller.restoreFocus} />
+          <Show
+            when={props.controller.engine() === "codex"}
+            fallback={
+              <PromptPermissionSelect
+                controller={props.controller.permission}
+                onClose={props.controller.restoreFocus}
+              />
+            }
+          >
+            <CodexPermissionSelect controller={props.controller.codex} />
+          </Show>
         }
         modelControl={
-          <PromptInputV2ModelControl
-            loading={props.controller.model.loading}
-            paid={props.controller.model.paid}
-            title={language.t("command.model.choose")}
-            keybind={command.keybindParts("model.choose")}
-            model={props.controller.model.selection}
-            providerID={props.controller.model.selection.current()?.provider?.id}
-            modelName={props.controller.model.selection.current()?.name ?? language.t("dialog.model.select.title")}
-            onClose={props.controller.restoreFocus}
-            onUnpaidClick={() =>
-              dialog.show(() => <DialogSelectModelUnpaidV2 model={props.controller.model.selection} />)
-            }
-          />
+          <div class="flex min-w-0 items-center gap-1">
+            <PromptEngineSelect controller={props.controller.codex} />
+            <Show
+              when={props.controller.engine() === "codex"}
+              fallback={
+                <PromptInputV2ModelControl
+                  loading={props.controller.model.loading}
+                  paid={props.controller.model.paid}
+                  title={language.t("command.model.choose")}
+                  keybind={command.keybindParts("model.choose")}
+                  model={props.controller.model.selection}
+                  providerID={props.controller.model.selection.current()?.provider?.id}
+                  modelName={
+                    props.controller.model.selection.current()?.name ?? language.t("dialog.model.select.title")
+                  }
+                  onClose={props.controller.restoreFocus}
+                  onUnpaidClick={() =>
+                    dialog.show(() => <DialogSelectModelUnpaidV2 model={props.controller.model.selection} />)
+                  }
+                />
+              }
+            >
+              <CodexModelSelect controller={props.controller.codex} />
+              <CodexEffortSelect controller={props.controller.codex} />
+            </Show>
+          </div>
         }
       />
+      <CodexSessionControls sessionID={props.controller.sessionID()} engine={props.controller.engine()} />
     </div>
   )
 }
@@ -92,6 +130,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
 export function usePromptInputV2Controller(props: PromptInputV2ControllerProps): PromptInputV2ComposerController {
   const sdk = useSDK()
   const sync = useSync()
+  const serverSync = useServerSync()
   const files = useFile()
   const layout = useLayout()
   const comments = useComments()
@@ -123,6 +162,11 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     }, [])
   })
   const info = createMemo(() => (props.controls.session.id ? sync().session.get(props.controls.session.id) : undefined))
+  const engine = () => {
+    const sessionID = props.controls.session.id
+    if (!sessionID) return prompt.engine.current()
+    return serverSync().external.engine(sessionID) ?? info()?.engine ?? "opencode"
+  }
   const working = createMemo(() => sync().data.session_working(props.controls.session.id ?? ""))
   const attachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
@@ -279,7 +323,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   )
   const context = createMemo<PromptInputV2Suggestion[]>(() => [
     ...references(),
-    ...props.controls.agents.available
+    ...(engine() === "codex" ? [] : props.controls.agents.available)
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent) => ({
         id: `agent:${agent.name}`,
@@ -298,7 +342,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     })),
   ])
   const slashCommands = createMemo(() => [
-    ...sync().data.command.map((item) => ({
+    ...(engine() === "codex" ? [] : sync().data.command).map((item) => ({
       id: `custom.${item.name}`,
       trigger: item.name,
       title: item.name,
@@ -393,6 +437,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     view: {
       placeholder: designPlaceholder,
       get agent() {
+        if (engine() === "codex") return
         return props.controls.agents.visible && props.controls.agents.options.length > 0
           ? {
               options: () => props.controls.agents.options.map((name) => ({ id: name, label: name })),
@@ -402,22 +447,45 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
             }
           : undefined
       },
-      variant: {
-        options: () => variants().map((value) => ({ id: value, label: value })),
-        current: () => props.controls.model.selection.variant.current() ?? "default",
-        onSelect: (value) => props.controls.model.selection.variant.set(value === "default" ? undefined : value),
-        keybind: () => command.keybindParts("model.variant.cycle"),
+      get variant() {
+        if (engine() === "codex") return
+        return {
+          options: () => variants().map((value) => ({ id: value, label: value })),
+          current: () => props.controls.model.selection.variant.current() ?? "default",
+          onSelect: (value: string) =>
+            props.controls.model.selection.variant.set(value === "default" ? undefined : value),
+          keybind: () => command.keybindParts("model.variant.cycle"),
+        }
       },
       submit: {
         stopping,
         working,
-        onSubmit: () => void submission.handleSubmit(new Event("submit")),
+        onSubmit: () => {
+          if (engine() === "codex" && (!codex.canSubmit() || codex.busy())) return
+          void submission.handleSubmit(new Event("submit"))
+        },
         onStop: () => void submission.abort(),
       },
     },
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
   Object.defineProperty(controller, "permission", { get: () => permissionControl })
+  Object.defineProperty(controller, "engine", { get: () => engine })
+  Object.defineProperty(controller, "sessionID", { get: () => () => props.controls.session.id })
+  const codex = createCodexPromptController({
+    prompt,
+    sessionID: () => props.controls.session.id,
+    sessionEngine: engine,
+    restoreFocus: () => controller.restoreFocus(),
+  })
+  Object.defineProperty(controller, "codex", { get: () => codex })
+  const canSubmit = controller.canSubmit.bind(controller)
+  controller.canSubmit = () => canSubmit() && (engine() !== "codex" || (codex.canSubmit() && !codex.busy()))
+
+  createEffect(() => {
+    if (engine() !== "codex" || controller.state.mode !== "shell") return
+    controller.dispatch({ type: "mode.normal" })
+  })
 
   command.register("prompt-input", () => [
     {
@@ -433,7 +501,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       title: language.t("command.prompt.mode.shell"),
       category: language.t("command.category.session"),
       keybind: "mod+shift+x",
-      disabled: controller.state.mode === "shell",
+      disabled: engine() === "codex" || controller.state.mode === "shell",
       onSelect: () => controller.dispatch({ type: "mode.shell" }),
     },
     {

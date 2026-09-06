@@ -22,6 +22,8 @@ import { compareMessages, messageKey, normalizeSessionMessages } from "@/utils/s
 import { dropSessionCaches, pickSessionCacheEvictions, SESSION_CACHE_LIMIT } from "./global-sync/session-cache"
 import { createV2SessionReducer, type V2SessionReduction } from "./server-session-v2-reducer"
 import type { ServerApi } from "@/utils/server"
+import type { LabSnapshotOutput } from "@opencode-ai/lab-client"
+import type { ExternalMessageProjection } from "@/utils/session-external"
 
 type MessageApi = ServerApi["message"]
 
@@ -183,7 +185,17 @@ function reconcileFetched<T extends { id: string }>(
   return options.compare ? items.sort(options.compare) : items
 }
 
-type ServerSessionOptions = { retry?: typeof retry; protocol?: Promise<"v1" | "v2"> }
+type ExternalSessionSource = {
+  load(sessionID: string, options?: { force?: boolean }): Promise<boolean>
+  isExternal(sessionID: string): boolean
+  loading(sessionID: string): boolean
+}
+
+type ServerSessionOptions = {
+  retry?: typeof retry
+  protocol?: Promise<"v1" | "v2">
+  external?: ExternalSessionSource
+}
 
 export function createServerSession(
   client: OpencodeClient,
@@ -193,6 +205,7 @@ export function createServerSession(
 ) {
   const sessionApi = messageApi ? (sessionApiOrOptions as SessionApi) : undefined
   const options = messageApi ? currentOptions : (sessionApiOrOptions as ServerSessionOptions | undefined)
+  const externalSource = options?.external
   const [data, setData] = createStore({
     info: {} as Record<string, Session | undefined>,
     session_status: {} as Record<string, SessionStatus>,
@@ -615,6 +628,78 @@ export function createServerSession(
     return messageIDs
   }
 
+  const applyExternalProjection = (sessionID: string, projection: ExternalMessageProjection) => {
+    const projectedIDs = new Set(projection.messages.map((message) => message.id))
+    batch(() => {
+      setData(
+        produce((draft) => {
+          for (const message of draft.message[sessionID] ?? []) {
+            if (!projectedIDs.has(message.id)) deleteMessageParts(draft, message.id)
+          }
+        }),
+      )
+      setData("message", sessionID, reconcile(projection.messages.slice().sort(compareMessages), { key: "id" }))
+      setData("session_message", sessionID, reconcile(projection.timeline, { key: "id" }))
+      for (const [messageID, parts] of projection.parts) {
+        setData(
+          "part_text_accum_delta",
+          produce((draft) => {
+            for (const part of data.part[messageID] ?? []) {
+              if (parts.some((item) => item.id === part.id)) continue
+              delete draft[part.id]
+              deltaBases.delete(part.id)
+            }
+          }),
+        )
+        setData("part", messageID, reconcile(parts, { key: "id" }))
+      }
+      setMeta("limit", sessionID, projection.messages.length)
+      setMeta("cursor", sessionID, undefined)
+      setMeta("complete", sessionID, true)
+      setMeta("loading", sessionID, false)
+      setMeta("at", sessionID, Date.now())
+    })
+  }
+
+  const applyExternalDescriptor = (descriptor: LabSnapshotOutput["descriptor"]) => {
+    const working = ["resolving", "creating", "active", "waitingApproval", "waitingInput", "interrupting"].includes(
+      descriptor.runtimeStatus,
+    )
+    setData("session_status", descriptor.sessionID, working ? { type: "busy" } : { type: "idle" })
+  }
+
+  const applyExternalSnapshot = (snapshot: LabSnapshotOutput, projection: ExternalMessageProjection) => {
+    const sessionID = snapshot.descriptor.sessionID
+    applyExternalProjection(sessionID, projection)
+    batch(() => {
+      applyExternalDescriptor(snapshot.descriptor)
+      setData("todo", sessionID, [])
+      if (snapshot.sessionDiff.status === "available") {
+        setData(
+          "session_diff",
+          sessionID,
+          reconcile(
+            snapshot.sessionDiff.value.flatMap((item) =>
+              item.file && item.patch && item.status
+                ? [{ ...item, file: item.file, patch: item.patch, status: item.status }]
+                : [],
+            ),
+          ),
+        )
+      }
+      if (snapshot.sessionDiff.status !== "available") setData("session_diff", sessionID, [])
+    })
+  }
+
+  const appendExternalPart = (input: { sessionID: string; messageID: string; partID: string; delta: string }) => {
+    const index = data.part[input.messageID]?.findIndex((part) => part.id === input.partID) ?? -1
+    const part = data.part[input.messageID]?.[index]
+    if (!part || (part.type !== "text" && part.type !== "reasoning")) return false
+    setData("part", input.messageID, index, { ...part, text: part.text + input.delta })
+    setMeta("at", input.sessionID, Date.now())
+    return true
+  }
+
   const replaceParts = (
     sessionID: string,
     items: MessagePage["part"],
@@ -836,6 +921,13 @@ export function createServerSession(
   const sync = (sessionID: string, options?: { force?: boolean; messageLimit?: number }) => {
     touch(sessionID)
     return runInflight(inflight, sessionID, async () => {
+      if (externalSource) {
+        const external = await externalSource.load(sessionID, options)
+        if (external) {
+          await resolve(sessionID, options)
+          return
+        }
+      }
       const cached = data.message[sessionID] !== undefined && meta.limit[sessionID] !== undefined
       if (cached && data.info[sessionID] && !options?.force) return
       await Promise.all([
@@ -850,6 +942,7 @@ export function createServerSession(
   const prefetch = async (sessionID: string, limit: number) => {
     touch(sessionID)
     await inflight.get(sessionID)
+    if (externalSource && (await externalSource.load(sessionID))) return
     if (
       Date.now() - (meta.at[sessionID] ?? 0) <= 15_000 &&
       (meta.complete[sessionID] || (data.message[sessionID]?.length ?? 0) >= limit)
@@ -1380,6 +1473,10 @@ export function createServerSession(
     async todo(sessionID: string, request?: { force?: boolean }) {
       touch(sessionID)
       if (data.todo[sessionID] !== undefined && !request?.force) return
+      if (externalSource?.isExternal(sessionID)) {
+        setData("todo", sessionID, [])
+        return
+      }
       if ((await options?.protocol) === "v2") {
         setData("todo", sessionID, [])
         return
@@ -1394,13 +1491,15 @@ export function createServerSession(
     },
     history: {
       more: (sessionID: string) =>
+        !externalSource?.isExternal(sessionID) &&
         data.message[sessionID] !== undefined &&
         meta.limit[sessionID] !== undefined &&
         !meta.complete[sessionID] &&
         !!meta.cursor[sessionID],
-      loading: (sessionID: string) => meta.loading[sessionID] ?? false,
+      loading: (sessionID: string) => externalSource?.loading(sessionID) ?? meta.loading[sessionID] ?? false,
       async loadMore(sessionID: string, count = historyMessagePageSize) {
         touch(sessionID)
+        if (externalSource?.isExternal(sessionID)) return
         if (meta.loading[sessionID] || meta.complete[sessionID] || !meta.cursor[sessionID]) return
         await loadMessages(sessionID, count, meta.cursor[sessionID], "prepend")
       },
@@ -1421,6 +1520,12 @@ export function createServerSession(
     },
     apply,
     applyV2,
+    external: {
+      descriptor: applyExternalDescriptor,
+      snapshot: applyExternalSnapshot,
+      projection: applyExternalProjection,
+      append: appendExternalPart,
+    },
   }
 }
 

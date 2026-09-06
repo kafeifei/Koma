@@ -11,6 +11,8 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionEngineGuard } from "@opencode-ai/core/session/external/guard"
+import { SessionSchema } from "@opencode-ai/core/session/schema"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { locationServiceMapLayer } from "@opencode-ai/core/location-services"
 
@@ -97,6 +99,7 @@ export function fromRow(
     : undefined
   return {
     id: row.id,
+    engine: row.engine,
     slug: row.slug,
     projectID: row.project_id,
     workspaceID: row.workspace_id ?? undefined,
@@ -141,6 +144,7 @@ export function fromRow(
 export function toRow(info: Info) {
   return {
     id: info.id,
+    engine: info.engine ?? "opencode",
     project_id: info.projectID,
     workspace_id: info.workspaceID,
     parent_id: info.parentID,
@@ -244,6 +248,7 @@ export const Metadata = Schema.Record(Schema.String, Schema.Any)
 
 export const Info = Schema.Struct({
   id: SessionID,
+  engine: SessionSchema.Info.fields.engine,
   slug: Schema.String,
   projectID: ProjectV2.ID,
   workspaceID: optional(WorkspaceV2.ID),
@@ -561,6 +566,8 @@ const layer = Layer.effect(
       permissionMode?: PermissionMode
     }) {
       const ctx = yield* InstanceState.context
+      if (input.parentID)
+        yield* SessionEngineGuard.requireOpenCode(db, input.parentID, "createChild").pipe(Effect.orDie)
       const result: Info = {
         id: SessionID.descending(input.id),
         slug: Slug.create(),
@@ -736,6 +743,7 @@ const layer = Layer.effect(
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
+      yield* SessionEngineGuard.requireOpenCode(db, sessionID, "delete").pipe(Effect.orDie)
       const owner = yield* lifecycle.get(sessionID)
       const current = yield* get(sessionID).pipe(Effect.option)
       if (Option.isNone(current)) {
@@ -765,12 +773,14 @@ const layer = Layer.effect(
 
     const updateMessage = <T extends SessionV1.Info>(msg: T): Effect.Effect<T> =>
       Effect.gen(function* () {
+        yield* SessionEngineGuard.requireOpenCode(db, msg.sessionID, "updateMessage").pipe(Effect.orDie)
         yield* events.publish(SessionV1.Event.MessageUpdated, { sessionID: msg.sessionID, info: msg })
         return msg
       }).pipe(Effect.withSpan("Session.updateMessage"))
 
     const updatePart = <T extends SessionV1.Part>(part: T): Effect.Effect<T> =>
       Effect.gen(function* () {
+        yield* SessionEngineGuard.requireOpenCode(db, part.sessionID, "updatePart").pipe(Effect.orDie)
         yield* events.publish(SessionV1.Event.PartUpdated, {
           sessionID: part.sessionID,
           part: structuredClone(part),
@@ -828,6 +838,7 @@ const layer = Layer.effect(
     })
 
     const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "fork").pipe(Effect.orDie)
       const ctx = yield* InstanceState.context
       const original = yield* get(input.sessionID)
       const title = getForkedTitle(original.title)
@@ -919,6 +930,7 @@ const layer = Layer.effect(
       model: NonNullable<Info["model"]>
       time: number
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "setAgentModel").pipe(Effect.orDie)
       yield* patch(input.sessionID, {
         agent: input.agent,
         model: input.model,
@@ -930,6 +942,7 @@ const layer = Layer.effect(
       sessionID: SessionID
       permission: PermissionV1.Ruleset
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "setPermission").pipe(Effect.orDie)
       yield* patch(input.sessionID, { permission: [...input.permission], time: { updated: Date.now() } }).pipe(
         Effect.orDie,
       )
@@ -938,6 +951,7 @@ const layer = Layer.effect(
     const setPermissionMode = Effect.fn("Session.setPermissionMode")(function* (
       input: typeof SetPermissionModeInput.Type,
     ) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "setPermissionMode").pipe(Effect.orDie)
       yield* get(input.sessionID)
       yield* events.publish(SessionEvent.PermissionModeChanged, {
         sessionID: input.sessionID,
@@ -952,6 +966,7 @@ const layer = Layer.effect(
       revert: Info["revert"]
       summary: Info["summary"]
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "setRevert").pipe(Effect.orDie)
       yield* patch(input.sessionID, {
         summary: input.summary,
         time: { updated: Date.now() },
@@ -960,6 +975,7 @@ const layer = Layer.effect(
     })
 
     const clearRevert = Effect.fn("Session.clearRevert")(function* (sessionID: SessionID) {
+      yield* SessionEngineGuard.requireOpenCode(db, sessionID, "clearRevert").pipe(Effect.orDie)
       yield* patch(sessionID, { time: { updated: Date.now() }, revert: null }).pipe(Effect.orDie)
     })
 
@@ -971,6 +987,7 @@ const layer = Layer.effect(
     })
 
     const setShare = Effect.fn("Session.setShare")(function* (input: { sessionID: SessionID; share: Info["share"] }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "share").pipe(Effect.orDie)
       yield* patch(input.sessionID, { share: input.share ?? null, time: { updated: Date.now() } }).pipe(Effect.orDie)
     })
 
@@ -978,6 +995,7 @@ const layer = Layer.effect(
       sessionID: SessionID
       workspaceID: Info["workspaceID"]
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "setWorkspace").pipe(Effect.orDie)
       yield* patch(input.sessionID, { workspaceID: input.workspaceID, time: { updated: Date.now() } }).pipe(
         Effect.orDie,
       )
@@ -1017,6 +1035,7 @@ const layer = Layer.effect(
       sessionID: SessionID
       messageID: MessageID
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "removeMessage").pipe(Effect.orDie)
       yield* events.publish(SessionV1.Event.MessageRemoved, {
         sessionID: input.sessionID,
         messageID: input.messageID,
@@ -1029,6 +1048,7 @@ const layer = Layer.effect(
       messageID: MessageID
       partID: PartID
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "removePart").pipe(Effect.orDie)
       yield* events.publish(SessionV1.Event.PartRemoved, {
         sessionID: input.sessionID,
         messageID: input.messageID,
@@ -1044,6 +1064,7 @@ const layer = Layer.effect(
       field: string
       delta: string
     }) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "updatePartDelta").pipe(Effect.orDie)
       yield* events.publish(MessageV2.Event.PartDelta, input)
     })
 

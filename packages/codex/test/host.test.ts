@@ -1,0 +1,1049 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { createHash, randomUUID } from "node:crypto"
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import path from "node:path"
+import { tmpdir } from "node:os"
+import { pathToFileURL } from "node:url"
+import { Effect, Layer } from "effect"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Database } from "@opencode-ai/core/database/database"
+import { Global } from "@opencode-ai/core/global"
+import { ProjectV2 } from "@opencode-ai/core/project"
+import { Location } from "@opencode-ai/core/location"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { SessionExternal } from "@opencode-ai/core/session/external/index"
+import { CodexHost } from "../src/host"
+import { CodexWorktreeAccess } from "../src/worktree-access"
+import type { v2 } from "../src/protocol/generated/index"
+
+let directory: string
+const environment = ["OPENCODE_ENABLE_CODEX", "OPENCODE_CODEX_HOME", "OPENCODE_CODEX_BINARY"]
+const previous = new Map(environment.map((key) => [key, process.env[key]]))
+beforeAll(async () => {
+  directory = await mkdtemp(path.join(tmpdir(), "codex-host-test-"))
+  const binary = path.join(directory, "codex-fixture")
+  await writeFile(
+    binary,
+    `#!${process.execPath}\nawait import(${JSON.stringify(path.join(import.meta.dir, "fixture/host-peer.ts"))})\n`,
+  )
+  await chmod(binary, 0o755)
+  process.env.OPENCODE_ENABLE_CODEX = "1"
+  process.env.OPENCODE_CODEX_BINARY = binary
+})
+afterAll(() =>
+  environment.forEach((key) => {
+    const value = previous.get(key)
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }),
+)
+
+function thread(): v2.Thread {
+  return {
+    id: "native-thread",
+    extra: null,
+    sessionId: "native-session",
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: "",
+    ephemeral: false,
+    section: null,
+    sectionEnteredAt: null,
+    projectId: null,
+    historyMode: "legacy",
+    modelProvider: "fixture",
+    model: "native-model",
+    reasoningEffort: "low",
+    createdAt: 1,
+    updatedAt: 1,
+    recencyAt: null,
+    status: { type: "idle" },
+    path: null,
+    cwd: directory,
+    cliVersion: "0.153.4",
+    source: "appServer",
+    canAcceptDirectInput: true,
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: null,
+    turns: [],
+  }
+}
+
+async function harness<A>(
+  fn: (input: {
+    host: CodexHost.Interface
+    sessions: SessionExternal.Interface
+    home: string
+    scope: string
+    gate: { refuse: boolean; acquired: number; released: number }
+  }) => Promise<A>,
+  homeOverride?: string,
+) {
+  const home = homeOverride ?? (await mkdtemp(path.join(directory, "home-")))
+  await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages: [] }))
+  process.env.OPENCODE_CODEX_HOME = home
+  await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread() }))
+  const gate = { refuse: false, acquired: 0, released: 0 }
+  const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node]), [
+    [Database.node, Database.layerFromPath(":memory:")],
+    [Global.node, Global.layerWith({ home, state: home })],
+    [
+      ProjectV2.node,
+      Layer.mock(ProjectV2.Service, { resolve: (directory) => Effect.succeed({ id: ProjectV2.ID.global, directory }) }),
+    ],
+    [
+      CodexWorktreeAccess.node,
+      Layer.succeed(CodexWorktreeAccess.Service, {
+        claim: () => Effect.succeed(false),
+        acquire: () =>
+          Effect.suspend(() =>
+            gate.refuse
+              ? Effect.fail(new Error("Archive gate refused"))
+              : Effect.sync(() => {
+                  gate.acquired++
+                }),
+          ),
+        release: () =>
+          Effect.sync(() => {
+            gate.released++
+          }),
+      }),
+    ],
+  ])
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const host = yield* CodexHost.Service
+      const sessions = yield* SessionExternal.Service
+      return yield* Effect.promise(() =>
+        fn({ host, sessions, home, scope: `codex:${createHash("sha256").update(home).digest("hex")}`, gate }),
+      )
+    }).pipe(Effect.provide(layer), Effect.scoped),
+  )
+}
+const run = Effect.runPromise
+const prompt = { prompt: { text: "hello" }, settings: {} }
+const location = () => Location.Ref.make({ directory: AbsolutePath.make(directory) })
+const rpc = async (home: string) =>
+  (await readFile(path.join(home, "rpc.jsonl"), "utf8").catch(() => ""))
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { id?: string | number; method?: string; error?: unknown })
+const configure = async (home: string, patch: object) => {
+  const file = path.join(home, "fixture.json")
+  await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), ...patch }))
+}
+const command = (home: string, messages: unknown[]) =>
+  writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages }))
+async function until<A>(read: () => Promise<A>, check: (value: A) => boolean): Promise<A> {
+  const deadline = Date.now() + 5_000
+  while (true) {
+    const value = await read()
+    if (check(value)) return value
+    if (Date.now() > deadline) throw new Error(`Timed out: ${JSON.stringify(value)}`)
+    await Bun.sleep(10)
+  }
+}
+
+async function seed(sessions: SessionExternal.Interface, scope: string) {
+  const created = await run(
+    sessions.create({
+      runtimeScope: scope,
+      requestID: "seed",
+      engine: "codex",
+      location: location(),
+      payload: prompt,
+      delivery: "steer",
+    }),
+  )
+  await run(sessions.claimBinding({ sessionID: created.session.id, generation: "seed" }))
+  await run(sessions.bind({ sessionID: created.session.id, nativeThreadID: "native-thread", generation: "seed" }))
+  await run(sessions.withdraw({ sessionID: created.session.id, requestID: "seed" }))
+  return created.session.id
+}
+
+describe("CodexHost native process boundaries", () => {
+  test("lease refusal leaves native binding and input unclaimed", () =>
+    harness(async ({ host, sessions, home, gate }) => {
+      gate.refuse = true
+      const created = await run(
+        host.create({ requestID: "first", engine: "codex", location: location(), input: prompt, delivery: "steer" }),
+      )
+      await until(
+        () => run(host.describe([created.descriptor.sessionID])),
+        (values) => !!values[0]?.error,
+      )
+      expect((await run(sessions.get(created.descriptor.sessionID))).binding.state).toBe("pending")
+      expect((await run(host.delivery(created.descriptor.sessionID, "first"))).state).toBe("pending")
+      expect((await rpc(home)).some((call) => call.method === "thread/start")).toBe(false)
+      gate.refuse = false
+      const retried = await run(
+        host.create({ requestID: "first", engine: "codex", location: location(), input: prompt, delivery: "steer" }),
+      )
+      expect(retried.descriptor.sessionID).toBe(created.descriptor.sessionID)
+      await until(
+        () => run(host.delivery(created.descriptor.sessionID, "first")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "thread/start")).toHaveLength(1)
+    }))
+
+  test("bound session lease refusal leaves admitted delivery pending", () =>
+    harness(async ({ host, sessions, home, scope, gate }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      gate.refuse = true
+      await run(host.submit(id, { requestID: "blocked", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.describe([id])),
+        (values) => values[0]?.error?.includes("Archive gate") === true,
+      )
+      expect((await run(host.delivery(id, "blocked"))).state).toBe("pending")
+      expect((await rpc(home)).some((call) => call.method === "turn/start")).toBe(false)
+    }))
+
+  test("snapshot-covered deltas never duplicate text and active turn is reconstructed", () =>
+    harness(async ({ host, sessions, home, scope }) => {
+      const id = await seed(sessions, scope)
+      const native = thread()
+      native.status = { type: "active", activeFlags: [] }
+      native.turns = [
+        {
+          id: "running",
+          items: [
+            {
+              type: "agentMessage",
+              id: "answer",
+              text: "AB",
+              phase: null,
+              memoryCitation: null,
+              delivery: null,
+              questions: null,
+            },
+          ],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      ]
+      await configure(home, {
+        thread: native,
+        readEvents: [
+          {
+            method: "item/agentMessage/delta",
+            params: { threadId: native.id, turnId: "running", itemId: "answer", delta: "B" },
+          },
+        ],
+      })
+      await run(host.snapshot(id))
+      await Bun.sleep(40)
+      const snapshot = await run(host.snapshot(id))
+      expect(JSON.stringify(snapshot.messages)).toContain('"text":"AB"')
+      expect(JSON.stringify(snapshot.messages)).not.toContain('"text":"ABB"')
+      await run(host.interrupt(id))
+      expect((await rpc(home)).some((call) => call.method === "turn/interrupt")).toBe(true)
+    }))
+
+  test("disconnect reconciles unknown delivery only from exact client ID without resending", () =>
+    harness(async ({ host, sessions, home }) => {
+      await configure(home, { disconnectTurn: true })
+      const created = await run(
+        host.create({
+          requestID: "uncertain",
+          engine: "codex",
+          location: location(),
+          input: prompt,
+          delivery: "steer",
+        }),
+      )
+      const id = created.descriptor.sessionID
+      await until(
+        () => run(host.delivery(id, "uncertain")),
+        (receipt) => receipt.state === "unknown",
+      )
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.deliveries.find((receipt) => receipt.requestID === "uncertain")?.state).toBe("accepted")
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+      expect((await run(sessions.get(id))).binding.queuePaused).toBe(true)
+    }))
+
+  test("offline exact retries reuse frozen attachments and conflicting reuse fails", () =>
+    harness(async ({ host, home }) => {
+      const file = path.join(home, "image.png")
+      await writeFile(file, "first-bytes")
+      const input = {
+        ...prompt,
+        prompt: { text: "image", files: [{ uri: pathToFileURL(file).href, mime: "image/png" }] },
+      }
+      const request = {
+        requestID: "image-request",
+        engine: "codex" as const,
+        location: location(),
+        input,
+        delivery: "steer" as const,
+      }
+      const created = await run(host.create(request))
+      await until(
+        () => run(host.delivery(created.descriptor.sessionID, request.requestID)),
+        (receipt) => receipt.state === "accepted",
+      )
+      await writeFile(file, "changed-bytes")
+      await configure(home, { authenticated: false })
+      const retried = await run(host.create(request))
+      expect(retried.descriptor.sessionID).toBe(created.descriptor.sessionID)
+      expect(retried.delivery.input.prompt.files?.[0]?.uri).toContain(Buffer.from("first-bytes").toString("base64"))
+      await expect(run(host.create({ ...request, input: { ...input, prompt: { text: "changed" } } }))).rejects.toThrow(
+        "different input",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+    }))
+
+  test("native login failure stays visible until the next login attempt", () =>
+    harness(async ({ host, home }) => {
+      await configure(home, { authenticated: false })
+      const login = await run(host.login())
+      await command(home, [
+        {
+          method: "account/login/completed",
+          params: { loginId: login.loginID, success: false, error: "Login callback timed out" },
+        },
+      ])
+      const failed = await until(
+        () => run(host.account()),
+        (value) => value.loginState === "failed",
+      )
+      expect(failed.authenticated).toBe(false)
+      expect(failed.loginID).toBeUndefined()
+      expect(failed.error).toBe("Login callback timed out")
+      await run(host.login())
+      const pending = await run(host.account())
+      expect(pending.loginState).toBe("pending")
+      expect(pending.error).toBeUndefined()
+    }))
+
+  test("login is coalesced and desired settings do not become applied before native confirmation", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      await Promise.all([run(host.login()), run(host.login())])
+      expect((await rpc(home)).filter((call) => call.method === "account/login/start")).toHaveLength(1)
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      const descriptor = await run(host.settings(id, { effort: "high" }))
+      expect(descriptor.settings.effort).toBe("low")
+      expect(descriptor.pendingSettings?.effort).toBe("high")
+      expect((await run(host.settings(id, { effort: "low" }))).pendingSettings).toBeUndefined()
+      expect((await run(host.settings(id, {}))).pendingSettings).toBeUndefined()
+    }))
+
+  test("native nonblocking question stays active and a resolved request cannot be answered", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "active", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "active")),
+        (receipt) => receipt.state === "accepted",
+      )
+      await command(home, [
+        {
+          id: 1,
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "native-thread",
+            turnId: "turn-1",
+            itemId: "ask",
+            isBlocking: false,
+            questions: [
+              { id: "q", header: "Question", question: "Continue?", options: null, isOther: true, isSecret: false },
+            ],
+          },
+        },
+      ])
+      const waiting = await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.interactions.length === 1,
+      )
+      expect(waiting.descriptor.runtimeStatus).toBe("active")
+      const interaction = waiting.interactions[0]!
+      expect(interaction.id).toMatch(/^codex-[a-f0-9]{64}$/)
+      expect(interaction.id.length).toBeLessThanOrEqual(100)
+      await command(home, [{ method: "serverRequest/resolved", params: { threadId: "native-thread", requestId: 1 } }])
+      await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.interactions.length === 0,
+      )
+      await expect(
+        run(host.reply(id, interaction.id, { revision: interaction.revision, answers: { q: ["yes"] } })),
+      ).rejects.toThrow("no longer pending")
+    }))
+  test("unknown input with no unique native client ID remains blocked and visible", () =>
+    harness(async ({ host, sessions, home, scope }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(sessions.admit({ sessionID: id, requestID: "lost", payload: prompt, delivery: "steer" }))
+      await run(sessions.claim({ sessionID: id, requestID: "lost", generation: "original-attempt" }))
+      await run(sessions.settle({ sessionID: id, requestID: "lost", generation: "original-attempt", state: "unknown" }))
+      await run(
+        host.queue(id, {
+          action: "resume",
+          requestID: "",
+          revision: (await run(host.snapshot(id))).descriptor.revision,
+        }),
+      )
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.error).toContain("no")
+      expect((await run(host.delivery(id, "lost"))).state).toBe("unknown")
+      await run(host.submit(id, { requestID: "after", input: prompt, delivery: "steer" }))
+      await Bun.sleep(30)
+      expect((await run(host.delivery(id, "after"))).state).toBe("pending")
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(0)
+    }))
+
+  test("rollout fallback survives metadata and usage events", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const file = path.join(home, "sessions", "rollout.jsonl")
+      await mkdir(path.dirname(file), { recursive: true })
+      const content = (await readFile(path.join(import.meta.dir, "fixture/rollout.jsonl"), "utf8")).replaceAll(
+        "thread-fixture",
+        "native-thread",
+      )
+      await writeFile(file, content)
+      await configure(home, { thread: { ...thread(), path: file }, readError: true })
+      const first = await run(host.snapshot(id))
+      expect(first.messages.length).toBeGreaterThan(0)
+      await command(home, [
+        { method: "thread/status/changed", params: { threadId: "native-thread", status: { type: "idle" } } },
+      ])
+      const next = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.descriptor.revision > first.descriptor.revision,
+      )
+      expect(next.messages).toEqual(first.messages)
+    }))
+
+  test("interaction IDs cannot collide across backend epochs using the same home and RPC ID", async () => {
+    const question = {
+      id: 1,
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: "native-thread",
+        turnId: "turn-1",
+        itemId: "ask",
+        isBlocking: false,
+        questions: [
+          { id: "q", header: "Question", question: "Continue?", options: null, isOther: true, isSecret: false },
+        ],
+      },
+    }
+    const previous = await harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await command(home, [question])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 1,
+      )
+      return { home, interaction: snapshot.interactions[0]! }
+    })
+    await harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await command(home, [question])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 1,
+      )
+      expect(snapshot.interactions[0]!.id).not.toBe(previous.interaction.id)
+      await expect(
+        run(
+          host.reply(id, previous.interaction.id, {
+            revision: snapshot.interactions[0]!.revision,
+            answers: { q: ["yes"] },
+          }),
+        ),
+      ).rejects.toThrow("no longer pending")
+      expect((await run(host.snapshot(id))).interactions[0]!.state).toBe("pending")
+    }, previous.home)
+  })
+
+  test("new items stream with native timing while complete items reject late deltas", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "stream", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "stream")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const item: v2.ThreadItem = {
+        type: "agentMessage",
+        id: "new-answer",
+        text: "A",
+        phase: null,
+        memoryCitation: null,
+        delivery: null,
+        questions: null,
+      }
+      await command(home, [
+        { method: "item/started", params: { threadId: "native-thread", turnId: "turn-1", item, startedAtMs: 1234 } },
+        {
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "turn-1", itemId: item.id, delta: "B" },
+        },
+      ])
+      const streamed = await until(
+        () => run(host.snapshot(id)),
+        (value) => JSON.stringify(value.messages).includes('"text":"AB"'),
+      )
+      expect(JSON.stringify(streamed.messages)).toContain('"created":1234')
+      const persisted = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8")) as { thread: v2.Thread }
+      persisted.thread.turns[0]!.items.push({ ...item, text: "ABC" })
+      await configure(home, persisted)
+      await command(home, [
+        {
+          method: "item/completed",
+          params: { threadId: "native-thread", turnId: "turn-1", item: { ...item, text: "ABC" }, completedAtMs: 2345 },
+        },
+        {
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "turn-1", itemId: item.id, delta: "C" },
+        },
+      ])
+      const completed = await until(
+        () => run(host.snapshot(id)),
+        (value) => JSON.stringify(value.messages).includes('"completed":2345'),
+      )
+      expect(JSON.stringify(completed.messages)).toContain('"text":"ABC"')
+      expect(JSON.stringify(completed.messages)).not.toContain('"text":"ABCC"')
+    }))
+
+  test("failed native turn expires blocking approvals and pauses queued inputs", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "failure", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "failure")),
+        (receipt) => receipt.state === "accepted",
+      )
+      await command(home, [
+        {
+          id: "approval",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "native-thread",
+            turnId: "turn-1",
+            itemId: "command",
+            command: "touch file",
+            cwd: directory,
+            availableDecisions: ["accept", "decline"],
+          },
+        },
+      ])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 1,
+      )
+      await command(home, [
+        {
+          method: "turn/completed",
+          params: {
+            threadId: "native-thread",
+            turn: {
+              id: "turn-1",
+              items: [],
+              itemsView: "full",
+              status: "failed",
+              error: { message: "Native model failed", codexErrorInfo: null, additionalDetails: null },
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1000,
+            },
+          },
+        },
+      ])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 0,
+      )
+      expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+      expect(snapshot.descriptor.error).toBe("Native model failed")
+      expect(snapshot.descriptor.queuePaused).toBe(true)
+    }))
+
+  test("unsupported native requests return a protocol error and display the reason", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await command(home, [{ id: "unsupported", method: "fixture/unsupported", params: { threadId: "native-thread" } }])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => !!value.descriptor.error,
+      )
+      expect(snapshot.descriptor.error).toContain("Unsupported native request")
+      await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.id === "unsupported" && !!call.error),
+      )
+      expect(snapshot.interactions).toHaveLength(0)
+    }))
+
+  test("idle signal during resume schedules a fresh read and drains already admitted input", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      await run(host.account())
+      const id = await seed(sessions, scope)
+      await run(sessions.admit({ sessionID: id, requestID: "queued-before-read", payload: prompt, delivery: "queue" }))
+      await configure(home, {
+        resumeEvents: [
+          { method: "thread/status/changed", params: { threadId: "native-thread", status: { type: "idle" } } },
+        ],
+      })
+      await run(host.snapshot(id))
+      await until(
+        () => run(host.delivery(id, "queued-before-read")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+      expect((await rpc(home)).filter((call) => call.method === "thread/read").length).toBeGreaterThanOrEqual(4)
+    }))
+
+  test("read-overlapping start and completion are reconciled by a bounded fresh snapshot", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const completed: v2.Turn = {
+        id: "overlap",
+        items: [
+          {
+            type: "agentMessage",
+            id: "overlap-answer",
+            text: "completed during read",
+            phase: null,
+            memoryCitation: null,
+            delivery: null,
+            questions: null,
+          },
+        ],
+        itemsView: "full",
+        status: "completed",
+        error: null,
+        startedAt: 1,
+        completedAt: 2,
+        durationMs: 1000,
+      }
+      await configure(home, {
+        afterReadThread: { ...thread(), turns: [completed] },
+        readEvents: [
+          {
+            method: "turn/started",
+            params: { threadId: "native-thread", turn: { ...completed, items: [], status: "inProgress" } },
+          },
+          { method: "turn/completed", params: { threadId: "native-thread", turn: completed } },
+        ],
+      })
+      await run(host.snapshot(id))
+      await Bun.sleep(350)
+      const snapshot = await run(host.snapshot(id))
+      expect(JSON.stringify(snapshot.messages)).toContain("completed during read")
+      expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+      expect((await rpc(home)).filter((call) => call.method === "thread/read").length).toBeGreaterThanOrEqual(4)
+      expect((await rpc(home)).filter((call) => call.method === "thread/read").length).toBeLessThanOrEqual(6)
+    }))
+
+  test("ambiguous streaming deltas refresh text without waiting for item completion", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const native = thread()
+      native.status = { type: "active", activeFlags: [] }
+      native.turns = [
+        {
+          id: "running",
+          items: [
+            {
+              type: "agentMessage",
+              id: "answer",
+              text: "A",
+              phase: null,
+              memoryCitation: null,
+              delivery: null,
+              questions: null,
+            },
+          ],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      ]
+      await configure(home, { thread: native })
+      await run(host.snapshot(id))
+      native.turns[0]!.items = [{ ...native.turns[0]!.items[0]!, text: "AB" } as v2.ThreadItem]
+      await configure(home, { thread: native })
+      await command(
+        home,
+        Array.from({ length: 20 }, () => ({
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "running", itemId: "answer", delta: "B" },
+        })),
+      )
+      await Bun.sleep(350)
+      const snapshot = await run(host.snapshot(id))
+      expect(JSON.stringify(snapshot.messages)).toContain('"text":"AB"')
+      expect(JSON.stringify(snapshot.messages)).not.toContain('"text":"ABB"')
+      expect((await rpc(home)).filter((call) => call.method === "thread/read")).toHaveLength(4)
+    }))
+  test("interrupted turn retains its lease and paused queue until the native command actually completes", () =>
+    harness(async ({ host, sessions, scope, home, gate }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "long-native", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "long-native")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const item: v2.ThreadItem = {
+        type: "commandExecution",
+        id: "running-command",
+        pluginId: null,
+        scriptPath: null,
+        command: "sleep 3",
+        cwd: directory,
+        processId: "native-process",
+        source: "agent",
+        status: "inProgress",
+        commandActions: [],
+        aggregatedOutput: null,
+        exitCode: null,
+        durationMs: null,
+      }
+      await command(home, [
+        { method: "item/started", params: { threadId: "native-thread", turnId: "turn-1", item, startedAtMs: 10 } },
+      ])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => JSON.stringify(value.messages).includes("running-command"),
+      )
+      await run(host.submit(id, { requestID: "queued-after-stop", input: prompt, delivery: "queue" }))
+      await run(host.interrupt(id))
+      const released = gate.released
+      const turn: v2.Turn = {
+        id: "turn-1",
+        items: [item],
+        itemsView: "full",
+        status: "interrupted",
+        error: null,
+        startedAt: 1,
+        completedAt: 2,
+        durationMs: 1000,
+      }
+      await configure(home, { thread: { ...thread(), turns: [turn] } })
+      await command(home, [
+        { method: "thread/status/changed", params: { threadId: "native-thread", status: { type: "idle" } } },
+        { method: "turn/completed", params: { threadId: "native-thread", turn } },
+      ])
+      await Bun.sleep(30)
+      const stopping = await run(host.snapshot(id))
+      expect(stopping.descriptor.runtimeStatus).toBe("interrupting")
+      expect(gate.released).toBe(released)
+      expect((await run(sessions.get(id))).binding.executionPending).toBe(true)
+      expect((await run(host.delivery(id, "queued-after-stop"))).state).toBe("pending")
+      const completed = { ...item, status: "completed", exitCode: 0, durationMs: 3000 } as v2.ThreadItem
+      await configure(home, { thread: { ...thread(), turns: [{ ...turn, items: [completed] }] } })
+      await command(home, [
+        {
+          method: "item/completed",
+          params: { threadId: "native-thread", turnId: "turn-1", item: completed, completedAtMs: 3010 },
+        },
+      ])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => value.descriptor.runtimeStatus === "idle",
+      )
+      expect(gate.released).toBe(released + 1)
+      expect((await run(sessions.get(id))).binding.executionPending).toBe(false)
+      expect((await run(host.delivery(id, "queued-after-stop"))).state).toBe("pending")
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+    }))
+
+  test("recovered durable executionPending cannot be cleared by an idle snapshot or new input", () =>
+    harness(async ({ host, sessions, scope, home, gate }) => {
+      const id = await seed(sessions, scope)
+      await run(sessions.setExecutionPending(id, true))
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.runtimeStatus).toBe("disconnected")
+      expect(snapshot.descriptor.capabilities.prompt).toBe(false)
+      expect(snapshot.descriptor.error).toContain("no confirmed completion")
+      expect((await run(sessions.get(id))).binding.executionPending).toBe(true)
+      await expect(run(host.submit(id, { requestID: "unsafe-new", input: prompt, delivery: "steer" }))).rejects.toThrow(
+        "not been confirmed finished",
+      )
+      expect(await run(sessions.getDelivery({ sessionID: id, requestID: "unsafe-new" }))).toBeUndefined()
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(0)
+      expect(gate.released).toBe(0)
+    }))
+  test("opaque interaction IDs distinguish numeric and string RPC IDs below the router length limit", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      const params = {
+        threadId: "native-thread",
+        turnId: "turn-1",
+        itemId: "ask",
+        isBlocking: false,
+        questions: [
+          { id: "q", header: "Question", question: "Continue?", options: null, isOther: true, isSecret: false },
+        ],
+      }
+      await command(home, [
+        { id: 1, method: "item/tool/requestUserInput", params },
+        { id: "1", method: "item/tool/requestUserInput", params },
+      ])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 2,
+      )
+      expect(new Set(snapshot.interactions.map((value) => value.id)).size).toBe(2)
+      expect(
+        snapshot.interactions.every((value) => /^codex-[a-f0-9]{64}$/.test(value.id) && value.id.length <= 100),
+      ).toBe(true)
+    }))
+
+  test("native plans are validated live data and become unavailable after reconnect", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await command(home, [
+        {
+          method: "turn/plan/updated",
+          params: {
+            threadId: "native-thread",
+            turnId: "plan-turn",
+            explanation: "Native plan",
+            plan: [{ step: "Read the fixture", status: "inProgress" }],
+          },
+        },
+      ])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.plan?.status === "available",
+      )
+      expect(snapshot.plan).toEqual({
+        status: "available",
+        value: {
+          turnID: "plan-turn",
+          explanation: "Native plan",
+          steps: [{ step: "Read the fixture", status: "inProgress" }],
+        },
+      })
+      await command(home, [
+        {
+          method: "turn/plan/updated",
+          params: { threadId: "native-thread", turnId: "plan-turn", plan: [{ step: "bad", status: "invented" }] },
+        },
+      ])
+      await Bun.sleep(30)
+      expect((await run(host.snapshot(id))).plan).toEqual(snapshot.plan)
+      await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+      await Bun.sleep(40)
+      const restored = await run(host.snapshot(id))
+      expect(restored.plan).toEqual({ status: "unavailable" })
+    }))
+
+  test("summary turn completion retains streamed user and tool identities", () =>
+    harness(async ({ host, home }) => {
+      const created = await run(
+        host.create({ requestID: "first", engine: "codex", location: location(), input: prompt, delivery: "steer" }),
+      )
+      const id = created.descriptor.sessionID
+      await until(
+        () => run(host.delivery(id, "first")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const user = {
+        type: "userMessage",
+        id: "user-summary",
+        clientId: "first",
+        content: [{ type: "text", text: "keep my input", text_elements: [] }],
+      }
+      const assistant = {
+        type: "agentMessage",
+        id: "assistant-summary",
+        text: "done",
+        phase: null,
+        memoryCitation: null,
+        delivery: null,
+        questions: null,
+      }
+      await command(home, [
+        { method: "item/started", params: { threadId: "native-thread", turnId: "turn-1", item: user } },
+        { method: "item/completed", params: { threadId: "native-thread", turnId: "turn-1", item: user } },
+        { method: "item/completed", params: { threadId: "native-thread", turnId: "turn-1", item: assistant } },
+        {
+          method: "turn/completed",
+          params: {
+            threadId: "native-thread",
+            turn: {
+              id: "turn-1",
+              items: [assistant],
+              itemsView: "summary",
+              status: "completed",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1000,
+            },
+          },
+        },
+      ])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.descriptor.runtimeStatus === "idle",
+      )
+      expect(snapshot.messages.some((message) => message.type === "user" && message.text === "keep my input")).toBe(
+        true,
+      )
+      expect(snapshot.messages.filter((message) => message.id.endsWith("assistant-summary"))).toHaveLength(1)
+    }))
+
+  test("paged empty history proves a bound first input has never been dispatched", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const created = await run(
+        sessions.create({
+          runtimeScope: scope,
+          requestID: "first",
+          engine: "codex",
+          location: location(),
+          payload: prompt,
+          delivery: "steer",
+        }),
+      )
+      await run(sessions.claimBinding({ sessionID: created.session.id, generation: "old-host" }))
+      await run(
+        sessions.bind({ sessionID: created.session.id, generation: "old-host", nativeThreadID: "native-thread" }),
+      )
+      await run(sessions.setExecutionPending(created.session.id, true))
+      await configure(home, { thread: { ...thread(), historyMode: "paginated" } })
+      const snapshot = await run(host.snapshot(created.session.id))
+      expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+      expect(snapshot.descriptor.capabilities.prompt).toBe(true)
+      expect((await run(sessions.get(created.session.id))).binding.executionPending).toBe(false)
+      expect((await run(host.delivery(created.session.id, "first"))).state).toBe("pending")
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(0)
+    }))
+
+  test("spawn and wait references list one bound child session", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const parent = await seed(sessions, scope)
+      const child = await run(
+        sessions.adoptChild({
+          parentID: parent,
+          runtimeScope: scope,
+          nativeThreadID: "native-child",
+          location: location(),
+        }),
+      )
+      const items: v2.ThreadItem[] = (["spawnAgent", "wait"] as const).map((tool) => ({
+        type: "collabAgentToolCall",
+        id: tool,
+        tool,
+        status: "completed",
+        senderThreadId: "native-thread",
+        receiverThreadIds: ["native-child"],
+        prompt: null,
+        model: null,
+        reasoningEffort: null,
+        agentsStates: {},
+      }))
+      await configure(home, {
+        thread: {
+          ...thread(),
+          turns: [
+            {
+              id: "parent-turn",
+              items,
+              itemsView: "full",
+              status: "completed",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1,
+            },
+          ],
+        },
+        threads: {
+          "native-child": {
+            ...thread(),
+            id: "native-child",
+            parentThreadId: "native-thread",
+            historyMode: "paginated",
+          },
+        },
+      })
+      const snapshot = await run(host.snapshot(parent))
+      expect(snapshot.children).toEqual([{ sessionID: child.session.id, nativeThreadID: "native-child" }])
+      expect(snapshot.messages).toHaveLength(2)
+    }))
+
+  test("a child discovered from history is usable when paginated native tools are explicitly complete", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const parent = await seed(sessions, scope)
+      const child = await run(
+        sessions.adoptChild({
+          parentID: parent,
+          runtimeScope: scope,
+          nativeThreadID: "native-child",
+          location: location(),
+        }),
+      )
+      const item: v2.ThreadItem = {
+        type: "commandExecution",
+        id: "child-command",
+        pluginId: null,
+        scriptPath: null,
+        command: "cat sample.txt",
+        cwd: directory,
+        processId: null,
+        source: "agent",
+        status: "completed",
+        commandActions: [],
+        aggregatedOutput: "done",
+        exitCode: 0,
+        durationMs: 1,
+      }
+      await configure(home, {
+        threads: {
+          "native-child": {
+            ...thread(),
+            id: "native-child",
+            parentThreadId: "native-thread",
+            historyMode: "paginated",
+            turns: [
+              {
+                id: "child-turn",
+                items: [item],
+                itemsView: "full",
+                status: "completed",
+                error: null,
+                startedAt: 1,
+                completedAt: 2,
+                durationMs: 1,
+              },
+            ],
+          },
+        },
+      })
+      const snapshot = await run(host.snapshot(child.session.id))
+      expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+      expect(snapshot.descriptor.capabilities.prompt).toBe(true)
+      expect((await run(sessions.get(child.session.id))).binding.executionPending).toBe(false)
+      expect(JSON.stringify(snapshot.messages)).toContain("child-command")
+    }))
+})

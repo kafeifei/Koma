@@ -1,4 +1,5 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionEngineGuard } from "@opencode-ai/core/session/external/guard"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import path from "path"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -152,6 +153,7 @@ const layer = Layer.effect(
     })
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
+      yield* SessionEngineGuard.requireOpenCode(db, sessionID, "cancel").pipe(Effect.orDie)
       yield* Effect.logInfo("cancel", { "session.id": sessionID })
       yield* state.cancel(sessionID)
     })
@@ -1053,6 +1055,7 @@ const layer = Layer.effect(
 
     const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError> =
       Effect.fn("SessionPrompt.prompt")(function* (input: PromptInput) {
+        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "prompt").pipe(Effect.orDie)
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         const message = yield* Effect.acquireUseRelease(
           lifecycle
@@ -1358,17 +1361,20 @@ const layer = Layer.effect(
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: LoopInput) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "loop").pipe(Effect.orDie)
       return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
     })
 
     const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
       "SessionPrompt.shell",
     )(function* (input: ShellInput) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "shell").pipe(Effect.orDie)
       const ready = yield* Latch.make()
       return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), shellImpl(input, ready), ready)
     })
 
     const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "command").pipe(Effect.orDie)
       yield* Effect.logInfo("command", {
         "session.id": input.sessionID,
         command: input.command,

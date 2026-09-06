@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "81f7af2d-2f5f-4514-8ea3-2333b7e05f2f",
+  "id": "038a8e97-756a-4d05-abb0-9a76fe61ff9a",
   "prevIds": [
-    "f14a9b18-8207-487e-a3d3-227e629ba9ad"
+    "bd2f86c3-5e7a-430a-b12c-f2cb930d8f1e"
   ],
   "ddl": [
     {
@@ -48,6 +48,14 @@
     },
     {
       "name": "project",
+      "entityType": "tables"
+    },
+    {
+      "name": "session_external_binding",
+      "entityType": "tables"
+    },
+    {
+      "name": "session_external_delivery",
       "entityType": "tables"
     },
     {
@@ -778,6 +786,266 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "runtime_scope",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "native_thread_id",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "queue_paused",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "execution_pending",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "settings",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "projection_version",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "request_id",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sequence",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "create_scope",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "create_fingerprint",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fingerprint",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delivery",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "native_turn_id",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "native_item_id",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
       "entityType": "columns",
       "table": "message"
@@ -1069,6 +1337,16 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'opencode'",
+      "generated": null,
+      "name": "engine",
       "entityType": "columns",
       "table": "session"
     },
@@ -1578,6 +1856,36 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
+      "name": "fk_session_external_binding_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "session_external_binding"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_session_external_delivery_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "session_external_delivery"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
       "name": "fk_message_session_id_session_id_fk",
       "entityType": "fks",
       "table": "message"
@@ -1710,6 +2018,16 @@
     {
       "columns": [
         "session_id",
+        "request_id"
+      ],
+      "nameExplicit": false,
+      "name": "session_external_delivery_pk",
+      "entityType": "pks",
+      "table": "session_external_delivery"
+    },
+    {
+      "columns": [
+        "session_id",
         "position"
       ],
       "nameExplicit": false,
@@ -1796,6 +2114,15 @@
       "nameExplicit": false,
       "name": "project_pk",
       "table": "project",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "nameExplicit": false,
+      "name": "session_external_binding_pk",
+      "table": "session_external_binding",
       "entityType": "pks"
     },
     {
@@ -1922,6 +2249,96 @@
       "name": "permission_project_action_resource_idx",
       "entityType": "indexes",
       "table": "permission"
+    },
+    {
+      "columns": [
+        {
+          "value": "runtime_scope",
+          "isExpression": false
+        },
+        {
+          "value": "native_thread_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "session_external_binding_native_idx",
+      "entityType": "indexes",
+      "table": "session_external_binding"
+    },
+    {
+      "columns": [
+        {
+          "value": "runtime_scope",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_external_binding_scope_idx",
+      "entityType": "indexes",
+      "table": "session_external_binding"
+    },
+    {
+      "columns": [
+        {
+          "value": "create_scope",
+          "isExpression": false
+        },
+        {
+          "value": "request_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "session_external_delivery_create_idx",
+      "entityType": "indexes",
+      "table": "session_external_delivery"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "sequence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "session_external_delivery_sequence_idx",
+      "entityType": "indexes",
+      "table": "session_external_delivery"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "state",
+          "isExpression": false
+        },
+        {
+          "value": "sequence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_external_delivery_pending_idx",
+      "entityType": "indexes",
+      "table": "session_external_delivery"
     },
     {
       "columns": [

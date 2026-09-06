@@ -4,6 +4,7 @@ import type { OpenCodeEvent, SessionApi } from "@opencode-ai/client/promise"
 import type { Message, OpencodeClient, Part, Session } from "@opencode-ai/sdk/v2/client"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
+import { projectExternalMessages } from "@/utils/session-external"
 
 type MessageApi = ServerApi["message"]
 
@@ -158,7 +159,7 @@ function setup(sessions: Record<string, Session>) {
       todo: async () => ({ data: [] }),
     },
   } as unknown as OpencodeClient
-  return { get, messages, store: createServerSession(client) }
+  return { client, get, messages, store: createServerSession(client) }
 }
 
 describe("server session", () => {
@@ -231,6 +232,34 @@ describe("server session", () => {
     expect(ctx.get).toEqual([{ sessionID: "root" }])
     expect(ctx.messages).toEqual([{ sessionID: "root", limit: 20, before: undefined }])
     expect(ctx.store.data.message.root).toEqual([])
+  })
+
+  test("loads external history without calling the OpenCode message endpoint", async () => {
+    const ctx = setup({ root: session("root") })
+    let store: ReturnType<typeof createServerSession>
+    store = createServerSession(ctx.client, {
+      external: {
+        isExternal: () => true,
+        loading: () => false,
+        async load(sessionID) {
+          store.external.projection(
+            sessionID,
+            projectExternalMessages({
+              sessionID,
+              messages: [{ id: "msg_external", type: "user", text: "hello", orderKey: "001", time: {} }],
+            }),
+          )
+          return true
+        },
+      },
+    })
+    store.remember(session("root"))
+
+    await store.sync("root")
+
+    expect(store.data.message.root?.map((message) => message.id)).toEqual(["msg_external"])
+    expect(store.data.session_message.root?.map((message) => message.id)).toEqual(["msg_external"])
+    expect(ctx.messages).toEqual([])
   })
 
   test("loads current session content through the current message API", async () => {

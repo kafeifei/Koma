@@ -1,4 +1,6 @@
 import { Database } from "@opencode-ai/core/database/database"
+import { CodexHost } from "@opencode-ai/codex/host"
+import { CodexWorktreeAccess } from "@opencode-ai/codex/worktree-access"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -24,6 +26,7 @@ import { layer as locationLayer } from "./location"
 import { sessionLocationLayer } from "./middleware/session-location"
 
 const applicationServices = LayerNode.group([
+  CodexHost.node,
   Database.node,
   EventV2.node,
   httpClient,
@@ -49,7 +52,10 @@ export function createEmbeddedRoutes() {
 }
 
 function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>) {
-  const serviceLayer = AppNodeBuilder.build(applicationServices, [[SessionExecution.node, SessionExecutionLocal.node]])
+  const serviceLayer = AppNodeBuilder.build(applicationServices, [
+    [SessionExecution.node, SessionExecutionLocal.node],
+    [CodexWorktreeAccess.node, CodexWorktreeAccess.unmanagedNode],
+  ])
 
   return HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
     Layer.provide(handlers),

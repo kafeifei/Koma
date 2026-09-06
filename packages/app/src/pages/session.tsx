@@ -1,4 +1,5 @@
 import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import { getExternalTurnDiff } from "@/components/session/session-external-diffs"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createQuery, skipToken, useMutation, useQueryClient } from "@tanstack/solid-query"
@@ -657,7 +658,15 @@ export default function Page() {
     return open
   }, desktopReviewOpen())
 
-  const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
+  const externalSession = () => !!params.id && serverSync().external.isExternal(params.id)
+  const nativeTurnDiff = createMemo(() =>
+    getExternalTurnDiff(params.id ? serverSync().external.data.snapshots[params.id] : undefined, lastUserMessage()?.id),
+  )
+  const turnDiffs = createMemo(() => {
+    if (!externalSession()) return list(lastUserMessage()?.summary?.diffs)
+    const diff = nativeTurnDiff()
+    return diff?.status === "available" ? [...diff.value] : []
+  })
   const nogit = createMemo(() => {
     const project = sync().project
     return !!project && project.vcs !== "git"
@@ -1240,6 +1249,8 @@ export default function Page() {
   const reviewEmptyText = createMemo(() => {
     if (reviewMode() === "git") return language.t("session.review.noUncommittedChanges")
     if (reviewMode() === "branch") return language.t("session.review.noBranchChanges")
+    if (externalSession() && nativeTurnDiff()?.status === "loading") return language.t("session.review.loadingChanges")
+    if (externalSession() && nativeTurnDiff()?.status !== "available") return language.t("codex.diff.unavailable")
     return language.t("session.review.noChanges")
   })
 
@@ -1250,7 +1261,7 @@ export default function Page() {
     }
 
     if (reviewMode() === "turn") {
-      if (nogit()) return createGit(input)
+      if (nogit() && !externalSession()) return createGit(input)
       return empty(reviewEmptyText())
     }
 
@@ -1262,6 +1273,9 @@ export default function Page() {
   }
 
   const reviewEmptyV2 = () => {
+    if (reviewMode() === "turn" && externalSession()) {
+      return <div class="px-6 py-4 text-text-weak">{reviewEmptyText()}</div>
+    }
     if ((reviewMode() === "git" || reviewMode() === "branch") && !reviewReady()) {
       return <div class="px-6 py-4 text-text-weak">{language.t("session.review.loadingChanges")}</div>
     }
@@ -1935,7 +1949,12 @@ export default function Page() {
     download()
   }
 
-  const actions = { revert, openAttachment }
+  const actions = {
+    get revert() {
+      return params.id && serverSync().external.isExternal(params.id) ? undefined : revert
+    },
+    openAttachment,
+  }
 
   createEffect(() => {
     const sessionID = params.id

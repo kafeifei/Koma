@@ -1,0 +1,6 @@
+{"timestamp":"2026-09-06T00:00:00Z","ordinal":0,"type":"session_meta","payload":{"id":"thread-fixture","session_id":"thread-fixture","cwd":"/fixture","history_mode":"paginated"}}
+{"timestamp":"2026-09-06T00:00:01Z","ordinal":1,"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-fixture"}}
+{"timestamp":"2026-09-06T00:00:02Z","ordinal":2,"type":"response_item","payload":{"type":"message","id":"message-fixture","role":"user","content":[{"type":"input_text","text":"hello"}],"internal_chat_message_metadata_passthrough":{"turn_id":"turn-fixture"}}}
+{"timestamp":"2026-09-06T00:00:03Z","ordinal":3,"type":"response_item","payload":{"type":"reasoning","id":"reasoning-fixture","summary":[{"type":"summary_text","text":"summary"}],"internal_chat_message_metadata_passthrough":{"turn_id":"turn-fixture"}}}
+{"timestamp":"2026-09-06T00:00:04Z","ordinal":4,"type":"event_msg","payload":{"type":"token_count","turn_id":"turn-fixture","info":{"total_token_usage":{"total_tokens":9}}}}
+{"timestamp":"2026-09-06T00:00:05Z","ordinal":5,"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-fixture"}}

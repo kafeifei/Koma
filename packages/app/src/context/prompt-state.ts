@@ -51,6 +51,22 @@ export type PromptModel = {
   variant?: string | null
 }
 
+export type PromptEngine = "opencode" | "codex"
+
+export type CodexPromptSettings = {
+  model?: string
+  effort?: string
+  permission?: "workspace" | "readOnly" | "full"
+}
+
+export type ExternalPromptRequest = {
+  requestID: string
+  fingerprint: string
+  operation: "create" | "submit"
+  delivery?: "steer" | "queue"
+  settings?: CodexPromptSettings
+}
+
 export type FileContextItem = {
   type: "file"
   path: string
@@ -70,6 +86,10 @@ export type PromptStore = {
   prompt: Prompt
   cursor?: number
   model?: PromptModel
+  engine?: PromptEngine
+  codex?: CodexPromptSettings
+  codexRevision?: number
+  externalRequest?: ExternalPromptRequest
   context: {
     items: (ContextItem & { key: string })[]
   }
@@ -78,6 +98,8 @@ export type PromptStore = {
 type InitialPrompt = {
   prompt?: string
   model?: PromptModel
+  engine?: PromptEngine
+  codex?: CodexPromptSettings
 }
 
 function isSelectionEqual(a?: FileSelection, b?: FileSelection) {
@@ -182,6 +204,8 @@ function promptStore(initial?: InitialPrompt): PromptStore {
       text === undefined ? clonePrompt(DEFAULT_PROMPT) : [{ type: "text", content: text, start: 0, end: text.length }],
     cursor: text === undefined ? undefined : text.length,
     model: initial?.model ? { ...initial.model } : undefined,
+    engine: initial?.engine,
+    codex: initial?.codex ? { ...initial.codex } : undefined,
     context: {
       items: [],
     },
@@ -198,6 +222,26 @@ function createPromptStateValue(store: PromptStore, setStore: SetStoreFunction<P
     model: {
       current: () => store.model,
       set: (model: PromptModel | undefined) => setStore("model", model),
+    },
+    engine: {
+      current: () => store.engine ?? "opencode",
+      set: (engine: PromptEngine) => setStore("engine", engine),
+    },
+    codex: {
+      current: () => store.codex ?? {},
+      revision: () => store.codexRevision ?? 0,
+      set: (settings: CodexPromptSettings, options?: { explicit?: boolean; revision?: number }) => {
+        batch(() => {
+          setStore("codex", settings)
+          if (options?.revision !== undefined) setStore("codexRevision", options.revision)
+          if (options?.revision === undefined && options?.explicit !== false)
+            setStore("codexRevision", (value) => (value ?? 0) + 1)
+        })
+      },
+    },
+    externalRequest: {
+      current: () => store.externalRequest,
+      set: (request: ExternalPromptRequest | undefined) => setStore("externalRequest", request),
     },
     context: {
       items: createMemo(() => store.context.items),

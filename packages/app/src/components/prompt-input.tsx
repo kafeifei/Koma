@@ -73,6 +73,14 @@ import {
 } from "./prompt-input/contracts"
 import { createPromptSubmit } from "./prompt-input/submit"
 import { createPromptPermissionController, PromptPermissionSelect } from "./prompt-permission-select"
+import {
+  CodexEffortSelect,
+  CodexModelSelect,
+  CodexPermissionSelect,
+  createCodexPromptController,
+  PromptEngineSelect,
+} from "./codex-prompt-controls"
+import { CodexSessionControls } from "./codex-session-controls"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -82,6 +90,7 @@ import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
+import { useServerSync } from "@/context/server-sync"
 
 export { createPromptInputHistory }
 export type { PromptInputControls, PromptInputHistory, PromptInputProps, PromptInputState, PromptInputSubmission }
@@ -118,6 +127,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
 
   const sync = useSync()
+  const serverSync = useServerSync()
   const files = useFile()
   const prompt = props.state ?? usePrompt()
   const layout = useLayout()
@@ -252,6 +262,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return paths
   })
   const info = createMemo(() => (props.controls.session.id ? sync().session.get(props.controls.session.id) : undefined))
+  const engine = () => {
+    const sessionID = props.controls.session.id
+    if (!sessionID) return prompt.engine.current()
+    return serverSync().external.engine(sessionID) ?? info()?.engine ?? "opencode"
+  }
   const working = createMemo(() => sync().data.session_working(props.controls.session.id ?? ""))
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
@@ -456,7 +471,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("command.prompt.mode.shell"),
       category: language.t("command.category.session"),
       keybind: shellModeKey,
-      disabled: store.mode === "shell",
+      disabled: engine() === "codex" || store.mode === "shell",
       onSelect: () => setMode("shell"),
     },
     {
@@ -512,6 +527,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       queueScroll()
     })
   }
+  const codex = createCodexPromptController({
+    prompt,
+    sessionID: () => props.controls.session.id,
+    sessionEngine: engine,
+    restoreFocus,
+  })
+
+  createEffect(() => {
+    if (engine() !== "codex" || store.mode !== "shell") return
+    setStore("mode", "normal")
+  })
 
   const handleFocus = () => {
     if (!restoreEndOnFocus) return
@@ -580,7 +606,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   )
 
   const agentList = createMemo(() =>
-    props.controls.agents.available
+    (engine() === "codex" ? [] : props.controls.agents.available)
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
@@ -703,7 +729,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         type: "builtin" as const,
       }))
 
-    const custom = sync().data.command.map((cmd) => ({
+    const custom = (engine() === "codex" ? [] : sync().data.command).map((cmd) => ({
       id: `custom.${cmd.name}`,
       trigger: cmd.name,
       title: cmd.name,
@@ -1249,7 +1275,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       }
     }
 
-    if (event.key === "!" && store.mode === "normal") {
+    if (event.key === "!" && store.mode === "normal" && engine() === "opencode") {
       const cursorPosition = getCursorPosition(editorRef)
       if (cursorPosition === 0) {
         setStore("mode", "shell")
@@ -1372,6 +1398,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
+      if (engine() === "codex" && (!codex.canSubmit() || codex.busy())) return
       if (
         working() &&
         prompt
@@ -1455,7 +1482,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       />
       <DockShellForm
         data-dock-border-underlay="legacy"
-        onSubmit={handleSubmit}
+        onSubmit={(event) => {
+          if (engine() === "codex" && (!codex.canSubmit() || codex.busy())) {
+            event.preventDefault()
+            return
+          }
+          return handleSubmit(event)
+        }}
         classList={{
           "group/prompt-input": true,
           "border-icon-info-active border-dashed": store.draggingType !== null,
@@ -1574,12 +1607,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
-              <PromptPermissionSelect controller={permissionControl} onClose={restoreFocus} />
+              <Show
+                when={engine() === "codex"}
+                fallback={<PromptPermissionSelect controller={permissionControl} onClose={restoreFocus} />}
+              >
+                <CodexPermissionSelect controller={codex} />
+              </Show>
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
-                  disabled={!working() && blank()}
+                  disabled={(!working() && blank()) || (engine() === "codex" && (!codex.canSubmit() || codex.busy()))}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                   variant="primary"
@@ -1646,7 +1684,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Button>
               </div>
               <div class="flex items-center gap-1.5 min-w-0 flex-1 h-7">
-                <Show when={!agentsLoading()}>
+                <PromptEngineSelect controller={codex} />
+                <Show when={engine() === "opencode" && !agentsLoading()}>
                   <div
                     data-component="prompt-agent-control"
                     classList={{ "animate-in fade-in duration-300": agentsShouldFadeIn() }}
@@ -1675,7 +1714,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     </TooltipKeybind>
                   </div>
                 </Show>
-                <Show when={!providersLoading()}>
+                <Show when={engine() === "codex"}>
+                  <CodexModelSelect controller={codex} />
+                  <CodexEffortSelect controller={codex} />
+                </Show>
+                <Show when={engine() === "opencode" && !providersLoading()}>
                   <Show when={store.mode !== "shell"}>
                     <div
                       data-component="prompt-model-control"
@@ -1770,7 +1813,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             current={props.controls.model.selection.variant.current() ?? "default"}
                             label={(x) => (x === "default" ? language.t("common.default") : x)}
                             onSelect={(value) => {
-                              if (value === undefined || value === (props.controls.model.selection.variant.current() ?? "default")) return
+                              if (
+                                value === undefined ||
+                                value === (props.controls.model.selection.variant.current() ?? "default")
+                              )
+                                return
                               props.controls.model.selection.variant.set(value === "default" ? undefined : value)
                               restoreFocus()
                             }}
@@ -1790,6 +1837,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           </div>
         </DockTray>
       </Show>
+      <CodexSessionControls sessionID={props.controls.session.id} engine={engine()} />
     </div>
   )
 }

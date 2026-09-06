@@ -1,6 +1,9 @@
 import { createMemo, createEffect, on, onCleanup, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useSync } from "@/context/sync"
+import { useServerSync } from "@/context/server-sync"
+import { messageFieldAvailable } from "@opencode-ai/session-ui/message-availability"
+import { getExternalSessionMetrics } from "./session-external-metrics"
 import { checksum } from "@opencode-ai/core/util/encode"
 import { findLast } from "@opencode-ai/core/util/array"
 import { same } from "@/utils/same"
@@ -39,10 +42,15 @@ function Stat(props: { label: string; value: JSX.Element }) {
   )
 }
 
-function RawMessageContent(props: { message: Message; getParts: (id: string) => Part[]; onRendered: () => void }) {
+function RawMessageContent(props: {
+  message: Message
+  source?: unknown
+  getParts: (id: string) => Part[]
+  onRendered: () => void
+}) {
   const file = createMemo(() => {
     const parts = props.getParts(props.message.id)
-    const contents = JSON.stringify({ message: props.message, parts }, null, 2)
+    const contents = JSON.stringify(props.source ?? { message: props.message, parts }, null, 2)
     return {
       name: `${props.message.role}-${props.message.id}.json`,
       contents,
@@ -62,6 +70,7 @@ function RawMessageContent(props: { message: Message; getParts: (id: string) => 
 }
 
 function RawMessage(props: {
+  source?: unknown
   message: Message
   getParts: (id: string) => Part[]
   onRendered: () => void
@@ -76,7 +85,9 @@ function RawMessage(props: {
               {props.message.role} <span class="text-text-base">• {props.message.id}</span>
             </div>
             <div class="flex items-center gap-3">
-              <div class="shrink-0 text-12-regular text-text-weak">{props.time(props.message.time.created)}</div>
+              <div class="shrink-0 text-12-regular text-text-weak">
+                {props.time(messageFieldAvailable(props.message, "time") ? props.message.time.created : undefined)}
+              </div>
               <Icon name="chevron-grabber-vertical" size="small" class="shrink-0 text-text-weak" />
             </div>
           </div>
@@ -84,7 +95,12 @@ function RawMessage(props: {
       </StickyAccordionHeader>
       <Accordion.Content class="bg-background-base">
         <div class="p-3">
-          <RawMessageContent message={props.message} getParts={props.getParts} onRendered={props.onRendered} />
+          <RawMessageContent
+            source={props.source}
+            message={props.message}
+            getParts={props.getParts}
+            onRendered={props.onRendered}
+          />
         </div>
       </Accordion.Content>
     </Accordion.Item>
@@ -96,10 +112,15 @@ const emptyUserMessages: UserMessage[] = []
 
 export function SessionContextTab() {
   const sync = useSync()
+  const serverSync = useServerSync()
   const language = useLanguage()
   const sdk = useSDK()
   const providers = useProviders(() => sdk().directory)
   const { params, view } = useSessionLayout()
+  const external = () => !!params.id && serverSync().external.isExternal(params.id)
+  const nativeSnapshot = () => (params.id ? serverSync().external.data.snapshots[params.id] : undefined)
+  const native = createMemo(() => getExternalSessionMetrics(nativeSnapshot()))
+  const nativeMessages = createMemo(() => new Map(nativeSnapshot()?.messages.map((message) => [message.id, message])))
 
   const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))
 
@@ -138,14 +159,23 @@ export function SessionContextTab() {
       }),
   )
 
-  const ctx = createMemo(() => getSessionContext(messages(), [...providers.all().values()]))
+  const ctx = createMemo(() => (external() ? undefined : getSessionContext(messages(), [...providers.all().values()])))
   const formatter = createMemo(() => createSessionContextFormatter(language.intl()))
 
   const cost = createMemo(() => {
+    if (external()) return native().cost === undefined ? "—" : usd().format(native().cost!)
     return usd().format(info()?.cost ?? 0)
   })
 
   const counts = createMemo(() => {
+    if (external()) {
+      const all = nativeSnapshot()?.messages ?? []
+      return {
+        all: all.length,
+        user: all.filter((item) => item.type === "user").length,
+        assistant: all.filter((item) => item.type === "assistant").length,
+      }
+    }
     const all = messages()
     const user = all.reduce((count, x) => count + (x.role === "user" ? 1 : 0), 0)
     const assistant = all.reduce((count, x) => count + (x.role === "assistant" ? 1 : 0), 0)
@@ -172,6 +202,7 @@ export function SessionContextTab() {
   })
 
   const modelLabel = createMemo(() => {
+    if (external()) return nativeSnapshot()?.descriptor.settings.model ?? "—"
     const c = ctx()
     if (!c) return "—"
     return c.modelLabel
@@ -201,28 +232,49 @@ export function SessionContextTab() {
     return language.t("context.breakdown.other")
   }
 
-  const stats = [
-    { label: "context.stats.session", value: () => info()?.title ?? params.id ?? "—" },
-    { label: "context.stats.messages", value: () => counts().all.toLocaleString(language.intl()) },
-    { label: "context.stats.provider", value: providerLabel },
-    { label: "context.stats.model", value: modelLabel },
-    { label: "context.stats.limit", value: () => formatter().number(ctx()?.limit) },
-    { label: "context.stats.totalTokens", value: () => formatter().number(ctx()?.total) },
-    { label: "context.stats.usage", value: () => formatter().percent(ctx()?.usage) },
-    { label: "context.stats.inputTokens", value: () => formatter().number(ctx()?.input) },
-    { label: "context.stats.outputTokens", value: () => formatter().number(ctx()?.message.tokens.output) },
-    { label: "context.stats.reasoningTokens", value: () => formatter().number(ctx()?.message.tokens.reasoning) },
-    {
-      label: "context.stats.cacheTokens",
-      value: () =>
-        `${formatter().number(ctx()?.message.tokens.cache.read)} / ${formatter().number(ctx()?.message.tokens.cache.write)}`,
-    },
-    { label: "context.stats.userMessages", value: () => counts().user.toLocaleString(language.intl()) },
-    { label: "context.stats.assistantMessages", value: () => counts().assistant.toLocaleString(language.intl()) },
-    { label: "context.stats.totalCost", value: cost },
-    { label: "context.stats.sessionCreated", value: () => formatter().time(info()?.time.created) },
-    { label: "context.stats.lastActivity", value: () => formatter().time(ctx()?.message.time.created) },
-  ] satisfies { label: string; value: () => JSX.Element }[]
+  const stats = createMemo(
+    () =>
+      [
+        { label: "context.stats.session", value: () => info()?.title ?? params.id ?? "—" },
+        { label: "context.stats.messages", value: () => counts().all.toLocaleString(language.intl()) },
+        { label: "context.stats.provider", value: providerLabel },
+        { label: "context.stats.model", value: modelLabel },
+        { label: "context.stats.limit", value: () => formatter().number(external() ? native().limit : ctx()?.limit) },
+        {
+          label: external() ? "codex.context.totalTokens" : "context.stats.totalTokens",
+          value: () => formatter().number(external() ? native().tokens?.total : ctx()?.total),
+        },
+        ...(external()
+          ? [{ label: "codex.context.currentTokens", value: () => formatter().number(native().current) }]
+          : []),
+        { label: "context.stats.usage", value: () => formatter().percent(external() ? native().usage : ctx()?.usage) },
+        {
+          label: "context.stats.inputTokens",
+          value: () => formatter().number(external() ? native().tokens?.input : ctx()?.input),
+        },
+        {
+          label: "context.stats.outputTokens",
+          value: () => formatter().number(external() ? native().tokens?.output : ctx()?.message.tokens.output),
+        },
+        {
+          label: "context.stats.reasoningTokens",
+          value: () => formatter().number(external() ? native().tokens?.reasoning : ctx()?.message.tokens.reasoning),
+        },
+        {
+          label: "context.stats.cacheTokens",
+          value: () =>
+            `${formatter().number(external() ? native().tokens?.cache.read : ctx()?.message.tokens.cache.read)} / ${formatter().number(external() ? native().tokens?.cache.write : ctx()?.message.tokens.cache.write)}`,
+        },
+        { label: "context.stats.userMessages", value: () => counts().user.toLocaleString(language.intl()) },
+        { label: "context.stats.assistantMessages", value: () => counts().assistant.toLocaleString(language.intl()) },
+        { label: "context.stats.totalCost", value: cost },
+        { label: "context.stats.sessionCreated", value: () => formatter().time(info()?.time.created) },
+        {
+          label: "context.stats.lastActivity",
+          value: () => formatter().time(external() ? info()?.time.updated : ctx()?.message.time.created),
+        },
+      ] satisfies { label: string; value: () => JSX.Element }[],
+  )
 
   const exportSession = async () => {
     const sessionID = params.id
@@ -231,6 +283,7 @@ export function SessionContextTab() {
       const data = await fetchSessionExport({
         sessionID,
         client: sdk().client,
+        external: serverSync().external,
       })
       const filename = sessionExportFilename(data.info)
       downloadSessionExport(filename, data)
@@ -309,7 +362,7 @@ export function SessionContextTab() {
     >
       <div class="px-6 pt-4 pb-10 flex flex-col gap-10">
         <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
-          <For each={stats}>
+          <For each={stats()}>
             {(stat) => <Stat label={language.t(stat.label as Parameters<typeof language.t>[0])} value={stat.value()} />}
           </For>
         </div>
@@ -370,9 +423,15 @@ export function SessionContextTab() {
             </Button>
           </div>
           <Accordion multiple>
-            <For each={messages()}>
+            <For each={external() ? messages().filter((message) => nativeMessages().has(message.id)) : messages()}>
               {(message) => (
-                <RawMessage message={message} getParts={getParts} onRendered={restoreScroll} time={formatter().time} />
+                <RawMessage
+                  source={nativeMessages().get(message.id)}
+                  message={message}
+                  getParts={getParts}
+                  onRendered={restoreScroll}
+                  time={formatter().time}
+                />
               )}
             </For>
           </Accordion>
