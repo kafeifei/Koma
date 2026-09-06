@@ -11,6 +11,7 @@
 }
 
 [data-component="task-sidebar"] {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -19,6 +20,7 @@
   padding: 12px 10px 10px;
   color: var(--v2-text-text-base);
   background: var(--v2-background-bg-deep);
+  border-inline-end: 1px solid var(--v2-border-border-muted);
   font-size: 13px;
   line-height: 20px;
 }

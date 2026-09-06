@@ -187,7 +187,7 @@ export function SessionRouteErrorBoundary(
       fallback={(error) =>
         settings.general.newLayoutDesigns() ? (
           <SessionRouteFrame padded={props.padded}>
-            <SessionPanelFrame newLayout raised={!!props.sessionID}>
+            <SessionPanelFrame newLayout>
               <SessionErrorFallback error={error} sessionID={props.sessionID} serverKey={props.serverKey} />
             </SessionPanelFrame>
           </SessionRouteFrame>
@@ -335,15 +335,14 @@ function SessionRouteFrame(props: ParentProps<{ padded?: boolean }>) {
   )
 }
 
-function SessionPanelFrame(props: ParentProps<{ newLayout: boolean; raised?: boolean }>) {
+function SessionPanelFrame(props: ParentProps<{ newLayout: boolean }>) {
   return (
     <div
       classList={{
         "flex-1 min-h-0 flex flex-col": true,
         "bg-v2-background-bg-base": props.newLayout,
         "bg-background-stronger": !props.newLayout,
-        "rounded-[10px] overflow-hidden": props.newLayout,
-        "shadow-[var(--v2-elevation-raised)]": props.newLayout && props.raised,
+        "overflow-hidden": props.newLayout,
       }}
     >
       {props.children}
@@ -475,15 +474,8 @@ export default function Page() {
     () => panelRow,
     ({ width }) => setPanelRowWidth(width),
   )
-  // The observer reports the content-box width, which already excludes the row
-  // padding; only the flex gap between the panels remains to subtract.
-  const sessionPanelAvailable = createMemo(() => {
-    const width = panelRowWidth()
-    if (width === undefined) return undefined
-    return width - (settings.general.newLayoutDesigns() ? 8 : 0)
-  })
   const sessionPanelMax = createMemo(() => {
-    const available = sessionPanelAvailable()
+    const available = panelRowWidth()
     if (available === undefined) return 1000
     return sessionPanelWidthMax({ available })
   })
@@ -492,7 +484,7 @@ export default function Page() {
   const sessionPanelResizedWidth = createMemo(() =>
     clampSessionPanelWidth({
       width: layout.session.width(),
-      available: sessionPanelAvailable(),
+      available: panelRowWidth(),
     }),
   )
   const sessionPanelWidth = createMemo(() => {
@@ -2262,13 +2254,7 @@ export default function Page() {
   return (
     <SessionRouteFrame>
       <SessionHeader />
-      <div
-        ref={panelRow}
-        class="flex-1 min-h-0 flex flex-col md:flex-row"
-        classList={{
-          "gap-2 p-2": settings.general.newLayoutDesigns(),
-        }}
-      >
+      <div ref={panelRow} class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!isDesktop() && !!params.id && !settings.general.newLayoutDesigns()}>{mobileTabs()}</Show>
 
         <div
@@ -2284,23 +2270,18 @@ export default function Page() {
           {settings.general.newLayoutDesigns() ? (
             <Show when={sessionPanelKey()} keyed>
               {(_) => (
-                <SessionPanelFrame newLayout raised={!!params.id}>
+                <SessionPanelFrame newLayout>
                   <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
                 </SessionPanelFrame>
               )}
             </Show>
           ) : (
-            <SessionPanelFrame newLayout={false} raised={!!params.id}>
-              {sessionPanelContent()}
-            </SessionPanelFrame>
+            <SessionPanelFrame newLayout={false}>{sessionPanelContent()}</SessionPanelFrame>
           )}
 
           <Show when={desktopSessionResizeOpen()}>
             <div onPointerDown={() => size.start()}>
               <ResizeHandle
-                classList={{
-                  "-end-1": settings.general.newLayoutDesigns(),
-                }}
                 direction="horizontal"
                 size={sessionPanelResizedWidth()}
                 min={SESSION_PANEL_WIDTH_MIN}
