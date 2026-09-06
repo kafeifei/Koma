@@ -97,6 +97,35 @@ test.beforeEach(async ({ page }) => {
   await expect(editor(page)).toBeEditable()
 })
 
+test("first new-task shortcut preserves Chinese composition and retains the committed text", async ({ page }) => {
+  const modifier = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"))
+  await page.keyboard.press(`${modifier}+n`)
+  await expect(page).toHaveURL(new URL(inputHref(directory), page.url()).href)
+  await expect(editor(page)).toBeEditable()
+  await expect(editor(page)).toBeFocused()
+  await expect(editor(page)).toBeEmpty()
+
+  const cdp = await page.context().newCDPSession(page)
+  // Use Chromium's composition engine, not fill(), which bypasses the IME preedit range.
+  await cdp.send("Input.imeSetComposition", { text: "n", selectionStart: 0, selectionEnd: 1 })
+  await expect(editor(page)).toHaveText("n")
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("n")
+  await cdp.send("Input.imeSetComposition", { text: "ni", selectionStart: 0, selectionEnd: 2 })
+  await expect(editor(page)).toHaveText("ni")
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("ni")
+  await cdp.send("Input.insertText", { text: "\u4f60" })
+  await expect(editor(page)).toHaveText("\u4f60")
+  await expect(editor(page)).toBeFocused()
+  await cdp.detach()
+
+  await sidebar(page).locator('[data-session-id="ses-retained"]').click()
+  await expect(editor(page)).toBeEmpty()
+  await page.keyboard.press(`${modifier}+n`)
+  await expect(editor(page)).toHaveText("\u4f60")
+  await expect(editor(page)).toBeFocused()
+})
+
 test("reuses new input, keeps conversations separate, and restores after refresh and close", async ({ page }, info) => {
   await editor(page).fill("Conversation-only input")
   await newTask(page).click()
