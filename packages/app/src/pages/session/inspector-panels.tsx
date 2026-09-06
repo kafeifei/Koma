@@ -5,7 +5,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { useParams } from "@solidjs/router"
-import { createEffect, createMemo, For, on, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, For, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
@@ -449,6 +449,14 @@ export function ChildSessionPanel(props: {
     ),
   )
 
+  onMount(() => {
+    const targetSessionID = props.sessionID
+    console.info("[subagent-navigation]", JSON.stringify({ phase: "mounted", targetSessionID }))
+    onCleanup(() => {
+      console.info("[subagent-navigation]", JSON.stringify({ phase: "unmounted", targetSessionID }))
+    })
+  })
+
   createEffect(() => {
     const id = props.sessionID
     const store = serverSync().session
@@ -462,10 +470,22 @@ export function ChildSessionPanel(props: {
     setState({ loading: true, failed: false })
     Promise.all([store.resolve(id), store.sync(id)]).then(
       () => {
-        if (loadRequest === current && props.sessionID === id) setState("loading", false)
+        if (loadRequest !== current || props.sessionID !== id) return
+        setState("loading", false)
+        console.info(
+          "[subagent-navigation]",
+          JSON.stringify({
+            phase: "loaded",
+            targetSessionID: id,
+            found: !!store.get(id),
+            messages: (store.data.message[id] ?? []).length,
+          }),
+        )
       },
       () => {
-        if (loadRequest === current && props.sessionID === id) setState({ loading: false, failed: true })
+        if (loadRequest !== current || props.sessionID !== id) return
+        setState({ loading: false, failed: true })
+        console.info("[subagent-navigation]", JSON.stringify({ phase: "load-failed", targetSessionID: id }))
       },
     )
   }

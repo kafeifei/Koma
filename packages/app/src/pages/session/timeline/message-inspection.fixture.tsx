@@ -1,4 +1,4 @@
-import type { AssistantMessage, ToolPart } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, Session, ToolPart } from "@opencode-ai/sdk/v2"
 import { DataProvider } from "@opencode-ai/session-ui/context/data"
 import { ContextToolGroup, Message } from "@opencode-ai/session-ui/message-part"
 import { render } from "solid-js/web"
@@ -30,6 +30,7 @@ export function tool(input: {
 
 export function mount(input: {
   part: ToolPart
+  sessions?: Session[]
   onInspectTool?: (part: ToolPart) => void
   onPreviewSession?: (id: string) => void
 }) {
@@ -48,7 +49,7 @@ export function mount(input: {
       <DataProvider
         data={{
           agent: [{ name: "explore", color: "blue" }],
-          session: [],
+          session: input.sessions ?? [],
           session_status: {},
           session_diff: {},
           message: {},
