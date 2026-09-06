@@ -1593,11 +1593,14 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
   const controlledOpen = () => (props.onToolOpenChange ? (props.toolOpen ?? props.defaultOpen) : undefined)
   const handleToolOpenChange = (open: boolean) => props.onToolOpenChange?.(open)
-  const inspect = () => !!props.onInspectTool && part().tool !== "task" && part().tool !== "question"
-  const preview = () => !!props.onPreviewSession && part().tool === "task"
+  const inspect = () =>
+    !!props.onInspectTool &&
+    part().tool !== "question" &&
+    (part().tool !== "task" || (part().state.status === "error" && !taskId()))
+  const preview = () => !!props.onPreviewSession && part().tool === "task" && !!taskId()
   const handleTriggerClick = (event: MouseEvent) => {
     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-    if (part().tool === "task") {
+    if (preview()) {
       const id = taskId()
       if (!id || !props.onPreviewSession) return
       event.preventDefault()

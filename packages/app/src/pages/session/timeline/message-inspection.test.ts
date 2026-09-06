@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { Session, ToolPart } from "@opencode-ai/sdk/v2"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -124,6 +124,51 @@ describe("message tool inspection", () => {
     expect(previews).toEqual(["session-child"])
     fixture.click(link, { metaKey: true })
     expect(previews).toEqual(["session-child"])
+  })
+
+  test("opens failed task details when no child session was created", () => {
+    const inspected: ToolPart[] = []
+    const previews: string[] = []
+    const root = mount({
+      part: fixture.tool({ name: "task", status: "error", error: "Subagent depth limit reached (1)." }),
+      onInspectTool: (part) => inspected.push(part),
+      onPreviewSession: (id) => previews.push(id),
+    })
+
+    fixture.click(root.querySelector('[data-component="tool-trigger"]')!)
+    expect(inspected.map((part) => part.id)).toEqual(["part-task"])
+    expect(previews).toEqual([])
+
+    const detail = mount({ part: inspected[0]! })
+    fixture.click(detail.querySelector('[data-component="tool-trigger"]')!)
+    expect(detail.textContent).toContain("Subagent depth limit reached (1).")
+  })
+
+  test("does not mistake an older matching child for a failed task without child metadata", () => {
+    const inspected: ToolPart[] = []
+    const previews: string[] = []
+    const root = mount({
+      part: fixture.tool({
+        name: "task",
+        status: "error",
+        error: "Error: child failed",
+        args: { description: "Inspect child", subagent_type: "explore" },
+      }),
+      sessions: [
+        {
+          id: "session-child",
+          parentID: "session-parent",
+          title: "Inspect child (@explore subagent)",
+          time: { created: 1 },
+        } as Session,
+      ],
+      onInspectTool: (part) => inspected.push(part),
+      onPreviewSession: (id) => previews.push(id),
+    })
+
+    fixture.click(root.querySelector('[data-component="tool-trigger"]')!)
+    expect(previews).toEqual([])
+    expect(inspected.map((part) => part.id)).toEqual(["part-task"])
   })
 
   test("does not redirect question tools to the inspector", () => {

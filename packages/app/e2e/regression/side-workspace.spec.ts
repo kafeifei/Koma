@@ -14,11 +14,14 @@ const childTitle = "Inspect the child task"
 const shellPartID = "prt_side_shell"
 const readPartID = "prt_side_read"
 const taskPartID = "prt_side_task"
+const failedTaskPartID = "prt_side_failed_task"
 const shellOutput = "alpha-shell-output"
 const readOutput = "alpha-read-output"
 const childCommand = "printf child-session-marker"
 const childOutput = "child-session-output"
 const otherOutput = "beta-shell-output"
+const failedTaskDescription = "Locate shell sidebar navigation"
+const failedTaskError = 'Subagent depth limit reached (1). Increase "subagent_depth" to allow nested subagents.'
 const ptyA = "pty_side_a"
 const ptyB = "pty_side_b"
 const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
@@ -221,6 +224,28 @@ test.describe("cold-cache child discovery", () => {
   })
 })
 
+test.describe("unresolved failed task", () => {
+  for (const protocol of ["v1", "v2"] as const) {
+    test(`opens ${protocol} task error details when no child session was created`, async ({ page }) => {
+      await setup(page, true, { failedTask: true, protocol })
+      await page.goto(sessionHref(parentID))
+      await expectSessionTitle(page, parentTitle)
+
+      const parentURL = page.url()
+      const task = timelinePart(page, failedTaskPartID)
+      await expect(task).toContainText(failedTaskDescription)
+      await task.locator('[data-slot="collapsible-trigger"]').click()
+
+      await expect(page).toHaveURL(parentURL)
+      await expectSessionTitle(page, parentTitle)
+      const inspector = page.locator('[data-component="tool-inspector-panel"]')
+      await expect(inspector).toBeVisible()
+      await expect(inspector).toContainText(failedTaskError)
+      await expect(page.locator('[data-component="child-session-panel"]')).toHaveCount(0)
+    })
+  }
+})
+
 test.describe("legacy layout", () => {
   test.beforeEach(async ({ page }) => {
     await setup(page, false)
@@ -240,7 +265,11 @@ test.describe("legacy layout", () => {
   })
 })
 
-async function setup(page: Page, newLayout: boolean, options?: { parentTask?: boolean; protocol?: "v1" | "v2" }) {
+async function setup(
+  page: Page,
+  newLayout: boolean,
+  options?: { parentTask?: boolean; failedTask?: boolean; protocol?: "v1" | "v2" },
+) {
   const todos = [
     { id: "todo-side", content: "Keep the side workspace visible", status: "in_progress", priority: "high" },
   ]
@@ -399,7 +428,7 @@ function session(id: string, title: string, created: number, extra?: Record<stri
   }
 }
 
-function messages(sessionID: string, options?: { parentTask?: boolean }) {
+function messages(sessionID: string, options?: { parentTask?: boolean; failedTask?: boolean }) {
   if (sessionID === parentID)
     return conversation(
       parentID,
@@ -415,7 +444,8 @@ function messages(sessionID: string, options?: { parentTask?: boolean }) {
               "Subagent is still working",
               { sessionId: childID },
             ),
-      ].filter((part): part is ReturnType<typeof tool> => !!part),
+        options?.failedTask ? failedTask() : undefined,
+      ].filter((part): part is ToolFixture => !!part),
     )
   if (sessionID === otherID)
     return conversation(otherID, [tool("prt_other_shell", "bash", { command: "printf beta" }, otherOutput)])
@@ -424,7 +454,9 @@ function messages(sessionID: string, options?: { parentTask?: boolean }) {
   return []
 }
 
-function conversation(sessionID: string, parts: ReturnType<typeof tool>[]) {
+type ToolFixture = ReturnType<typeof tool> | ReturnType<typeof failedTask>
+
+function conversation(sessionID: string, parts: ToolFixture[]) {
   const userID = `msg_${sessionID}_user`
   const assistantID = sessionID === childID ? "msg_child_assistant" : `msg_${sessionID}_assistant`
   return [
@@ -472,6 +504,23 @@ function tool(id: string, name: string, input: Record<string, unknown>, output: 
       output,
       title: name,
       metadata,
+      time: { start: 1700000001000, end: 1700000002000 },
+    },
+  }
+}
+
+function failedTask() {
+  return {
+    id: failedTaskPartID,
+    type: "tool",
+    callID: `call_${failedTaskPartID}`,
+    tool: "task",
+    state: {
+      status: "error",
+      input: { description: failedTaskDescription, subagent_type: "explore" },
+      error: failedTaskError,
+      title: failedTaskDescription,
+      metadata: null,
       time: { start: 1700000001000, end: 1700000002000 },
     },
   }
