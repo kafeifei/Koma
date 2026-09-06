@@ -2,6 +2,12 @@ Launch a new agent to handle complex, multistep tasks autonomously.
 
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
 
+Choose the model and reasoning effort before delegating, following the user's model-selection instructions and the task's complexity. Set model to an exact provider/model ID from the available models, and variant to a supported reasoning preset. Prefer an appropriate lower-cost model for clear, bounded work when instructed; use a stronger model for complex work or an explicit escalation. Agent type describes the work and tool permissions, independently of model selection.
+
+Model selection applies only to this child task. Without model, a new task uses the agent's configured model or inherits the caller's model and reasoning preset. An explicit model uses its own default preset unless variant is supplied or that model matches an agent with a configured preset. Use variant="default" to explicitly select the model default. Invalid models or presets fail rather than silently falling back.
+
+When resuming task_id, omitted model/variant keep the child's existing selection. You can explicitly change the model or variant after the task finishes. A running task accepts follow-up context with the same selection; wait until it finishes before changing its model or preset.
+
 When NOT to use the Task tool:
 - If you want to read a specific file path, use the Read or Glob tool instead of the Task tool, to find the match more quickly
 - If you are searching for a specific class definition like "class Foo", use the Grep tool instead, to find the match more quickly

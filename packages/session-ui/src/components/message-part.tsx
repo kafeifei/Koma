@@ -66,6 +66,7 @@ import { animate } from "motion"
 import { attached, inline, kind, typeLabel } from "./message-file"
 import { readPartText } from "./message-part-text"
 import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
+import { taskToolSubtitle } from "./task-tool-subtitle"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -521,7 +522,7 @@ export function getToolInfo(
       return {
         icon: "task",
         title: agentTitle(i18n, type),
-        subtitle: input.description,
+        subtitle: taskToolSubtitle(input, metadata),
       }
     }
     case "bash":
@@ -1585,9 +1586,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   })
   const taskSubtitle = createMemo(() => {
     if (part().tool !== "task") return undefined
-    const value = input().description
-    if (typeof value === "string" && value) return value
-    return taskId()
+    return taskToolSubtitle(input(), partMetadata(), taskId())
   })
 
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
@@ -2058,10 +2057,7 @@ ToolRegistry.register({
     const tone = createMemo(() => agent().color)
     const v2Tone = createMemo(() => agent().v2Color)
     const subtitle = createMemo(() => {
-      const value =
-        typeof props.input.description === "string" && props.input.description
-          ? props.input.description
-          : childSessionId()
+      const value = taskToolSubtitle(props.input, props.metadata, childSessionId())
       if (!value) return value
       if (props.metadata.background === true) return `${value} (background)`
       return value

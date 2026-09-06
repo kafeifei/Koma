@@ -357,7 +357,11 @@ const TOOL_SAMPLES = {
     input: { description: "Explore components", subagent_type: "explore", prompt: "Find all session components" },
     output: "Found 12 session-related components across 3 directories.",
     title: "Agent (Explore)",
-    metadata: { sessionId: "sub-session-1" },
+    metadata: {
+      sessionId: "sub-session-1",
+      model: { providerID: "openai", modelID: "gpt-5.6-luna" },
+      variant: "high",
+    },
   },
   "task build": {
     tool: "task",

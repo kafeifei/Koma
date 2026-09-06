@@ -21,9 +21,10 @@ import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { disposeAllInstances } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { awaitWithTimeout, testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@/provider/provider"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -32,6 +33,40 @@ afterEach(async () => {
 const ref = {
   providerID: ProviderV2.ID.make("test"),
   modelID: ModelV2.ID.make("test-model"),
+}
+
+const modelConfig = {
+  provider: {
+    test: {
+      name: "Test",
+      env: [],
+      npm: "@ai-sdk/openai-compatible",
+      models: {
+        "test-model": {
+          name: "Test Model",
+          tool_call: true,
+          reasoning: true,
+          limit: { context: 100_000, output: 10_000 },
+          variants: {
+            low: { reasoningEffort: "low" },
+            high: { reasoningEffort: "high" },
+            xhigh: { reasoningEffort: "xhigh" },
+          },
+        },
+        "alternate-model": {
+          name: "Alternate Model",
+          tool_call: true,
+          reasoning: true,
+          limit: { context: 100_000, output: 10_000 },
+          variants: {
+            low: { reasoningEffort: "low" },
+            high: { reasoningEffort: "high" },
+          },
+        },
+      },
+      options: { apiKey: "test-key" },
+    },
+  },
 }
 
 const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
@@ -48,6 +83,7 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       SessionStatus.node,
       Truncate.node,
       ToolRegistry.node,
+      Provider.node,
       Database.node,
       RuntimeFlags.node,
       Ripgrep.node,
@@ -245,6 +281,23 @@ describe("tool.task", () => {
     },
   )
 
+  it.instance(
+    "description lists exact task models and variants",
+    () =>
+      Effect.gen(function* () {
+        const agent = yield* Agent.Service
+        const build = yield* agent.get("build")
+        const registry = yield* ToolRegistry.Service
+        const description =
+          (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)?.description ?? ""
+
+        expect(description).toContain("Available models for task dispatch (use these exact IDs):")
+        expect(description).toContain("- test/alternate-model: Alternate Model; variants: default, high, low, medium")
+        expect(description).toContain("- test/test-model: Test Model; variants: default, high, low, medium, xhigh")
+      }),
+    { config: modelConfig },
+  )
+
   it.instance("execute resumes an existing task session from task_id", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
@@ -282,6 +335,216 @@ describe("tool.task", () => {
       expect(seen?.sessionID).toBe(child.id)
       expect(seen?.variant).toBe("xhigh")
     }),
+  )
+
+  it.instance(
+    "execute uses an explicit model and variant without changing the parent",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        let seen: SessionPrompt.PromptInput | undefined
+        const metadata: unknown[] = []
+
+        const result = yield* def.execute(
+          {
+            description: "inspect model routing",
+            prompt: "check the selected model",
+            subagent_type: "general",
+            model: "test/alternate-model",
+            variant: "high",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps({ onPrompt: (input) => (seen = input) }) },
+            messages: [],
+            metadata: (input) => Effect.sync(() => metadata.push(input)),
+            ask: () => Effect.void,
+          },
+        )
+
+        expect(result.metadata.model).toEqual({
+          providerID: ProviderV2.ID.make("test"),
+          modelID: ModelV2.ID.make("alternate-model"),
+        })
+        expect(result.metadata.variant).toBe("high")
+        expect(seen?.model).toEqual(result.metadata.model)
+        expect(seen?.variant).toBe("high")
+        expect((yield* sessions.get(result.metadata.sessionId)).model).toEqual({
+          providerID: ProviderV2.ID.make("test"),
+          id: ModelV2.ID.make("alternate-model"),
+          variant: "high",
+        })
+        expect((yield* sessions.get(chat.id)).model).toBeUndefined()
+        expect(metadata).toContainEqual({
+          title: "inspect model routing",
+          metadata: {
+            parentSessionId: chat.id,
+            sessionId: result.metadata.sessionId,
+            model: result.metadata.model,
+            variant: "high",
+          },
+        })
+      }),
+    { config: modelConfig },
+  )
+
+  it.instance(
+    "explicit model without variant does not inherit the parent variant",
+    () =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        let seen: SessionPrompt.PromptInput | undefined
+
+        const result = yield* def.execute(
+          {
+            description: "use model default",
+            prompt: "use the alternate model default",
+            subagent_type: "general",
+            model: "test/alternate-model",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps({ onPrompt: (input) => (seen = input) }) },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        expect(result.metadata.variant).toBe("default")
+        expect(seen?.model).toEqual({
+          providerID: ProviderV2.ID.make("test"),
+          modelID: ModelV2.ID.make("alternate-model"),
+        })
+        expect(seen?.variant).toBe("default")
+      }),
+    { config: modelConfig },
+  )
+
+  it.instance(
+    "idle task resumes with its model and accepts an explicit variant change",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const seen: SessionPrompt.PromptInput[] = []
+        const context = {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps({ onPrompt: (input) => seen.push(input) }) },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
+
+        const first = yield* def.execute(
+          {
+            description: "start alternate task",
+            prompt: "first turn",
+            subagent_type: "general",
+            model: "test/alternate-model",
+            variant: "low",
+          },
+          context,
+        )
+        const resumed = yield* def.execute(
+          {
+            description: "resume alternate task",
+            prompt: "second turn",
+            subagent_type: "general",
+            task_id: first.metadata.sessionId,
+          },
+          context,
+        )
+        const changed = yield* def.execute(
+          {
+            description: "change task model",
+            prompt: "third turn",
+            subagent_type: "general",
+            task_id: first.metadata.sessionId,
+            model: "test/alternate-model",
+            variant: "high",
+          },
+          context,
+        )
+
+        expect(resumed.metadata.model).toEqual(first.metadata.model)
+        expect(resumed.metadata.variant).toBe("low")
+        expect(seen[1]?.model).toEqual(first.metadata.model)
+        expect(seen[1]?.variant).toBe("low")
+        expect(changed.metadata.model).toEqual(first.metadata.model)
+        expect(changed.metadata.variant).toBe("high")
+        expect(seen[2]?.model).toEqual(first.metadata.model)
+        expect(seen[2]?.variant).toBe("high")
+        expect(yield* sessions.children(chat.id)).toHaveLength(1)
+      }),
+    { config: modelConfig },
+  )
+
+  it.instance(
+    "invalid explicit model or variant fails before creating a child",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const context = {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps() },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
+
+        const missingModel = yield* def
+          .execute(
+            {
+              description: "reject missing model",
+              prompt: "do not run",
+              subagent_type: "general",
+              model: "test/missing-model",
+            },
+            context,
+          )
+          .pipe(Effect.exit)
+        expect(Exit.isFailure(missingModel)).toBe(true)
+        expect(yield* sessions.children(chat.id)).toHaveLength(0)
+
+        const missingVariant = yield* def
+          .execute(
+            {
+              description: "reject missing variant",
+              prompt: "do not run",
+              subagent_type: "general",
+              model: "test/alternate-model",
+              variant: "xhigh",
+            },
+            context,
+          )
+          .pipe(Effect.exit)
+        expect(Exit.isFailure(missingVariant)).toBe(true)
+        expect(yield* sessions.children(chat.id)).toHaveLength(0)
+      }),
+    { config: modelConfig },
   )
 
   it.instance("execute surfaces child errors with a resumable task_id", () =>
@@ -787,78 +1050,381 @@ describe("tool.task", () => {
     }),
   )
 
-  background.instance("background task completion waits for running updates", () =>
-    Effect.gen(function* () {
-      const jobs = yield* BackgroundJob.Service
-      const { chat, assistant } = yield* seed()
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-      const first = defer<void>()
-      const second = defer<void>()
-      const updated = defer<SessionPrompt.PromptInput>()
-      const injected = defer<SessionPrompt.PromptInput>()
-      let prompts = 0
-      const promptOps: TaskPromptOps = {
-        ...stubOps(),
-        prompt: (input) => {
-          if (input.sessionID === chat.id) {
-            injected.resolve(input)
-            return Effect.succeed(reply(input, "done"))
-          }
-          prompts++
-          if (prompts === 1) return Effect.promise(() => first.promise).pipe(Effect.as(reply(input, "first done")))
-          updated.resolve(input)
-          return Effect.promise(() => second.promise).pipe(Effect.as(reply(input, "second done")))
-        },
-      }
-      const context = {
-        sessionID: chat.id,
-        messageID: assistant.id,
-        agent: "build",
-        abort: new AbortController().signal,
-        extra: { promptOps },
-        messages: [],
-        metadata: () => Effect.void,
-        ask: () => Effect.void,
-      }
+  background.instance(
+    "running task rejects model or variant changes",
+    () =>
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        let prompts = 0
+        const context = {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: () => {
+                prompts++
+                return Effect.never
+              },
+            } satisfies TaskPromptOps,
+          },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
 
-      const started = yield* def.execute(
-        {
-          description: "inspect bug",
-          prompt: "look into the cache key path",
-          subagent_type: "general",
-          background: true,
-        },
-        context,
-      )
-      const result = yield* def.execute(
-        {
-          description: "add investigation scope",
-          prompt: "also inspect cancellation",
-          subagent_type: "general",
-          task_id: started.metadata.sessionId,
-        },
-        context,
-      )
+        const started = yield* def.execute(
+          {
+            description: "start fixed model",
+            prompt: "keep running",
+            subagent_type: "general",
+            model: "test/alternate-model",
+            variant: "low",
+            background: true,
+          },
+          context,
+        )
+        expect((yield* jobs.get(started.metadata.sessionId))?.status).toBe("running")
 
-      expect(result.metadata.sessionId).toBe(started.metadata.sessionId)
-      expect(result.metadata.background).toBe(true)
-      expect(result.output).toContain("Background task updated")
-      first.resolve()
-      expect((yield* jobs.get(started.metadata.sessionId))?.status).toBe("running")
-      expect((yield* Effect.promise(() => updated.promise)).parts).toEqual([
-        { type: "text", text: "also inspect cancellation" },
-      ])
+        const changed = yield* def
+          .execute(
+            {
+              description: "change running model",
+              prompt: "do not append",
+              subagent_type: "general",
+              task_id: started.metadata.sessionId,
+              model: "test/alternate-model",
+              variant: "high",
+            },
+            context,
+          )
+          .pipe(Effect.exit)
 
-      second.resolve()
-      const waited = yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
-      expect(waited.info?.status).toBe("completed")
-      expect(waited.info?.output).toBe("second done")
-      const notification = yield* Effect.promise(() => injected.promise)
-      expect(notification.variant).toBe("xhigh")
-      expect(notification.parts[0]?.type).toBe("text")
-      if (notification.parts[0]?.type === "text") expect(notification.parts[0].text).toContain("second done")
-    }),
+        expect(Exit.isFailure(changed)).toBe(true)
+        if (Exit.isSuccess(changed)) throw new Error("expected running model change to fail")
+        const failure = Cause.squash(changed.cause)
+        expect(failure).toBeInstanceOf(Error)
+        if (!(failure instanceof Error)) throw new Error("expected Error defect")
+        expect(failure.message).toContain("running")
+        expect(failure.message).toContain("model or variant")
+        expect(prompts).toBe(1)
+        expect(yield* sessions.children(chat.id)).toHaveLength(1)
+        expect((yield* sessions.get(started.metadata.sessionId)).model).toEqual({
+          id: ModelV2.ID.make("alternate-model"),
+          providerID: ProviderV2.ID.make("test"),
+          variant: "low",
+        })
+
+        yield* jobs.cancel(started.metadata.sessionId)
+      }),
+    { config: modelConfig },
+  )
+
+  background.instance(
+    "concurrent resumes serialize admission before registering a task run",
+    () =>
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const child = yield* sessions.create({
+          parentID: chat.id,
+          title: "Idle child",
+          agent: "general",
+          model: {
+            id: ModelV2.ID.make("alternate-model"),
+            providerID: ProviderV2.ID.make("test"),
+            variant: "low",
+          },
+        })
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const bAtMetadata = yield* Deferred.make<void>()
+        const releaseB = yield* Deferred.make<void>()
+        const aAsked = yield* Deferred.make<void>()
+        const bPrompted = yield* Deferred.make<void>()
+        let prompts = 0
+        let aMetadata = 0
+        const promptOps: TaskPromptOps = {
+          ...stubOps(),
+          prompt: () =>
+            Effect.gen(function* () {
+              prompts++
+              yield* Deferred.succeed(bPrompted, undefined)
+              return yield* Effect.never
+            }),
+        }
+
+        const b = yield* def
+          .execute(
+            {
+              description: "resume with low",
+              prompt: "run the low variant",
+              subagent_type: "general",
+              task_id: child.id,
+              model: "test/alternate-model",
+              variant: "low",
+              background: true,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps },
+              messages: [],
+              metadata: () =>
+                Effect.gen(function* () {
+                  yield* Deferred.succeed(bAtMetadata, undefined)
+                  yield* Deferred.await(releaseB)
+                }),
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.forkChild)
+
+        yield* awaitWithTimeout(Deferred.await(bAtMetadata), "B did not reach metadata")
+        const a = yield* def
+          .execute(
+            {
+              description: "resume with high",
+              prompt: "run the high variant",
+              subagent_type: "general",
+              task_id: child.id,
+              model: "test/alternate-model",
+              variant: "high",
+              background: true,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.sync(() => aMetadata++),
+              ask: () => Deferred.succeed(aAsked, undefined),
+            },
+          )
+          .pipe(Effect.exit, Effect.forkChild)
+
+        yield* awaitWithTimeout(Deferred.await(aAsked), "A did not reach admission")
+        yield* Deferred.succeed(releaseB, undefined)
+        const started = yield* awaitWithTimeout(Fiber.join(b), "B did not register")
+        yield* awaitWithTimeout(Deferred.await(bPrompted), "B provider did not start")
+        const conflict = yield* awaitWithTimeout(Fiber.join(a), "A remained blocked after B registered")
+
+        expect(started.metadata.sessionId).toBe(child.id)
+        expect((yield* jobs.get(child.id))?.status).toBe("running")
+        expect(Exit.isFailure(conflict)).toBe(true)
+        if (Exit.isSuccess(conflict)) throw new Error("expected concurrent resume conflict")
+        const failure = Cause.squash(conflict.cause)
+        expect(failure).toBeInstanceOf(Error)
+        if (!(failure instanceof Error)) throw new Error("expected Error defect")
+        expect(failure.message).toContain("running")
+        expect(failure.message).toContain("model or variant")
+        expect(prompts).toBe(1)
+        expect(aMetadata).toBe(0)
+
+        yield* jobs.cancel(child.id)
+      }),
+    { config: modelConfig },
+  )
+
+  background.instance(
+    "aborted admission waiter does not create or start a task",
+    () =>
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const child = yield* sessions.create({
+          parentID: chat.id,
+          title: "Idle child",
+          agent: "general",
+          model: {
+            id: ModelV2.ID.make("alternate-model"),
+            providerID: ProviderV2.ID.make("test"),
+            variant: "low",
+          },
+        })
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const bAtMetadata = yield* Deferred.make<void>()
+        const releaseB = yield* Deferred.make<void>()
+        const aAsked = yield* Deferred.make<void>()
+        const bPrompted = yield* Deferred.make<void>()
+        const abortA = new AbortController()
+        let prompts = 0
+        let aMetadata = 0
+        const promptOps: TaskPromptOps = {
+          ...stubOps(),
+          prompt: () =>
+            Effect.gen(function* () {
+              prompts++
+              yield* Deferred.succeed(bPrompted, undefined)
+              return yield* Effect.never
+            }),
+        }
+
+        const b = yield* def
+          .execute(
+            {
+              description: "resume existing child",
+              prompt: "keep running",
+              subagent_type: "general",
+              task_id: child.id,
+              model: "test/alternate-model",
+              variant: "low",
+              background: true,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps },
+              messages: [],
+              metadata: () =>
+                Effect.gen(function* () {
+                  yield* Deferred.succeed(bAtMetadata, undefined)
+                  yield* Deferred.await(releaseB)
+                }),
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.forkChild)
+
+        yield* awaitWithTimeout(Deferred.await(bAtMetadata), "B did not reach metadata")
+        const a = yield* def
+          .execute(
+            {
+              description: "create cancelled child",
+              prompt: "this must not run",
+              subagent_type: "general",
+              model: "test/alternate-model",
+              variant: "high",
+              background: true,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: abortA.signal,
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.sync(() => aMetadata++),
+              ask: () => Deferred.succeed(aAsked, undefined),
+            },
+          )
+          .pipe(Effect.exit, Effect.forkChild)
+
+        yield* awaitWithTimeout(Deferred.await(aAsked), "A did not reach admission")
+        abortA.abort()
+        yield* Deferred.succeed(releaseB, undefined)
+        const started = yield* awaitWithTimeout(Fiber.join(b), "B did not register")
+        yield* awaitWithTimeout(Deferred.await(bPrompted), "B provider did not start")
+        const cancelled = yield* awaitWithTimeout(Fiber.join(a), "A remained blocked after cancellation")
+
+        expect(started.metadata.sessionId).toBe(child.id)
+        expect(Exit.isFailure(cancelled)).toBe(true)
+        if (Exit.isSuccess(cancelled)) throw new Error("expected queued admission to be interrupted")
+        expect(Cause.hasInterrupts(cancelled.cause)).toBe(true)
+        expect(prompts).toBe(1)
+        expect(aMetadata).toBe(0)
+        expect(yield* sessions.children(chat.id)).toHaveLength(1)
+        expect(yield* jobs.list()).toHaveLength(1)
+        expect((yield* jobs.get(child.id))?.status).toBe("running")
+
+        yield* jobs.cancel(child.id)
+      }),
+    { config: modelConfig },
+  )
+
+  background.instance(
+    "background task completion waits for running updates",
+    () =>
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const first = defer<void>()
+        const second = defer<void>()
+        const updated = defer<SessionPrompt.PromptInput>()
+        const injected = defer<SessionPrompt.PromptInput>()
+        let prompts = 0
+        const promptOps: TaskPromptOps = {
+          ...stubOps(),
+          prompt: (input) => {
+            if (input.sessionID === chat.id) {
+              injected.resolve(input)
+              return Effect.succeed(reply(input, "done"))
+            }
+            prompts++
+            if (prompts === 1) return Effect.promise(() => first.promise).pipe(Effect.as(reply(input, "first done")))
+            updated.resolve(input)
+            return Effect.promise(() => second.promise).pipe(Effect.as(reply(input, "second done")))
+          },
+        }
+        const context = {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
+
+        const started = yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            model: "test/alternate-model",
+            variant: "low",
+            background: true,
+          },
+          context,
+        )
+        const result = yield* def.execute(
+          {
+            description: "add investigation scope",
+            prompt: "also inspect cancellation",
+            subagent_type: "general",
+            task_id: started.metadata.sessionId,
+          },
+          context,
+        )
+
+        expect(result.metadata.sessionId).toBe(started.metadata.sessionId)
+        expect(result.metadata.background).toBe(true)
+        expect(result.output).toContain("Background task updated")
+        first.resolve()
+        expect((yield* jobs.get(started.metadata.sessionId))?.status).toBe("running")
+        expect((yield* Effect.promise(() => updated.promise)).parts).toEqual([
+          { type: "text", text: "also inspect cancellation" },
+        ])
+        expect((yield* Effect.promise(() => updated.promise)).variant).toBe("low")
+
+        second.resolve()
+        const waited = yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+        expect(waited.info?.status).toBe("completed")
+        expect(waited.info?.output).toBe("second done")
+        const notification = yield* Effect.promise(() => injected.promise)
+        expect(notification.variant).toBe("xhigh")
+        expect(notification.parts[0]?.type).toBe("text")
+        if (notification.parts[0]?.type === "text") expect(notification.parts[0].text).toContain("second done")
+      }),
+    { config: modelConfig },
   )
 
   background.instance("background tasks complete through the background job service", () =>

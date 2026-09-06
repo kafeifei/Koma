@@ -94,6 +94,7 @@ const layer = Layer.effect(
     const config = yield* Config.Service
     const plugin = yield* Plugin.Service
     const agents = yield* Agent.Service
+    const providers = yield* Provider.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
     const mcp = yield* MCP.Service
@@ -274,7 +275,19 @@ const layer = Layer.effect(
             `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`,
         )
         .join("\n")
-      return ["Available agent types and the tools they have access to:", description].join("\n")
+      const models = Object.values(yield* providers.list())
+        .flatMap((provider) => Object.values(provider.models))
+        .filter((model) => model.capabilities.toolcall)
+        .toSorted((a, b) => `${a.providerID}/${a.id}`.localeCompare(`${b.providerID}/${b.id}`))
+        .map(
+          (model) =>
+            `- ${model.providerID}/${model.id}: ${model.name}; variants: ${["default", ...Object.keys(model.variants ?? {}).sort()].join(", ")}`,
+        )
+      return [
+        "Available agent types and the tools they have access to:",
+        description,
+        ...(models.length ? ["Available models for task dispatch (use these exact IDs):", ...models] : []),
+      ].join("\n")
     })
 
     const describeCodeMode = Effect.fn("ToolRegistry.describeCodeMode")(function* (input: {

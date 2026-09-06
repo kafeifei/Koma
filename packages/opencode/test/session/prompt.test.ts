@@ -167,6 +167,10 @@ const blockingProcessor = Layer.succeed(
 )
 
 const runtimeFlags = RuntimeFlags.layer({ experimentalEventSystem: true })
+const backgroundRuntimeFlags = RuntimeFlags.layer({
+  experimentalEventSystem: true,
+  experimentalBackgroundSubagents: true,
+})
 
 const testLLMServerNode = LayerNode.make({ service: TestLLMServer, layer: TestLLMServer.layer, deps: [] })
 
@@ -225,13 +229,17 @@ function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; proces
   return LayerNode.compile(promptRoot, replacements)
 }
 
-function makeHttp(input?: { mcpInstructions?: MCP.ServerInstructions[]; processor?: "blocking" }) {
+function makeHttp(input?: {
+  mcpInstructions?: MCP.ServerInstructions[]
+  processor?: "blocking"
+  backgroundSubagents?: boolean
+}) {
   const root = LayerNode.group([promptRoot, testLLMServerNode])
   const replacements = [
     [SessionSummary.node, summary],
     [LSP.node, lsp],
     [MCP.node, makeMcp(input?.mcpInstructions)],
-    [RuntimeFlags.node, runtimeFlags],
+    [RuntimeFlags.node, input?.backgroundSubagents ? backgroundRuntimeFlags : runtimeFlags],
   ] as const
   if (input?.processor === "blocking") {
     return LayerNode.compile(root, [...replacements, [SessionProcessor.node, blockingProcessor]])
@@ -244,6 +252,7 @@ function makeHttpNoLLMServer(input?: { mcpInstructions?: MCP.ServerInstructions[
 }
 
 const it = testEffect(makeHttp())
+const background = testEffect(makeHttp({ backgroundSubagents: true }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const withMcpInstructions = testEffect(
@@ -298,6 +307,37 @@ function providerCfg(url: string) {
       ...cfg.provider,
       test: {
         ...cfg.provider.test,
+        options: {
+          ...cfg.provider.test.options,
+          baseURL: url,
+        },
+      },
+    },
+  }
+}
+
+function subagentModelCfg(url: string) {
+  return {
+    ...providerCfg(url),
+    provider: {
+      ...cfg.provider,
+      test: {
+        ...cfg.provider.test,
+        models: {
+          "test-model": {
+            ...cfg.provider.test.models["test-model"],
+            variants: { xhigh: { reasoningEffort: "xhigh" } },
+          },
+          "fast-model": {
+            ...cfg.provider.test.models["test-model"],
+            id: "fast-model",
+            name: "Fast Model",
+            variants: {
+              low: { reasoningEffort: "low" },
+              medium: { reasoningEffort: "medium" },
+            },
+          },
+        },
         options: {
           ...cfg.provider.test.options,
           baseURL: url,
@@ -1031,6 +1071,255 @@ it.instance("failed subtask preserves metadata on error tool state", () =>
       providerID: ProviderV2.ID.make("test"),
       modelID: ModelV2.ID.make("missing-model"),
     })
+  }),
+)
+
+it.instance("task routes an explicit model and variant without changing the parent model", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(subagentModelCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Parent",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    yield* llm.tool("task", {
+      description: "inspect quickly",
+      prompt: "inspect the cache key path",
+      subagent_type: "general",
+      model: "test/fast-model",
+      variant: "low",
+    })
+    yield* llm.text("child result")
+    yield* llm.text("parent result")
+
+    const result = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      variant: "xhigh",
+      parts: [{ type: "text", text: "delegate this" }],
+    })
+    expect(result.info.role).toBe("assistant")
+
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(3)
+    expect(inputs.map((input) => input.model)).toEqual(["test-model", "fast-model", "test-model"])
+    expect(inputs.map((input) => input.reasoning_effort)).toEqual(["xhigh", "low", "xhigh"])
+
+    const children = yield* sessions.children(chat.id)
+    expect(children).toHaveLength(1)
+    const childMessages = yield* sessions.messages({ sessionID: children[0]!.id })
+    const childUser = childMessages.find((message) => message.info.role === "user")
+    expect(childUser?.info.role).toBe("user")
+    if (childUser?.info.role === "user") {
+      expect(childUser.info.model).toEqual({
+        providerID: ProviderV2.ID.make("test"),
+        modelID: ModelV2.ID.make("fast-model"),
+        variant: "low",
+      })
+    }
+    const childAssistant = childMessages.find((message) => message.info.role === "assistant")
+    expect(childAssistant?.info.role).toBe("assistant")
+    if (childAssistant?.info.role === "assistant") {
+      expect(childAssistant.info.providerID).toBe(ProviderV2.ID.make("test"))
+      expect(childAssistant.info.modelID).toBe(ModelV2.ID.make("fast-model"))
+      expect(childAssistant.info.variant).toBe("low")
+      expect(childAssistant.parts.some((part) => part.type === "text" && part.text === "child result")).toBe(true)
+    }
+
+    const parentMessages = yield* sessions.messages({ sessionID: chat.id })
+    const taskMessage = parentMessages.find((message) => toolPart(message.parts)?.tool === "task")
+    const task = taskMessage ? completedTool(taskMessage.parts) : undefined
+    expect(task?.state.metadata?.model).toEqual({
+      providerID: ProviderV2.ID.make("test"),
+      modelID: ModelV2.ID.make("fast-model"),
+    })
+    expect(task?.state.metadata?.variant).toBe("low")
+  }),
+)
+
+it.instance("task explicit model does not inherit the parent variant", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(subagentModelCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Parent",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    yield* llm.tool("task", {
+      description: "inspect quickly",
+      prompt: "inspect the cache key path",
+      subagent_type: "general",
+      model: "test/fast-model",
+    })
+    yield* llm.text("child result")
+    yield* llm.text("parent result")
+
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      variant: "xhigh",
+      parts: [{ type: "text", text: "delegate this" }],
+    })
+
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(3)
+    expect(inputs.map((input) => input.model)).toEqual(["test-model", "fast-model", "test-model"])
+    expect(inputs[0]?.reasoning_effort).toBe("xhigh")
+    expect(inputs[1]?.reasoning_effort).toBeUndefined()
+    expect(inputs[2]?.reasoning_effort).toBe("xhigh")
+
+    const children = yield* sessions.children(chat.id)
+    const childMessages = yield* sessions.messages({ sessionID: children[0]!.id })
+    const childUser = childMessages.find((message) => message.info.role === "user")
+    expect(childUser?.info.role).toBe("user")
+    if (childUser?.info.role === "user") expect(childUser.info.model.variant).toBe("default")
+
+    const parentMessages = yield* sessions.messages({ sessionID: chat.id })
+    const taskMessage = parentMessages.find((message) => toolPart(message.parts)?.tool === "task")
+    const task = taskMessage ? completedTool(taskMessage.parts) : undefined
+    expect(task?.state.metadata?.variant).toBe("default")
+  }),
+)
+
+it.instance("idle task keeps an explicit model switch for the next resume", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(subagentModelCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Parent",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    yield* llm.tool("task", {
+      description: "start child",
+      prompt: "inspect the cache key path",
+      subagent_type: "general",
+    })
+    yield* llm.text("first child result")
+    yield* llm.text("first parent result")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      variant: "xhigh",
+      parts: [{ type: "text", text: "start a task" }],
+    })
+
+    const child = (yield* sessions.children(chat.id))[0]!
+    expect(child.model).toEqual({
+      id: ModelV2.ID.make("test-model"),
+      providerID: ProviderV2.ID.make("test"),
+      variant: "xhigh",
+    })
+
+    yield* llm.tool("task", {
+      description: "switch child",
+      prompt: "continue with a faster model",
+      subagent_type: "general",
+      task_id: child.id,
+      model: "test/fast-model",
+      variant: "medium",
+    })
+    yield* llm.text("second child result")
+    yield* llm.text("second parent result")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      variant: "xhigh",
+      parts: [{ type: "text", text: "switch the task model" }],
+    })
+
+    expect((yield* sessions.get(child.id)).model).toEqual({
+      id: ModelV2.ID.make("fast-model"),
+      providerID: ProviderV2.ID.make("test"),
+      variant: "medium",
+    })
+
+    yield* llm.tool("task", {
+      description: "resume child",
+      prompt: "continue without another model override",
+      subagent_type: "general",
+      task_id: child.id,
+    })
+    yield* llm.text("third child result")
+    yield* llm.text("third parent result")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      variant: "xhigh",
+      parts: [{ type: "text", text: "resume the task" }],
+    })
+
+    const inputs = yield* llm.inputs
+    expect(inputs.map((input) => input.model)).toEqual([
+      "test-model",
+      "test-model",
+      "test-model",
+      "test-model",
+      "fast-model",
+      "test-model",
+      "test-model",
+      "fast-model",
+      "test-model",
+    ])
+    expect(inputs[4]?.reasoning_effort).toBe("medium")
+    expect(inputs[7]?.reasoning_effort).toBe("medium")
+  }),
+)
+
+background.instance("background task completion resumes the parent with its own variant", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(subagentModelCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Parent",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    const child = defer<void>()
+
+    yield* llm.toolMatch((hit) => hit.body.model === "test-model", "task", {
+      description: "inspect slowly",
+      prompt: "inspect the cache key path",
+      subagent_type: "general",
+      model: "test/fast-model",
+      variant: "low",
+      background: true,
+    })
+    yield* llm.pushMatch(
+      (hit) => hit.body.model === "fast-model",
+      reply().wait(child.promise).text("background child result").stop().item(),
+    )
+    yield* llm.textMatch((hit) => hit.body.model === "test-model", "parent continues")
+    yield* llm.textMatch((hit) => hit.body.model === "test-model", "parent received completion")
+
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      variant: "xhigh",
+      parts: [{ type: "text", text: "start background work" }],
+    })
+    expect(yield* llm.calls).toBe(2)
+
+    child.resolve()
+    yield* awaitWithTimeout(llm.wait(4), "background completion did not resume the parent")
+
+    const inputs = yield* llm.inputs
+    expect(inputs.map((input) => input.model)).toEqual(["test-model", "test-model", "fast-model", "test-model"])
+    expect(inputs[0]?.reasoning_effort).toBe("xhigh")
+    expect(inputs[1]?.reasoning_effort).toBe("xhigh")
+    expect(inputs[2]?.reasoning_effort).toBe("low")
+    expect(inputs[3]?.reasoning_effort).toBe("xhigh")
   }),
 )
 
