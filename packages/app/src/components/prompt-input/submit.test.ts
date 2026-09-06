@@ -146,7 +146,6 @@ beforeAll(async () => {
     Toast: { Region: () => null },
     toaster: { dismiss: () => undefined },
     showToast: () => 0,
-    toaster: { dismiss: () => undefined },
   }))
 
   mock.module("@opencode-ai/core/util/encode", () => ({
@@ -320,7 +319,7 @@ describe("prompt submit worktree selection", () => {
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
-      autoAccept: () => false,
+      permissionMode: () => "default",
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
