@@ -73,6 +73,40 @@ test.describe("new layout", () => {
     await expect(side.getByRole("tab", { name: /Shell/ })).toBeVisible()
   })
 
+  for (const entry of ["timeline", "background list"] as const) {
+    test(`returns from Shell details opened from the ${entry}`, async ({ page }) => {
+      const parentURL = page.url()
+      const side = workspace(page)
+      const background = side.locator('[data-component="background-tasks-panel"]')
+      const shell = background.locator('[data-slot="inspector-tool-row"]').filter({ hasText: "bash" })
+
+      if (entry === "background list") {
+        await openPanelItem(page, "Background tasks")
+        await expect(shell.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "completed")
+        await shell.click()
+      } else {
+        await timelinePart(page, shellPartID).locator('[data-slot="collapsible-trigger"]').click()
+      }
+
+      await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
+      await side.getByRole("button", { name: "Background tasks", exact: true }).click()
+      await expect(shell.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "completed")
+      await expect(side.locator('[data-component="tool-inspector-panel"]')).toHaveCount(0)
+      await expect(page).toHaveURL(parentURL)
+
+      await shell.click()
+      await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
+      await side.getByRole("button", { name: "Keep tab open" }).click()
+      const back = side.getByRole("button", { name: "Background tasks", exact: true })
+      await back.focus()
+      await back.press("Enter")
+      await expect(shell.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "completed")
+      await expect(side.getByRole("tab", { name: /Shell/ })).toBeVisible()
+      await side.getByRole("tab", { name: /Shell/ }).click()
+      await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
+    })
+  }
+
   test("previews a subagent without changing the parent route and reports its live status", async ({ page }) => {
     const parentURL = page.url()
     await timelinePart(page, taskPartID).locator('[data-component="task-tool-card"]').click()
