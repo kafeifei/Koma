@@ -252,9 +252,18 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     snapshot()?.deliveries.find((item) => item.delivery === "queue" && item.state === "pending"),
   )
   const interactions = createMemo(() => snapshot()?.interactions.filter((item) => item.state === "pending") ?? [])
+  const pendingSettings = createMemo(() => descriptor()?.pendingSettings)
   const plan = createMemo(() => {
     const current = snapshot()?.plan
     return current?.status === "available" ? current.value : undefined
+  })
+  const controlError = createMemo(
+    () => engine()?.error || account()?.error || descriptor()?.error || external().data.errors[props.sessionID ?? ""],
+  )
+  const queuePaused = createMemo(() => descriptor()?.queuePaused === true)
+  const queueRunning = createMemo(() => {
+    const status = descriptor()?.runtimeStatus
+    return status !== undefined && ["active", "waitingApproval", "waitingInput"].includes(status)
   })
 
   const choiceLabel = (choice: Interaction["choices"][number]) => {
@@ -291,7 +300,7 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
   const setFormValue = (interactionID: string, name: string, value: FormValue) =>
     setStore("forms", interactionID, (current) => ({ ...current, [name]: value }))
 
-  const statusLabel = () => {
+  const statusLabel = createMemo(() => {
     const status = descriptor()?.runtimeStatus
     if (status === "resolving") return language.t("codex.runtime.resolving")
     if (status === "creating") return language.t("codex.runtime.creating")
@@ -304,7 +313,7 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     if (status === "systemError") return language.t("codex.runtime.systemError")
     if (status === "bindingUnavailable") return language.t("codex.runtime.bindingUnavailable")
     return undefined
-  }
+  })
 
   const deliveryState = (delivery: Delivery) => {
     if (delivery.state === "pending") return language.t("codex.delivery.pending")
@@ -422,88 +431,84 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     return (
       <div class="flex flex-col gap-3">
         <Show
-          when={fields()}
+          when={fields() !== undefined}
           fallback={<div class="text-12-regular text-text-critical">{language.t("codex.form.invalid")}</div>}
         >
-          {(items) => (
-            <For each={items()}>
-              {(field) => (
-                <div class="flex flex-col gap-1.5">
-                  <Show
-                    when={field.type === "boolean"}
-                    fallback={
-                      <Show
-                        when={field.options?.length}
-                        fallback={
-                          <TextField
-                            type={field.type === "number" || field.type === "integer" ? "number" : "text"}
-                            label={field.title}
-                            description={field.description}
-                            required={field.required}
-                            min={field.minimum}
-                            max={field.maximum}
-                            value={String(formValue(interaction.id, field))}
-                            disabled={store.busy[`interaction:${interaction.id}`]}
-                            onChange={(value) => setFormValue(interaction.id, field.name, value)}
-                          />
-                        }
-                      >
-                        <fieldset class="flex flex-col gap-1.5">
-                          <legend class="text-12-medium text-text-base">{field.title}</legend>
-                          <Show when={field.description}>
-                            <div class="text-12-regular text-text-weak">{field.description}</div>
-                          </Show>
-                          <For each={field.options}>
-                            {(option) => {
-                              const selected = () => formValue(interaction.id, field)
-                              const checked = () => {
-                                const current = selected()
-                                return field.type === "array"
-                                  ? Array.isArray(current) && current.includes(option.value)
-                                  : current === option.value
-                              }
-                              return (
-                                <Checkbox
-                                  checked={checked()}
-                                  disabled={store.busy[`interaction:${interaction.id}`]}
-                                  onChange={(next) => {
-                                    if (field.type !== "array") {
-                                      setFormValue(interaction.id, field.name, next ? option.value : "")
-                                      return
-                                    }
-                                    const value = selected()
-                                    const current = Array.isArray(value) ? value : []
-                                    setFormValue(
-                                      interaction.id,
-                                      field.name,
-                                      next
-                                        ? [...current, option.value]
-                                        : current.filter((item) => item !== option.value),
-                                    )
-                                  }}
-                                >
-                                  {option.label}
-                                </Checkbox>
-                              )
-                            }}
-                          </For>
-                        </fieldset>
-                      </Show>
-                    }
-                  >
-                    <Checkbox
-                      checked={formValue(interaction.id, field) === true}
-                      disabled={store.busy[`interaction:${interaction.id}`]}
-                      onChange={(value) => setFormValue(interaction.id, field.name, value)}
-                      description={field.description}
+          <For each={fields() ?? []}>
+            {(field) => (
+              <div class="flex flex-col gap-1.5">
+                <Show
+                  when={field.type === "boolean"}
+                  fallback={
+                    <Show
+                      when={field.options?.length}
+                      fallback={
+                        <TextField
+                          type={field.type === "number" || field.type === "integer" ? "number" : "text"}
+                          label={field.title}
+                          description={field.description}
+                          required={field.required}
+                          min={field.minimum}
+                          max={field.maximum}
+                          value={String(formValue(interaction.id, field))}
+                          disabled={store.busy[`interaction:${interaction.id}`]}
+                          onChange={(value) => setFormValue(interaction.id, field.name, value)}
+                        />
+                      }
                     >
-                      {field.title}
-                    </Checkbox>
-                  </Show>
-                </div>
-              )}
-            </For>
-          )}
+                      <fieldset class="flex flex-col gap-1.5">
+                        <legend class="text-12-medium text-text-base">{field.title}</legend>
+                        <Show when={field.description}>
+                          <div class="text-12-regular text-text-weak">{field.description}</div>
+                        </Show>
+                        <For each={field.options}>
+                          {(option) => {
+                            const selected = () => formValue(interaction.id, field)
+                            const checked = () => {
+                              const current = selected()
+                              return field.type === "array"
+                                ? Array.isArray(current) && current.includes(option.value)
+                                : current === option.value
+                            }
+                            return (
+                              <Checkbox
+                                checked={checked()}
+                                disabled={store.busy[`interaction:${interaction.id}`]}
+                                onChange={(next) => {
+                                  if (field.type !== "array") {
+                                    setFormValue(interaction.id, field.name, next ? option.value : "")
+                                    return
+                                  }
+                                  const value = selected()
+                                  const current = Array.isArray(value) ? value : []
+                                  setFormValue(
+                                    interaction.id,
+                                    field.name,
+                                    next ? [...current, option.value] : current.filter((item) => item !== option.value),
+                                  )
+                                }}
+                              >
+                                {option.label}
+                              </Checkbox>
+                            )
+                          }}
+                        </For>
+                      </fieldset>
+                    </Show>
+                  }
+                >
+                  <Checkbox
+                    checked={formValue(interaction.id, field) === true}
+                    disabled={store.busy[`interaction:${interaction.id}`]}
+                    onChange={(value) => setFormValue(interaction.id, field.name, value)}
+                    description={field.description}
+                  >
+                    {field.title}
+                  </Checkbox>
+                </Show>
+              </div>
+            )}
+          </For>
         </Show>
         <Show when={!content()}>
           <div class="text-12-regular text-text-critical">{language.t("codex.form.invalid")}</div>
@@ -563,15 +568,13 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
       >
         <div class="flex items-center justify-between gap-3">
           <div class="text-12-medium text-text-base">{language.t("codex.controls.title")}</div>
-          <Show when={statusLabel()}>{(label) => <div class="text-11-regular text-text-weak">{label()}</div>}</Show>
+          <Show when={statusLabel()}>
+            <div class="text-11-regular text-text-weak">{statusLabel()}</div>
+          </Show>
         </div>
 
-        <Show
-          when={
-            engine()?.error || account()?.error || descriptor()?.error || external().data.errors[props.sessionID ?? ""]
-          }
-        >
-          {(error) => <div class="whitespace-pre-wrap text-12-regular text-text-critical">{error()}</div>}
+        <Show when={controlError()}>
+          <div class="whitespace-pre-wrap text-12-regular text-text-critical">{controlError()}</div>
         </Show>
 
         <Show when={account()?.authenticated}>
@@ -606,27 +609,25 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
           </div>
         </Show>
 
-        <Show when={descriptor()?.pendingSettings}>
-          {(settings) => (
-            <section class="flex flex-col gap-1 rounded-md bg-surface-base p-2">
-              <div class="text-11-medium text-text-base">{language.t("codex.pendingSettings.title")}</div>
-              <Show when={settings().model}>
-                <div class="text-11-regular text-text-weak">
-                  {language.t("codex.settings.model")}: {settings().model}
-                </div>
-              </Show>
-              <Show when={settings().effort}>
-                <div class="text-11-regular text-text-weak">
-                  {language.t("codex.settings.effort")}: {settings().effort}
-                </div>
-              </Show>
-              <Show when={settings().permission}>
-                <div class="text-11-regular text-text-weak">
-                  {language.t("codex.settings.permission")}: {settings().permission}
-                </div>
-              </Show>
-            </section>
-          )}
+        <Show when={pendingSettings()}>
+          <section class="flex flex-col gap-1 rounded-md bg-surface-base p-2">
+            <div class="text-11-medium text-text-base">{language.t("codex.pendingSettings.title")}</div>
+            <Show when={pendingSettings()?.model}>
+              <div class="text-11-regular text-text-weak">
+                {language.t("codex.settings.model")}: {pendingSettings()?.model}
+              </div>
+            </Show>
+            <Show when={pendingSettings()?.effort}>
+              <div class="text-11-regular text-text-weak">
+                {language.t("codex.settings.effort")}: {pendingSettings()?.effort}
+              </div>
+            </Show>
+            <Show when={pendingSettings()?.permission}>
+              <div class="text-11-regular text-text-weak">
+                {language.t("codex.settings.permission")}: {pendingSettings()?.permission}
+              </div>
+            </Show>
+          </section>
         </Show>
 
         <Show when={snapshot()?.plan?.status === "loading"}>
@@ -636,102 +637,93 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
           </section>
         </Show>
         <Show when={plan()}>
-          {(plan) => (
-            <section data-component="codex-plan" class="flex flex-col gap-2 rounded-md bg-surface-base p-2">
-              <div class="text-11-medium text-text-base">{language.t("codex.plan.title")}</div>
-              <Show when={plan().explanation}>
-                <div class="whitespace-pre-wrap text-12-regular text-text-weak">{plan().explanation}</div>
-              </Show>
-              <ol class="flex flex-col gap-1.5">
-                <For each={plan().steps}>
-                  {(step) => (
-                    <li
-                      data-plan-step-status={step.status}
-                      class="flex items-start justify-between gap-3 text-12-regular"
-                    >
-                      <span class="min-w-0 whitespace-pre-wrap text-text-base">{step.step}</span>
-                      <span class="shrink-0 text-11-regular text-text-weak">{planState(step.status)}</span>
-                    </li>
-                  )}
-                </For>
-              </ol>
-            </section>
-          )}
-        </Show>
-
-        <Show when={descriptor()}>
-          {(current) => (
-            <section class="flex flex-col gap-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="text-11-medium text-text-base">{language.t("codex.queue.title")}</span>
-                <Show when={current().queuePaused}>
-                  <span class="text-11-regular text-text-weak">{language.t("codex.queue.paused")}</span>
-                  <Button
-                    data-action="resume-queue"
-                    size="small"
-                    disabled={!pendingQueue() || store.busy[`delivery:${pendingQueue()?.requestID}`]}
-                    onClick={() => {
-                      const delivery = pendingQueue()
-                      if (delivery) queue("resume", delivery)
-                    }}
+          <section data-component="codex-plan" class="flex flex-col gap-2 rounded-md bg-surface-base p-2">
+            <div class="text-11-medium text-text-base">{language.t("codex.plan.title")}</div>
+            <Show when={plan()?.explanation}>
+              <div class="whitespace-pre-wrap text-12-regular text-text-weak">{plan()?.explanation}</div>
+            </Show>
+            <ol class="flex flex-col gap-1.5">
+              <For each={plan()?.steps ?? []}>
+                {(step) => (
+                  <li
+                    data-plan-step-status={step.status}
+                    class="flex items-start justify-between gap-3 text-12-regular"
                   >
-                    {language.t("codex.queue.resume")}
-                  </Button>
-                </Show>
-                <Show
-                  when={
-                    !current().queuePaused &&
-                    ["active", "waitingApproval", "waitingInput"].includes(current().runtimeStatus)
-                  }
-                >
-                  <Button data-action="pause-queue" size="small" disabled={store.busy.pause} onClick={pause}>
-                    {language.t("codex.queue.pause")}
-                  </Button>
-                </Show>
-              </div>
-              <For each={deliveries()}>
-                {(delivery) => (
-                  <div
-                    data-delivery-id={delivery.requestID}
-                    class="flex flex-wrap items-center gap-2 rounded-md bg-surface-base px-2 py-1.5 text-11-regular"
-                  >
-                    <span class="text-text-base">
-                      {delivery.delivery === "queue"
-                        ? language.t("codex.delivery.queue")
-                        : language.t("codex.delivery.steer")}
-                    </span>
-                    <span class="text-text-weak">{deliveryState(delivery)}</span>
-                    <Show when={delivery.error}>
-                      <span class="text-text-critical">{delivery.error}</span>
-                    </Show>
-                    <Show when={delivery.state === "unknown"}>
-                      <span class="text-text-weak">{language.t("codex.delivery.unknownHint")}</span>
-                    </Show>
-                    <Show when={delivery.state === "unknown" || delivery.state === "sending"}>
-                      <Button
-                        data-action="check-delivery"
-                        size="small"
-                        disabled={store.busy[`delivery:${delivery.requestID}`]}
-                        onClick={() => checkDelivery(delivery)}
-                      >
-                        {language.t("codex.delivery.check")}
-                      </Button>
-                    </Show>
-                    <Show when={delivery.delivery === "queue" && delivery.state === "pending"}>
-                      <Button
-                        data-action="withdraw-delivery"
-                        size="small"
-                        disabled={store.busy[`delivery:${delivery.requestID}`]}
-                        onClick={() => queue("withdraw", delivery)}
-                      >
-                        {language.t("codex.queue.withdraw")}
-                      </Button>
-                    </Show>
-                  </div>
+                    <span class="min-w-0 whitespace-pre-wrap text-text-base">{step.step}</span>
+                    <span class="shrink-0 text-11-regular text-text-weak">{planState(step.status)}</span>
+                  </li>
                 )}
               </For>
-            </section>
-          )}
+            </ol>
+          </section>
+        </Show>
+
+        <Show when={descriptor() !== undefined}>
+          <section class="flex flex-col gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-11-medium text-text-base">{language.t("codex.queue.title")}</span>
+              <Show when={queuePaused()}>
+                <span class="text-11-regular text-text-weak">{language.t("codex.queue.paused")}</span>
+                <Button
+                  data-action="resume-queue"
+                  size="small"
+                  disabled={!pendingQueue() || store.busy[`delivery:${pendingQueue()?.requestID}`]}
+                  onClick={() => {
+                    const delivery = pendingQueue()
+                    if (delivery) queue("resume", delivery)
+                  }}
+                >
+                  {language.t("codex.queue.resume")}
+                </Button>
+              </Show>
+              <Show when={!queuePaused() && queueRunning()}>
+                <Button data-action="pause-queue" size="small" disabled={store.busy.pause} onClick={pause}>
+                  {language.t("codex.queue.pause")}
+                </Button>
+              </Show>
+            </div>
+            <For each={deliveries()}>
+              {(delivery) => (
+                <div
+                  data-delivery-id={delivery.requestID}
+                  class="flex flex-wrap items-center gap-2 rounded-md bg-surface-base px-2 py-1.5 text-11-regular"
+                >
+                  <span class="text-text-base">
+                    {delivery.delivery === "queue"
+                      ? language.t("codex.delivery.queue")
+                      : language.t("codex.delivery.steer")}
+                  </span>
+                  <span class="text-text-weak">{deliveryState(delivery)}</span>
+                  <Show when={delivery.error}>
+                    <span class="text-text-critical">{delivery.error}</span>
+                  </Show>
+                  <Show when={delivery.state === "unknown"}>
+                    <span class="text-text-weak">{language.t("codex.delivery.unknownHint")}</span>
+                  </Show>
+                  <Show when={delivery.state === "unknown" || delivery.state === "sending"}>
+                    <Button
+                      data-action="check-delivery"
+                      size="small"
+                      disabled={store.busy[`delivery:${delivery.requestID}`]}
+                      onClick={() => checkDelivery(delivery)}
+                    >
+                      {language.t("codex.delivery.check")}
+                    </Button>
+                  </Show>
+                  <Show when={delivery.delivery === "queue" && delivery.state === "pending"}>
+                    <Button
+                      data-action="withdraw-delivery"
+                      size="small"
+                      disabled={store.busy[`delivery:${delivery.requestID}`]}
+                      onClick={() => queue("withdraw", delivery)}
+                    >
+                      {language.t("codex.queue.withdraw")}
+                    </Button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </section>
         </Show>
 
         <For each={interactions()}>{InteractionCard}</For>

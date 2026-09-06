@@ -7,6 +7,8 @@ import { HttpClient, HttpMiddleware, HttpRouter, HttpServer, HttpServerResponse 
 import * as Socket from "effect/unstable/socket/Socket"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CodexHost } from "@opencode-ai/codex/host"
+import { CodexAuth } from "@opencode-ai/codex/auth"
+import { CodexCredentials } from "../../../../auth/codex"
 import { CodexWorktreeAccess } from "@opencode-ai/codex/worktree-access"
 import { CodexAccess } from "@/worktree/codex-access"
 import * as Observability from "@opencode-ai/core/observability"
@@ -329,7 +331,12 @@ export function createRoutes(
       )
     }),
   ).pipe(
-    Layer.provide(AppNodeBuilderV1.build(app, [[CodexWorktreeAccess.node, CodexAccess.node]])),
+    Layer.provide(
+      AppNodeBuilderV1.build(app, [
+        [CodexWorktreeAccess.node, CodexAccess.node],
+        [CodexAuth.node, CodexCredentials.node],
+      ]),
+    ),
     Layer.provideMerge(Observability.layer),
   )
 }

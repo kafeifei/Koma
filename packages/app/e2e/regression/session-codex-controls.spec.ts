@@ -39,6 +39,8 @@ type Harness = {
   afterReply?: (interactionID: string, body: ReplyBody, current: LabSnapshotOutput) => LabSnapshotOutput
   afterQueue?: (body: QueueBody, current: LabSnapshotOutput) => LabSnapshotOutput
   afterDelivery?: (requestID: string, current: LabSnapshotOutput) => LabSnapshotOutput["deliveries"][number]
+  beforeChildDescribe?: () => Promise<void>
+  beforeChildSnapshot?: () => Promise<void>
 }
 
 test.use({ viewport: { width: 1440, height: 1000 } })
@@ -182,6 +184,48 @@ test("refreshes the latest native plan and hides it when the report becomes unav
   harness.current = snapshot(74, { plan: { status: "unavailable" } })
   await sendRefresh(transport, harness.current.descriptor)
   await expect(plan).toHaveCount(0)
+})
+
+test("keeps native controls live while an active task becomes idle during navigation", async ({ page }) => {
+  const childSnapshot = Promise.withResolvers<void>()
+  const continueSnapshot = Promise.withResolvers<void>()
+  const errors: string[] = []
+  page.on("pageerror", (error) => errors.push(error.message))
+  const initial = snapshot(81, {
+    children: [{ sessionID: childID, nativeThreadID: "native-thread-child" }],
+  })
+  const harness: Harness = {
+    current: { ...initial, descriptor: { ...initial.descriptor, runtimeStatus: "active" } },
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+    beforeChildDescribe: async () => {
+      await continueSnapshot.promise
+    },
+    beforeChildSnapshot: async () => {
+      childSnapshot.resolve()
+      await continueSnapshot.promise
+    },
+  }
+  const transport = await installSseTransport(page, { server, retry: 20 })
+  await setup(page, harness)
+  const controls = await open(page)
+  await transport.waitForConnection()
+  await expect(controls.getByRole("button", { name: "Pause", exact: true })).toBeVisible()
+
+  await controls.getByRole("button", { name: "Open" }).click()
+  await childSnapshot.promise
+  harness.current = snapshot(82, {
+    children: [{ sessionID: childID, nativeThreadID: "native-thread-child" }],
+  })
+  await sendRefresh(transport, harness.current.descriptor)
+  await expect(controls.getByRole("button", { name: "Pause", exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+
+  continueSnapshot.resolve()
+  await expect(page).toHaveURL(sessionHref(childID))
+  await expectSessionTitle(page, childTitle)
+  expect(errors).toEqual([])
 })
 
 test("submits exact native command choices and preserves secret answers", async ({ page }) => {
@@ -447,6 +491,7 @@ async function setup(page: Page, harness: Harness) {
       const sessionIDs = Array.isArray(body.sessionIDs)
         ? body.sessionIDs.filter((value): value is string => typeof value === "string")
         : []
+      if (sessionIDs.includes(childID)) await harness.beforeChildDescribe?.()
       return json(
         route,
         sessionIDs.flatMap((id) => {
@@ -460,6 +505,7 @@ async function setup(page: Page, harness: Harness) {
       return json(route, harness.current)
     }
     if (url.pathname === `/lab/sessions/${childID}` && route.request().method() === "GET") {
+      await harness.beforeChildSnapshot?.()
       return json(route, snapshot(1, { sessionID: childID }))
     }
     const reply = url.pathname.match(new RegExp(`^/lab/sessions/${sessionID}/interactions/([^/]+)/reply$`))

@@ -13,6 +13,8 @@ type Config = {
   thread: v2.Thread
   threads?: Record<string, v2.Thread>
   authenticated?: boolean
+  refreshOnLogin?: boolean
+  delayLogin?: boolean
   disconnectTurn?: boolean
   readError?: boolean
   resumeEvents?: Array<{ method: string; params: unknown }>
@@ -65,6 +67,27 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
       ],
       nextCursor: null,
     })
+  if (message.method === "account/login/start" && message.params?.type === "chatgptAuthTokens") {
+    const config = read()
+    config.authenticated = true
+    save(config)
+    send({ method: "account/updated", params: { authMode: "chatgptAuthTokens", planType: null } })
+    if (config.refreshOnLogin)
+      send({
+        id: "login-refresh",
+        method: "account/chatgptAuthTokens/refresh",
+        params: {
+          reason: "unauthorized",
+          previousAccountId: message.params.chatgptAccountId,
+        },
+      })
+    if (config.delayLogin) return setTimeout(() => reply({ type: "chatgptAuthTokens" }), 100)
+    return reply({ type: "chatgptAuthTokens" })
+  }
+  if (message.method === "account/logout") {
+    save({ ...read(), authenticated: false })
+    return reply({})
+  }
   if (message.method === "account/login/start")
     return reply({ type: "chatgpt", loginId: "login-1", authUrl: "https://example.invalid/login" })
   if (message.method === "account/login/cancel") return reply({ status: "canceled" })

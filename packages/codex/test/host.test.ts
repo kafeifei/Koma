@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, writeFile, realpath, symlink } from "node:fs/promises"
 import path from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -15,6 +15,7 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
 import { CodexHost } from "../src/host"
 import { CodexWorktreeAccess } from "../src/worktree-access"
+import { CodexAuth } from "../src/auth"
 import type { v2 } from "../src/protocol/generated/index"
 
 let directory: string
@@ -82,6 +83,7 @@ async function harness<A>(
     gate: { refuse: boolean; acquired: number; released: number }
   }) => Promise<A>,
   homeOverride?: string,
+  auth?: CodexAuth.Interface,
 ) {
   const home = homeOverride ?? (await mkdtemp(path.join(directory, "home-")))
   await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages: [] }))
@@ -89,6 +91,7 @@ async function harness<A>(
   await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread() }))
   const gate = { refuse: false, acquired: 0, released: 0 }
   const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node]), [
+    ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
     [Database.node, Database.layerFromPath(":memory:")],
     [Global.node, Global.layerWith({ home, state: home })],
     [
@@ -149,13 +152,13 @@ async function until<A>(read: () => Promise<A>, check: (value: A) => boolean): P
   }
 }
 
-async function seed(sessions: SessionExternal.Interface, scope: string) {
+async function seed(sessions: SessionExternal.Interface, scope: string, target = location()) {
   const created = await run(
     sessions.create({
       runtimeScope: scope,
       requestID: "seed",
       engine: "codex",
-      location: location(),
+      location: target,
       payload: prompt,
       delivery: "steer",
     }),
@@ -167,6 +170,214 @@ async function seed(sessions: SessionExternal.Interface, scope: string) {
 }
 
 describe("CodexHost native process boundaries", () => {
+  test("reads and resumes the same directory through a real symlink and canonical native cwd", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const alias = path.join(home, "workspace-alias")
+      await symlink(directory, alias, "dir")
+      const id = await seed(sessions, scope, Location.Ref.make({ directory: AbsolutePath.make(alias) }))
+      await configure(home, { thread: { ...thread(), cwd: await realpath(alias) } })
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+      expect(snapshot.descriptor.error).toBeUndefined()
+      expect((await run(sessions.get(id))).session.location.directory).toBe(AbsolutePath.make(alias))
+      await run(host.submit(id, { requestID: "aliased-cwd", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "aliased-cwd")),
+        (value) => value.state === "accepted",
+      )
+      expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(true)
+    }))
+
+  test("canonical cwd checks still reject a different directory or native thread", async () => {
+    for (const mismatch of ["directory", "thread", "missing"] as const) {
+      await harness(async ({ host, sessions, scope, home }) => {
+        const id = await seed(sessions, scope)
+        await configure(home, {
+          thread: {
+            ...thread(),
+            ...(mismatch === "thread"
+              ? { id: "different-thread" }
+              : {
+                  cwd: mismatch === "directory" ? home : path.join(home, "missing-directory"),
+                }),
+          },
+        })
+        const snapshot = await run(host.snapshot(id))
+        expect(snapshot.descriptor.runtimeStatus).toBe("bindingUnavailable")
+        expect(snapshot.descriptor.error).toContain("different native thread or directory")
+      })
+    }
+  })
+
+  test("keeps an existing native login without reading provider credentials", () =>
+    harness(
+      async ({ host, home }) => {
+        expect((await run(host.account())).authenticated).toBe(true)
+        expect((await rpc(home)).some((call) => call.method === "account/login/start")).toBe(false)
+      },
+      undefined,
+      {
+        get: async () => {
+          throw new Error("Provider credentials must not be read")
+        },
+        onSelection: () => () => {},
+      },
+    ))
+
+  test("reuses provider login once and handles threadless refresh during login", async () => {
+    const reads: Array<CodexAuth.Tokens | undefined> = []
+    await harness(
+      async ({ host, home }) => {
+        await configure(home, { authenticated: false, refreshOnLogin: true })
+        const accounts = await Promise.all([run(host.account()), run(host.account())])
+        expect(accounts.every((account) => account.authenticated)).toBe(true)
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.id === "login-refresh"),
+        )
+        expect((await rpc(home)).filter((call) => call.method === "account/login/start")).toHaveLength(1)
+        expect((await rpc(home)).find((call) => call.id === "login-refresh")?.error).toBeUndefined()
+        expect(reads).toHaveLength(2)
+        expect(reads[1]?.chatgptAccountId).toBe("fixture-account")
+        await command(home, [
+          {
+            id: "wrong-account",
+            method: "account/chatgptAuthTokens/refresh",
+            params: {
+              reason: "unauthorized",
+              previousAccountId: "different-account",
+            },
+          },
+        ])
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.id === "wrong-account"),
+        )
+        expect((await rpc(home)).find((call) => call.id === "wrong-account")?.error).toBeDefined()
+        expect(reads).toHaveLength(2)
+      },
+      undefined,
+      {
+        get: async (previous) => {
+          reads.push(previous)
+          return {
+            accessToken: previous ? "fixture-refreshed" : "fixture-initial",
+            chatgptAccountId: "fixture-account",
+            chatgptPlanType: null,
+          }
+        },
+        onSelection: () => () => {},
+      },
+    )
+  })
+
+  test("selection changes invalidate an in-flight native refresh and clear only the imported login", async () => {
+    let selection = () => {}
+    let finish = (_value: CodexAuth.Tokens | undefined) => {}
+    let refreshing = false
+    const tokens = { accessToken: "fixture-initial", chatgptAccountId: "fixture-account", chatgptPlanType: null }
+    await harness(
+      async ({ host, home }) => {
+        await configure(home, { authenticated: false })
+        expect((await run(host.account())).authenticated).toBe(true)
+        await command(home, [
+          {
+            id: "late-refresh",
+            method: "account/chatgptAuthTokens/refresh",
+            params: {
+              reason: "unauthorized",
+              previousAccountId: tokens.chatgptAccountId,
+            },
+          },
+        ])
+        await until(async () => refreshing, Boolean)
+        selection()
+        finish({ ...tokens, accessToken: "fixture-late" })
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.id === "late-refresh"),
+        )
+        expect((await rpc(home)).find((call) => call.id === "late-refresh")?.error).toBeDefined()
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.method === "account/logout"),
+        )
+      },
+      undefined,
+      {
+        get: async (previous) => {
+          if (!previous) return tokens
+          refreshing = true
+          return new Promise((resolve) => {
+            finish = resolve
+          })
+        },
+        onSelection: (listener) => {
+          selection = listener
+          return () => {}
+        },
+      },
+    )
+  })
+
+  test("provider selection cannot log out an independently logged-in native account", async () => {
+    let selection = () => {}
+    await harness(
+      async ({ host, home }) => {
+        expect((await run(host.account())).authenticated).toBe(true)
+        selection()
+        expect((await run(host.account())).authenticated).toBe(true)
+        expect((await rpc(home)).some((call) => call.method === "account/logout")).toBe(false)
+      },
+      undefined,
+      {
+        get: async () => {
+          throw new Error("Must not read provider auth")
+        },
+        onSelection: (listener) => {
+          selection = listener
+          return () => {}
+        },
+      },
+    )
+  })
+
+  test("two selections during import still log out the old external credential", async () => {
+    let selection = () => {}
+    let available = true
+    await harness(
+      async ({ host, home }) => {
+        await configure(home, { authenticated: false, delayLogin: true })
+        const account = run(host.account())
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.method === "account/login/start"),
+        )
+        available = false
+        selection()
+        selection()
+        await account
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.method === "account/logout"),
+        )
+        expect((await run(host.account())).authenticated).toBe(false)
+        expect((await rpc(home)).filter((call) => call.method === "account/logout")).toHaveLength(1)
+      },
+      undefined,
+      {
+        get: async () =>
+          available
+            ? { accessToken: "fixture-initial", chatgptAccountId: "fixture-account", chatgptPlanType: null }
+            : undefined,
+        onSelection: (listener) => {
+          selection = listener
+          return () => {}
+        },
+      },
+    )
+  })
+
   test("lease refusal leaves native binding and input unclaimed", () =>
     harness(async ({ host, sessions, home, gate }) => {
       gate.refuse = true

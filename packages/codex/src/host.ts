@@ -1,7 +1,7 @@
 export * as CodexHost from "./host"
 
 import { createHash, randomUUID } from "node:crypto"
-import { access, mkdir } from "node:fs/promises"
+import { access, mkdir, realpath } from "node:fs/promises"
 import { constants } from "node:fs"
 import path from "node:path"
 import { Context, Effect, Layer, Schema } from "effect"
@@ -44,6 +44,7 @@ import { readCodexRolloutHistory } from "./history"
 import { createCodexInteraction } from "./interaction"
 import { codexInput, prepareInput, threadSettings, turnSettings } from "./input"
 import { CodexWorktreeAccess } from "./worktree-access"
+import { CodexAuth } from "./auth"
 
 export class HostError extends Schema.TaggedErrorClass<HostError>()("CodexHost.Error", {
   code: Schema.Literals(["unavailable", "conflict", "notFound", "invalid", "nativeError"]),
@@ -143,6 +144,7 @@ const layer = Layer.effect(
     const sessions = yield* SessionExternal.Service
     const ownership = yield* SessionExternalOwnership.Service
     const worktrees = yield* CodexWorktreeAccess.Service
+    const auth = yield* CodexAuth.Service
     const events = yield* EventV2.Service
     const global = yield* Global.Service
     const enabled = process.env.OPENCODE_ENABLE_CODEX === "1"
@@ -170,7 +172,13 @@ const layer = Layer.effect(
       recovery: Promise<void>
       lastGeneration: number
       closed: boolean
-    } = { closed: false, recovery: Promise.resolve(), lastGeneration: 0 }
+      authVersion: number
+      authAttempted?: number
+      authImport?: Promise<void>
+      authReset: Promise<void>
+      externalAuth?: CodexAuth.Tokens
+      externalInstalled?: number
+    } = { closed: false, recovery: Promise.resolve(), authReset: Promise.resolve(), authVersion: 0, lastGeneration: 0 }
     const run = Effect.runPromise
     const generation = (connected: CodexRuntime) => `${epoch}:${connected.generation}`
     const entryEpoch = (entry: Entry) => `${epoch}:${entry.generation ?? state.lastGeneration}`
@@ -409,6 +417,9 @@ const layer = Layer.effect(
           state.runtime = undefined
           state.models = undefined
           state.account = undefined
+          state.externalAuth = undefined
+          state.externalInstalled = undefined
+          state.authVersion++
           state.login = undefined
           state.loginID = undefined
           state.loginState = undefined
@@ -451,6 +462,8 @@ const layer = Layer.effect(
 
     async function account(): Promise<Account> {
       const connected = await runtime()
+      await state.authReset
+      await reuseAuth(connected)
       const response = await connected.client.request<"account/read", v2.GetAccountResponse>("account/read", {
         refreshToken: false,
       })
@@ -470,6 +483,67 @@ const layer = Layer.effect(
       }
       return state.account
     }
+
+    async function reuseAuth(connected: CodexRuntime) {
+      if (state.authImport) return state.authImport
+      if (state.authAttempted === connected.generation || state.loggingIn || state.loginID) return
+      state.authAttempted = connected.generation
+      const version = state.authVersion
+      state.authImport = (async () => {
+        const response = await connected.client.request<"account/read", v2.GetAccountResponse>("account/read", {
+          refreshToken: false,
+        })
+        // The native account is the user's explicit selection. Never replace it.
+        if (response.account || !response.requiresOpenaiAuth) return
+        const tokens = await auth.get()
+        if (!tokens?.accessToken || !tokens.chatgptAccountId) return
+        if (!current(connected) || version !== state.authVersion || state.loggingIn) return
+        const selected = await connected.client.request<"account/read", v2.GetAccountResponse>("account/read", {
+          refreshToken: false,
+        })
+        if (selected.account || !current(connected) || version !== state.authVersion || state.loggingIn) return
+        state.externalAuth = tokens
+        state.externalInstalled = connected.generation
+        await connected.client.request("account/login/start", { type: "chatgptAuthTokens", ...tokens })
+      })()
+        .catch(() => {
+          state.externalAuth = undefined
+          state.loginError = "Could not reuse the existing OpenAI login; native Codex login is available"
+        })
+        .finally(() => {
+          state.authImport = undefined
+        })
+      return state.authImport
+    }
+
+    const unsubscribeAuth = auth.onSelection(() => {
+      const connected = state.runtime
+      const imported = state.externalInstalled
+      const importing = state.authImport
+      state.authVersion++
+      state.authAttempted = undefined
+      state.externalAuth = undefined
+      state.account = undefined
+      state.models = undefined
+      if (!connected) return
+      if (imported === undefined) {
+        void notifyEngine().catch(() => undefined)
+        return
+      }
+      state.authReset = state.authReset
+        .then(async () => {
+          await importing
+          // A second selection must not cancel the only logout of the old token.
+          if (!current(connected) || state.externalInstalled !== connected.generation || state.loggingIn) return
+          await connected.client.request("account/logout", undefined)
+          state.externalInstalled = undefined
+        })
+        .catch(() => {
+          state.loginError = "Could not synchronize the changed OpenAI login"
+        })
+      void state.authReset.then(() => notifyEngine()).catch(() => undefined)
+    })
+    yield* Effect.addFinalizer(() => Effect.sync(unsubscribeAuth))
 
     async function models() {
       if (state.models) return state.models
@@ -618,15 +692,23 @@ const layer = Layer.effect(
           excludeTurns: true,
         })
         if (!current(connected)) return fail("unavailable", "Codex connection changed while resuming")
-        if (response.thread.id !== threadID || response.cwd !== entry.record.session.location.directory)
+        if (
+          response.thread.id !== threadID ||
+          !(await sameDirectory(response.cwd, entry.record.session.location.directory))
+        )
           return fail("conflict", "Codex resumed a different native thread or directory")
+        if (!current(connected)) return fail("unavailable", "Codex connection changed while checking the directory")
         entry.appliedSettings = observedSettings(response)
         entry.resumed = true
       }
       const metadata = await connected.readThread(threadID, false)
       if (!current(connected)) return fail("unavailable", "Codex connection changed while reading")
-      if (metadata.thread.id !== threadID || metadata.thread.cwd !== entry.record.session.location.directory)
+      if (
+        metadata.thread.id !== threadID ||
+        !(await sameDirectory(metadata.thread.cwd, entry.record.session.location.directory))
+      )
         return fail("conflict", "Codex returned a different native thread or directory")
+      if (!current(connected)) return fail("unavailable", "Codex connection changed while checking the directory")
       const history = await connected.readThread(threadID, true).catch(async (error) => {
         if (error instanceof CodexRpcError && metadata.thread.path) {
           return {
@@ -1014,6 +1096,11 @@ const layer = Layer.effect(
       if (notification.method.startsWith("account/")) {
         state.account = undefined
         state.models = undefined
+        if (notification.method === "account/updated" && params.authMode !== "chatgptAuthTokens") {
+          state.externalAuth = undefined
+          state.externalInstalled = undefined
+          state.authVersion++
+        }
         if (
           notification.method === "account/login/completed" &&
           (params.loginId == null || params.loginId === state.loginID)
@@ -1258,6 +1345,23 @@ const layer = Layer.effect(
       if (!connected || native.generation !== connected.generation)
         return { error: { code: -32603, message: "Stale Codex connection" } }
       const params = record(native.params) ? native.params : {}
+      if (native.method === "account/chatgptAuthTokens/refresh") {
+        const selected = state.externalAuth
+        const version = state.authVersion
+        if (!selected || (params.previousAccountId != null && params.previousAccountId !== selected.chatgptAccountId))
+          return { error: { code: -32602, message: "No matching externally managed Codex account" } }
+        const tokens = await auth.get(selected).catch(() => undefined)
+        if (
+          !tokens?.accessToken ||
+          tokens.chatgptAccountId !== selected.chatgptAccountId ||
+          !current(connected) ||
+          version !== state.authVersion ||
+          state.loggingIn
+        )
+          return { error: { code: -32603, message: "OpenAI authentication is no longer available for this account" } }
+        state.externalAuth = tokens
+        return { result: tokens }
+      }
       if (typeof params.threadId !== "string")
         return { error: { code: -32601, message: `Unsupported native request: ${native.method}` } }
       signals.set(params.threadId, ++receiveSequence)
@@ -1387,6 +1491,11 @@ const layer = Layer.effect(
           if (state.loggingIn) return state.loggingIn
           state.loggingIn = (async () => {
             const connected = await runtime()
+            state.authVersion++
+            await state.authImport
+            await state.authReset
+            state.externalAuth = undefined
+            state.externalInstalled = undefined
             const login = await connected.client.request<"account/login/start", v2.LoginAccountResponse>(
               "account/login/start",
               { type: "chatgpt" },
@@ -1614,7 +1723,14 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [Global.node, SessionExternal.node, SessionExternalOwnership.node, CodexWorktreeAccess.node, EventV2.node],
+  deps: [
+    Global.node,
+    SessionExternal.node,
+    SessionExternalOwnership.node,
+    CodexWorktreeAccess.node,
+    CodexAuth.node,
+    EventV2.node,
+  ],
 })
 
 function emptyView(): CodexView {
@@ -1908,4 +2024,13 @@ function fingerprint(value: unknown): string {
   return createHash("sha256")
     .update(JSON.stringify(canonical(value)))
     .digest("hex")
+}
+
+async function sameDirectory(left: string, right: string) {
+  if (left === right) return true
+  // Native Codex canonicalizes cwd (for example /var -> /private/var on macOS).
+  // Keep the session's chosen path; only compare existing filesystem identities.
+  return Promise.all([realpath(left), realpath(right)])
+    .then(([a, b]) => a === b)
+    .catch(() => false)
 }

@@ -24,6 +24,7 @@
     "./session": "./src/session.ts",
     "./transport": "./src/transport.ts",
     "./host": "./src/host.ts",
+    "./auth": "./src/auth.ts",
     "./worktree-access": "./src/worktree-access.ts",
     "./view": "./src/view.ts"
   },

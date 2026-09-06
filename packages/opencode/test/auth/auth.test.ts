@@ -7,6 +7,22 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(LayerNode.compile(Auth.node))
 
 describe("Auth", () => {
+  it.instance("a refresh cannot restore a logged-out or reselected credential", () =>
+    Effect.gen(function* () {
+      const auth = yield* Auth.Service
+      const value = { type: "oauth" as const, access: "fixture-access", refresh: "fixture-refresh", expires: 0 }
+      yield* auth.set("openai", value)
+      const snapshot = yield* auth.snapshot("openai")
+      yield* auth.remove("openai")
+      expect(yield* auth.compareAndSet("openai", snapshot, value)).toBe(false)
+      expect(yield* auth.get("openai")).toBeUndefined()
+      yield* auth.set("openai", value)
+      expect(yield* auth.compareAndSet("openai", snapshot, value)).toBe(false)
+      const current = yield* auth.snapshot("openai")
+      expect(yield* auth.compareAndSet("openai", current, { ...value, access: "fixture-new" })).toBe(true)
+    }),
+  )
+
   it.instance("set normalizes trailing slashes in keys", () =>
     Effect.gen(function* () {
       const auth = yield* Auth.Service

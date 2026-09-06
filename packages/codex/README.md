@@ -65,6 +65,11 @@ Lab desktop clears an inherited `OPENCODE_CODEX_HOME` override so it remains in
 Lab's own backend storage. The transport sets both `CODEX_HOME` and
 `CODEX_SQLITE_HOME` for its child. Authentication uses native account APIs; it
 does not copy another Codex installation's credentials or history.
+An existing native account remains authoritative. When native authentication is
+absent, the Desktop host can supply its existing OpenAI provider credentials via
+Codex's external-token API. Provider calls and native refresh requests use the
+same backend refresh owner; tokens never enter the UI. The standalone V2 server
+keeps native login unless its own credential owner explicitly binds this port.
 
 Queue ownership is fixed to Lab's durable user-input queue for this version.
 It feeds one queued input only at a confirmed idle boundary. Stop and process

@@ -214,9 +214,9 @@ snapshot 的 usage、context、turnDiff、sessionDiff 分别带 availability（a
 
 ## 7. 生命周期、配置与隔离
 
-推荐第一阶段为 Lab 使用独立 Codex home，位于 Lab backend 状态目录中，通过 Codex 原生账户登录流程建立身份。它仍是原生 Codex 执行；已有 `~/.codex` 配置、认证和历史不被复制、改写或接管。代价是首次需要为 Lab 登录并配置所需能力，这是评审时需要看清的产品选择。
+Lab 使用独立 Codex home 保存本接入的原生配置与历史，位于 Lab backend 状态目录中；不复制、改写或接管已有 `~/.codex`。按 2026-09-07 实际验收反馈，历史隔离不应强迫重复登录：保留原生已有有效账号；原生未登录时，Desktop 宿主复用模型页已有 OpenAI OAuth，通过原生 `chatgptAuthTokens` 接口提供访问凭据。只有没有可复用身份时才显示原生登录流程。
 
-原生登录使用 account/read、account/login/start、account/login/cancel 及完成事件。浏览器授权与回调由原生流程管理，桌面／Web 显示同一登录尝试状态；取消也只针对所属尝试。前端不接收或保存账户 token，不以拿到授权链接作为登录成功。账户状态变化使相应模型／能力描述失效并重读；本阶段不引入自有 OAuth broker 或共享其他客户端 token 的流程。
+原生登录使用 account/read、account/login/start、account/login/cancel 及完成事件。浏览器授权与回调由原生流程管理，桌面／Web 显示同一登录尝试状态；取消也只针对所属尝试。前端不接收或保存账户 token，不以拿到授权链接作为登录成功。账户状态变化使相应模型／能力描述失效并重读。外部凭据模式使用原生 `account/chatgptAuthTokens/refresh` 回调，刷新归模型 Provider 的同一个后端凭据所有者；refresh token 不交给原生进程或前端。并发刷新合并，退出或换号不能被旧刷新结果覆盖。Standalone V2 使用自己的 Credential 所有者，未接通复用端口时继续使用原生登录，不跨库读取 V1 凭据。
 
 只传入明确的 cwd／配置，Codex 按自身规则加载适用的项目指令、skills、MCP 和子代理。OpenCode 的 AGENTS/CLAUDE 处理器、系统提示、工具注册和压缩结果不重复注入。有效模型、登录状态、指令来源和权限配置以原生返回为准，不能由 UI 记忆推定已生效。
 
@@ -282,7 +282,7 @@ Claude 和 DSH 可各自实现同样窄的后端视图与操作入口，使用�
 - Sandy 本地研究提交 `32970edb1cadd58b526ca7c7f5bc8d3a45863df1`：`src/vs/platform/agentHost/node/codex/{codexAgent,codexMapAppServerEvents,codexReplayMapper}.ts` 及同目录生成协议，作为行为／竞态与映射参考。用户实际使用经验有价值，但不能推导所有恢复路径已经无缺陷。
 - 当前仓库具体证据见第 2 节；工程边界见 [PROJECT.md](../../PROJECT.md)、[DEVELOPMENT.md](../../DEVELOPMENT.md) 和相关目录 AGENTS.md。
 
-## 12. 实施状态（2026-09-07，尚未完成集成验收）
+## 12. 实施与验收记录（2026-09-07）
 
 实施位于 `codex-native` 分支的独立 worktree，起点为本地 `dev` 提交
 `8ae63380f532449885d72616f0db8b4966051ef3`。实现阶段没有安装应用或重启用户实例。用户随后明确要求“发 debug”，按本仓交付流程合线、构建并安装 Lab，真实账号验收仍单独记录。
@@ -311,8 +311,27 @@ Claude 和 DSH 可各自实现同样窄的后端视图与操作入口，使用�
 Responses fixture 验证，父内容未被混入。原生 V1 wait 的内存完成通知不随进程重启恢复，
 Host 保留这一限制，不从历史伪造 wait 结果。
 
-独立 Codex home 尚未登录，真实账号调用仍未通过验收；实际桌面候选包尚未构建／安装。
-本计划各阶段按各自证据验收，不把 A/B 作为 C/D/E 完成。
+初次实现验收时，独立 Codex home 尚未登录，尚无真实账号调用证据。随后从干净 `dev`
+`4baa890d4c051b3a0c5753d66ec4948e4afb9740` 构建并安装 Lab #18（`20260906.191056`），
+候选包内实际 Electron utility sidecar 的原生模型目录、未登录状态与发送拒绝验证通过。
+
+用户在 #18 中完成登录后，首次发送暴露 `Stale read from <Show>` 界面崩溃。只读现场确认
+原生任务已接收并执行完毕；界面失败不能当成后台发送失败，更不能自动重发用户输入。
+反馈同时指出模型页已有 OpenAI OAuth，独立原生历史不应导致重复登录。后续修复在
+`codex-auth-recovery` 分支完成，并按第 7 节接入同一后端凭据所有者；该次真实账号、
+界面回归和重新交付证据单独记录，不以初次 fixture 或构建结果代替。
 
 本阶段生成的临时环境和验证日志位于实施 worktree 的 `.cache/`，不作为产品源码提交。
 本次按用户“发 debug”授权执行 `DEVELOPMENT.md` 的提交、合线和本地交付；不自动重启应用，不把安装成功等同于真实账号调用验收。
+
+认证与状态修复的真实验收使用隔离后端、独立原生 home 和临时目录：模型页现有 OAuth
+仅通过宿主内存端口提供，原生 `gpt-5.6-luna`（high）实际返回 `CODEX_AUTH_REUSE_OK`，
+投递为 accepted、任务为 idle；源认证文件哈希未变，原生 home 未落盘 auth.json，也未启动
+浏览器登录。实际原生进程还暴露 macOS `/var` 与 `/private/var` 同目录误判，Host 已在路径
+写法不同时比较真实目录身份，保留不同 thread、不同目录和无法解析路径的拒绝行为。
+
+同次生产 App 构建已通过真实浏览器首次发送验收：新建任务选择 Codex，自动显示已有账号，
+使用 GPT-5.6-Luna / high / 只读发送一条输入，实际收到 `CODEX_UI_LIVE_OK`，从运行中回到
+就绪且投递已接收；未出现界面崩溃。生产控件移除会在路由 transition 中失效的 Show callback
+accessor，改用安全 memo；七项控件浏览器回归及类型检查通过。旧源码在自动夹具中未稳定
+触发该崩溃，旧版失败证据来自 #18 的实际 renderer 栈，不宣称自动回归已重现旧异常。
