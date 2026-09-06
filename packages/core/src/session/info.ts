@@ -10,8 +10,12 @@ import { SessionSchema } from "./schema"
 import { SessionTable } from "./sql"
 import { SessionMessage } from "./message"
 import { Snapshot } from "../snapshot"
+import { PermissionMode } from "@opencode-ai/schema/session-permission-mode"
 
-export function fromRow(row: typeof SessionTable.$inferSelect): SessionSchema.Info {
+export function fromRow(
+  row: typeof SessionTable.$inferSelect,
+  permissionMode: PermissionMode = PermissionMode.make(row.permission_mode ?? "default"),
+): SessionSchema.Info {
   return SessionSchema.Info.make({
     id: SessionSchema.ID.make(row.id),
     projectID: ProjectV2.ID.make(row.project_id),
@@ -41,6 +45,7 @@ export function fromRow(row: typeof SessionTable.$inferSelect): SessionSchema.In
     }),
     subpath: row.path ? RelativePath.make(row.path) : undefined,
     revert: row.revert ? { ...row.revert, messageID: SessionMessage.ID.make(row.revert.messageID) } : undefined,
+    permissionMode,
     time: {
       created: DateTime.makeUnsafe(row.time_created),
       updated: DateTime.makeUnsafe(row.time_updated),

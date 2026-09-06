@@ -11,6 +11,7 @@ import { ascending } from "../identifier"
 import { SessionID } from "../session-id"
 import { WorkspaceID } from "../workspace-id"
 import { PermissionV1 } from "./permission"
+import { PermissionMode } from "../session-permission-mode"
 
 const Timestamp = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 
@@ -564,6 +565,7 @@ export const SessionInfo = Schema.Struct({
     archived: optional(Schema.Finite),
   }),
   permission: optional(PermissionV1.Ruleset),
+  permissionMode: optional(PermissionMode),
   revert: optional(SessionRevert),
 }).annotate({ identifier: "Session" })
 export type SessionInfo = typeof SessionInfo.Type
@@ -575,6 +577,7 @@ const events = {
     schema: {
       sessionID: SessionID,
       info: SessionInfo,
+      permissionMode: optional(PermissionMode),
     },
   }),
   Updated: define({

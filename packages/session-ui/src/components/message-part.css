@@ -754,6 +754,11 @@
 
   [data-slot="permission-row"][data-variant="header"] {
     align-items: center;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+  }
+
+  [data-slot="permission-control"] {
+    min-width: 0;
   }
 
   [data-slot="permission-icon"] {

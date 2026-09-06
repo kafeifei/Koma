@@ -43,6 +43,8 @@
 4. **安装同一个候选。** 一个交付者操作目标，用独立 staging 完成复制和校验后再替换应用；保留原包直到新包校验完成，失败时恢复原包。禁止直接往运行中的目标目录逐文件覆盖。保留用户数据、认证、Session 与原有进程，不杀进程、不抢占端口、不自动重启。
 5. **报告准确状态。** 给出构建 ID、来源 SHA、安装位置和验证结果。应用原来在运行时，说明“新包已安装，当前运行实例仍待用户重启验证”；用户重启后，再只读核对实际进程、构建身份和后端。回退应用包不等于回退数据库，不自动回滚用户数据。
 
+Lab 序号从 `#1` 开始，每次 `build:lab` 分配一个新号，显示在版本／构建信息中。同一仓库各 worktree 共用 Git 元数据目录中的计数；开发热更新不占号，构建失败后已分配的号不复用。重新安装同一个候选包沿用原号。
+
 合线和安装串行只是防止互相覆盖；各任务的编辑、测试继续并行。多个请求连续到达时，尚未开始的交付可合并为一次最新 `dev` 构建；不取消已经开始的安装事务，也不替用户收走仍在开发的功能。
 
 ## 4. 现有工具能做什么
@@ -52,7 +54,7 @@
 | 现有入口                                                                                               | 实际能力／限制                                                                                                                                               |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Desktop package.json](./packages/desktop/package.json) 的 `bun run lab`                               | 构建并生成 macOS 目录包；**不安装、不启动应用**。安装仍需交付 agent 完成上述步骤                                                                             |
-| [electron.vite.config.ts](./packages/desktop/electron.vite.config.ts)                                  | 写入时间构建 ID、版本、短 commit、dirty 和构建时间；先沿用这些字段，不额外维护手工版本号。dirty 标志是信息，不是自动拒绝打包的门禁                           |
+| [electron.vite.config.ts](./packages/desktop/electron.vite.config.ts)                                  | 写入时间构建 ID、版本、Lab 递增序号、短 commit、dirty 和构建时间；先沿用这些字段，不额外维护手工版本号。dirty 标志是信息，不是自动拒绝打包的门禁             |
 | [prebuild.ts](./packages/desktop/scripts/prebuild.ts)、[utils.ts](./packages/desktop/scripts/utils.ts) | 构建本仓 Node 后端，同时获取固定版本 CLI。默认 sidecar 与 `OPENCODE_SIDECAR_V2=1` 的 CLI 路径不同；交付要说明实际验证了哪条路径                              |
 | [Lab 环境隔离](./packages/desktop/src/main/lab-environment.ts)                                         | 隔离 Lab 与其他渠道的应用／后端状态；多个同身份 Lab 并不因此各有独立数据                                                                                     |
 | [Desktop 启动入口](./packages/desktop/src/main/index.ts)                                               | `OPENCODE_TEST_ONBOARDING=1` 是临时 onboarding 测试模式，不是通用 worktree 开发配置；尚无通用的多实例隔离启动命令，不能直接复用正式 Lab profile 代替隔离测试 |

@@ -93,6 +93,38 @@ describe("SessionV2.create", () => {
     }),
   )
 
+  it.effect("persists permission mode changes as durable session events", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* session.create({ id, location, permissionMode: "full" })
+      expect(created.permissionMode).toBe("full")
+      expect(
+        yield* db
+          .select({ permissionMode: SessionTable.permission_mode })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, id))
+          .get(),
+      ).toEqual({ permissionMode: "full" })
+      expect(
+        yield* db
+          .select({ data: EventTable.data })
+          .from(EventTable)
+          .where(eq(EventTable.aggregate_id, id))
+          .orderBy(asc(EventTable.seq))
+          .get()
+          .pipe(Effect.orDie),
+      ).toMatchObject({ data: { permissionMode: "full" } })
+
+      yield* session.setPermissionMode({ sessionID: id, permissionMode: "default" })
+      expect((yield* session.get(id)).permissionMode).toBe("default")
+      expect((yield* session.history({ sessionID: id, limit: 10 })).events).toMatchObject([
+        { type: SessionEvent.PermissionModeChanged.type, data: { permissionMode: "full" } },
+        { type: SessionEvent.PermissionModeChanged.type, data: { permissionMode: "default" } },
+      ])
+    }),
+  )
+
   it.effect("returns the existing Session when one ID is reused with different create arguments", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service

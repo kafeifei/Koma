@@ -396,6 +396,7 @@ export function currentSession(session: { id: string } & Record<string, unknown>
   return {
     id: session.id,
     parentID: session.parentID,
+    permissionMode: session.permissionMode,
     projectID: session.projectID ?? "project",
     agent: session.agent ?? "build",
     model: session.model ?? { id: "mock-model", providerID: "mock-provider" },

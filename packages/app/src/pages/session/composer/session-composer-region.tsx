@@ -7,6 +7,7 @@ import { SessionFollowupDock } from "@/pages/session/composer/session-followup-d
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { SessionComposerRegionController } from "./session-composer-region-controller"
+import { createPromptPermissionController, PromptPermissionSelect } from "@/components/prompt-permission-select"
 
 export function SessionComposerRegion(props: {
   controller: SessionComposerRegionController
@@ -50,6 +51,9 @@ export function SessionComposerRegion(props: {
               <SessionPermissionDock
                 request={request}
                 responding={controller.state.permissionResponding()}
+                permissionControl={
+                  <SessionPermissionControl sessionID={controller.sessionID} onClose={controller.restoreFocus} />
+                }
                 onDecide={(response) => {
                   controller.onResponseSubmit()
                   controller.state.decide(response)
@@ -165,4 +169,9 @@ export function SessionComposerRegion(props: {
       </div>
     </div>
   )
+}
+
+function SessionPermissionControl(props: { sessionID: () => string | undefined; onClose: () => void }) {
+  const controller = createPromptPermissionController(props.sessionID)
+  return <PromptPermissionSelect controller={controller} onClose={props.onClose} />
 }

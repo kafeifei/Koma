@@ -31,6 +31,8 @@ import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { ExternalLink } from "./external-link"
 import { SettingsList } from "./settings-list"
+import { formatServerError } from "@/utils/server-errors"
+import { showToast } from "@/utils/toast"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -85,11 +87,13 @@ const playDemoSound = (id: string | undefined) => {
 export const SettingsGeneral: Component = () => {
   const theme = useTheme()
   const language = useLanguage()
+  const params = useParams()
   const permission = usePermission()
   const platform = usePlatform()
   const dialog = useDialog()
-  const params = useParams()
   const settings = useSettings()
+  const serverSync = useServerSync()
+  const serverSdk = useServerSDK()
 
   const updater = useUpdaterAction()
 
@@ -98,8 +102,8 @@ export const SettingsGeneral: Component = () => {
   const accepting = createMemo(() => {
     const value = dir()
     if (!value) return false
-    if (!params.id) return permission.isAutoAcceptingDirectory(value)
-    return permission.isAutoAccepting(params.id, value)
+    if (!params.id) return permission.isAutoAcceptingDirectory(serverSdk().scope, value)
+    return permission.sessionMode(serverSdk().scope, params.id) === "auto"
   })
 
   const toggleAccept = (checked: boolean) => {
@@ -107,24 +111,20 @@ export const SettingsGeneral: Component = () => {
     if (!value) return
 
     if (!params.id) {
-      if (permission.isAutoAcceptingDirectory(value) === checked) return
-      permission.toggleAutoAcceptDirectory(value)
+      if (permission.isAutoAcceptingDirectory(serverSdk().scope, value) === checked) return
+      permission.setDirectoryMode(serverSdk().scope, value, checked ? "auto" : "default")
       return
     }
-
-    if (checked) {
-      permission.enableAutoAccept(params.id, value)
-      return
-    }
-
-    permission.disableAutoAccept(params.id, value)
+    void permission.setSessionMode(serverSdk().scope, params.id, value, checked ? "auto" : "default").catch((error) =>
+      showToast({
+        title: language.t("prompt.permission.updateFailed.title"),
+        description: formatServerError(error, language.t, language.t("prompt.permission.updateFailed.description")),
+      }),
+    )
   }
   const desktop = createMemo(() => platform.platform === "desktop")
 
   const themeOptions = createMemo<ThemeOption[]>(() => theme.ids().map((id) => ({ id, name: theme.name(id) })))
-
-  const serverSync = useServerSync()
-  const serverSdk = useServerSDK()
 
   const [shells] = createResource(
     async () => {

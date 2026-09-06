@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js"
+import { For, Show, type JSX } from "solid-js"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
 import { DockPrompt } from "@opencode-ai/session-ui/dock-prompt"
@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/language"
 export function SessionPermissionDock(props: {
   request: PermissionRequest
   responding: boolean
+  permissionControl?: JSX.Element
   onDecide: (response: "once" | "always" | "reject") => void
 }) {
   const language = useLanguage()
@@ -28,6 +29,7 @@ export function SessionPermissionDock(props: {
             <Icon name="warning" size="normal" />
           </span>
           <div data-slot="permission-header-title">{language.t("notification.permission.title")}</div>
+          <div data-slot="permission-control">{props.permissionControl}</div>
         </div>
       }
       footer={

@@ -20,12 +20,15 @@ export type SessionTab = {
   sessionId: string
 }
 
+export type PermissionMode = "default" | "auto" | "full"
+
 export type DraftTab = {
   type: "draft"
   draftID: string
   server: ServerConnection.Key
   directory: string
   worktree?: string
+  permissionMode?: PermissionMode
 }
 
 export type Tab = SessionTab | DraftTab

@@ -4,7 +4,7 @@ import { createCompatibleApi } from "./server-compat"
 
 function setup(
   protocol: "v1" | "v2" | Promise<"v1" | "v2">,
-  responses?: { vcs?: { branch: string; default_branch: string } },
+  responses?: { vcs?: { branch: string; default_branch: string }; echoPermissionMode?: boolean },
 ) {
   const requests: Request[] = []
   const fetcher = Object.assign(
@@ -12,6 +12,7 @@ function setup(
       const request = new Request(input, init)
       requests.push(request)
       if (request.method === "PATCH") {
+        const body = (await request.clone().json()) as { permissionMode?: "default" | "auto" | "full" }
         return Response.json({
           id: "ses_1",
           slug: "ses_1",
@@ -20,6 +21,7 @@ function setup(
           title: "Session",
           version: "1",
           time: { created: 1, updated: 1 },
+          permissionMode: responses?.echoPermissionMode ? body.permissionMode : undefined,
         })
       }
       if (request.method === "POST" && request.url.endsWith("/prompt_async"))
@@ -195,6 +197,29 @@ describe("createCompatibleApi", () => {
 
     expect(new URL(requests[0]!.url).pathname).toBe("/session/ses_1/permissions/permission_1")
     expect(new URL(requests[0]!.url).searchParams.get("directory")).toBe("/other")
+  })
+
+  test("routes V1 permission mode changes through session update", async () => {
+    const { api, requests } = setup("v1", { echoPermissionMode: true })
+
+    await api.session.setPermissionMode({
+      sessionID: "ses_1",
+      permissionMode: "full",
+      location: { directory: "/other" },
+    })
+
+    expect(new URL(requests[0]!.url).pathname).toBe("/session/ses_1")
+    expect(requests[0]!.headers.get("x-opencode-directory")).toBe(encodeURIComponent("/other"))
+    expect(requests[0]!.method).toBe("PATCH")
+    expect(await requests[0]!.json()).toMatchObject({ permissionMode: "full" })
+  })
+
+  test("rejects V1 servers that ignore permission mode changes", async () => {
+    const { api } = setup("v1")
+
+    expect(
+      api.session.setPermissionMode({ sessionID: "ses_1", permissionMode: "full", location: { directory: "/repo" } }),
+    ).rejects.toThrow("Permission update failed")
   })
 
   test("disposes the V1 instance after connecting a provider", async () => {

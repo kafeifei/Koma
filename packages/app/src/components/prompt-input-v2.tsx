@@ -14,12 +14,16 @@ import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } 
 import { createPersistedPromptInputHistory } from "@/components/prompt-input/history-store"
 import { promptDesignPlaceholder, promptPlaceholder } from "@/components/prompt-input/placeholder"
 import { createPromptSubmit } from "@/components/prompt-input/submit"
+import {
+  createPromptPermissionController,
+  PromptPermissionSelect,
+  type PromptPermissionController,
+} from "@/components/prompt-permission-select"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { usePermission } from "@/context/permission"
 import { type ImageAttachmentPart, usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
@@ -45,6 +49,7 @@ export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "sub
 }
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
+  readonly permission: PromptPermissionController
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
@@ -61,6 +66,9 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
         variantControlVisible={!props.controller.model.loading}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
+        permissionControl={
+          <PromptPermissionSelect controller={props.controller.permission} onClose={props.controller.restoreFocus} />
+        }
         modelControl={
           <PromptInputV2ModelControl
             loading={props.controller.model.loading}
@@ -89,10 +97,10 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   const comments = useComments()
   const dialog = useDialog()
   const command = useCommand()
-  const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
   const prompt = props.state ?? usePrompt()
+  const permissionControl = createPromptPermissionController(() => props.controls.session.id)
   let editor: HTMLDivElement | undefined
 
   const interaction = createPromptInputV2State()
@@ -193,17 +201,12 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     )
   }
 
-  const accepting = createMemo(() => {
-    const id = props.controls.session.id
-    if (!id) return permission.isAutoAcceptingDirectory(sdk().directory)
-    return permission.isAutoAccepting(id, sdk().directory)
-  })
   const submission = createPromptSubmit({
     prompt,
     info,
     imageAttachments: attachments,
     commentCount,
-    autoAccept: accepting,
+    permissionMode: permissionControl.current,
     mode,
     working,
     editor: () => editor,
@@ -414,6 +417,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     },
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
+  Object.defineProperty(controller, "permission", { get: () => permissionControl })
 
   command.register("prompt-input", () => [
     {

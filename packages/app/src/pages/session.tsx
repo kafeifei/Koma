@@ -2160,6 +2160,7 @@ export default function Page() {
                   }
                 : undefined,
             onResponseSubmit: resumeScroll,
+            restoreFocus: () => inputRef?.focus(),
             openParent: () => {
               const id = info()?.parentID
               if (!id) return

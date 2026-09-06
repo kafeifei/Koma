@@ -23,6 +23,7 @@ import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/l
 import { Reference } from "@opencode-ai/core/reference"
 import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import type { PermissionMode } from "@opencode-ai/schema/session-permission-mode"
 
 export function provider(model: Provider.Model) {
   if (model.api.id.includes("muse")) {
@@ -50,8 +51,12 @@ export function provider(model: Provider.Model) {
 
 export interface Interface {
   readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
-  readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
-  readonly mcp: (agent: Agent.Info, permission?: PermissionV1.Ruleset) => Effect.Effect<string | undefined>
+  readonly skills: (agent: Agent.Info, permissionMode?: PermissionMode) => Effect.Effect<string | undefined>
+  readonly mcp: (
+    agent: Agent.Info,
+    permission?: PermissionV1.Ruleset,
+    permissionMode?: PermissionMode,
+  ) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SystemPrompt") {}
@@ -102,8 +107,8 @@ const layer = Layer.effect(
         ].filter((part): part is string => part !== undefined)
       }),
 
-      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
-        if (Permission.disabled(["skill"], agent.permission).has("skill")) return
+      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info, permissionMode?: PermissionMode) {
+        if (Permission.disabled(["skill"], agent.permission, permissionMode).has("skill")) return
 
         const list = yield* skill.available(agent)
 
@@ -116,10 +121,16 @@ const layer = Layer.effect(
         ].join("\n")
       }),
 
-      mcp: Effect.fn("SystemPrompt.mcp")(function* (agent: Agent.Info, permission?: PermissionV1.Ruleset) {
+      mcp: Effect.fn("SystemPrompt.mcp")(function* (
+        agent: Agent.Info,
+        permission?: PermissionV1.Ruleset,
+        permissionMode?: PermissionMode,
+      ) {
         const ruleset = Permission.merge(agent.permission, permission ?? [])
         const instructions = (yield* mcp.instructions()).filter(
-          (item) => item.tools.length === 0 || Permission.disabled(item.tools, ruleset).size < item.tools.length,
+          (item) =>
+            item.tools.length === 0 ||
+            Permission.disabled(item.tools, ruleset, permissionMode).size < item.tools.length,
         )
         if (instructions.length === 0) return
 

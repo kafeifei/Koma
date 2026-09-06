@@ -39,13 +39,16 @@ import { SessionID, MessageID, PartID } from "./schema"
 
 import type { Provider } from "@/provider/provider"
 import { Global } from "@opencode-ai/core/global"
-import { Effect, Layer, Option, Context, Schema, Types } from "effect"
+import { DateTime, Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { NonNegativeInt, optional } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { LifecycleFailedError, WorktreeLifecycle } from "@/worktree/lifecycle"
+import { PermissionMode } from "@opencode-ai/schema/session-permission-mode"
+import { SessionPermissionMode } from "@opencode-ai/core/session/permission-mode"
+import { SessionEvent } from "@opencode-ai/core/session/event"
 
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
@@ -70,7 +73,10 @@ function decodeSearchCursor(cursor?: string) {
 
 type SessionRow = typeof SessionTable.$inferSelect
 
-export function fromRow(row: SessionRow): Info {
+export function fromRow(
+  row: SessionRow,
+  permissionMode: PermissionMode = PermissionMode.make(row.permission_mode ?? "default"),
+): Info {
   const summary =
     row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
       ? {
@@ -122,6 +128,7 @@ export function fromRow(row: SessionRow): Info {
     metadata: row.metadata ?? undefined,
     revert,
     permission: row.permission ? [...row.permission] : undefined,
+    permissionMode,
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -254,6 +261,7 @@ export const Info = Schema.Struct({
   metadata: optional(Metadata),
   time: Time,
   permission: optional(PermissionV1.Ruleset),
+  permissionMode: optional(PermissionMode),
   revert: optional(Revert),
 }).annotate({ identifier: "Session" })
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
@@ -295,6 +303,7 @@ export const CreateInput = Schema.optional(
     model: Schema.optional(Model),
     metadata: Schema.optional(Metadata),
     permission: Schema.optional(PermissionV1.Ruleset),
+    permissionMode: Schema.optional(PermissionMode),
     workspaceID: Schema.optional(WorkspaceV2.ID),
   }),
 )
@@ -319,6 +328,10 @@ export const SetMetadataInput = Schema.Struct({
 export const SetPermissionInput = Schema.Struct({
   sessionID: SessionID,
   permission: PermissionV1.Ruleset,
+})
+export const SetPermissionModeInput = Schema.Struct({
+  sessionID: SessionID,
+  permissionMode: PermissionMode,
 })
 export const SetRevertInput = Schema.Struct({
   sessionID: SessionID,
@@ -458,6 +471,7 @@ export interface Interface {
     model?: Schema.Schema.Type<typeof Model>
     metadata?: typeof Metadata.Type
     permission?: PermissionV1.Ruleset
+    permissionMode?: PermissionMode
     workspaceID?: WorkspaceV2.ID
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
@@ -474,6 +488,7 @@ export interface Interface {
     time: number
   }) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: PermissionV1.Ruleset }) => Effect.Effect<void>
+  readonly setPermissionMode: (input: typeof SetPermissionModeInput.Type) => Effect.Effect<void, NotFound>
   readonly setRevert: (input: {
     sessionID: SessionID
     revert: Info["revert"]
@@ -543,6 +558,7 @@ const layer = Layer.effect(
       path?: string
       metadata?: typeof Metadata.Type
       permission?: PermissionV1.Ruleset
+      permissionMode?: PermissionMode
     }) {
       const ctx = yield* InstanceState.context
       const result: Info = {
@@ -559,6 +575,9 @@ const layer = Layer.effect(
         model: input.model,
         metadata: input.metadata,
         permission: input.permission ? [...input.permission] : undefined,
+        permissionMode:
+          input.permissionMode ??
+          (input.parentID ? yield* SessionPermissionMode.resolve(db, input.parentID) : PermissionMode.make("default")),
         cost: 0,
         tokens: EmptyTokens,
         time: {
@@ -568,7 +587,18 @@ const layer = Layer.effect(
       }
       yield* Effect.logInfo("created", result)
 
-      yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
+      yield* events.publish(SessionV1.Event.Created, {
+        sessionID: result.id,
+        info: result,
+        permissionMode: input.permissionMode,
+      })
+      if (input.permissionMode !== undefined) {
+        yield* events.publish(SessionEvent.PermissionModeChanged, {
+          sessionID: result.id,
+          timestamp: yield* DateTime.now,
+          permissionMode: input.permissionMode,
+        })
+      }
       yield* lifecycle
         .claim({ directory: result.directory, sessionID: result.id })
         .pipe(Effect.catch((error) => Effect.logWarning("worktree lifecycle claim failed", error)))
@@ -579,7 +609,7 @@ const layer = Layer.effect(
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
       const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
-      return fromRow(row)
+      return fromRow(row, yield* SessionPermissionMode.resolveRow(db, row))
     })
 
     const routingDirectory = Effect.fn("Session.routingDirectory")(function* (sessionID: SessionID) {
@@ -634,7 +664,14 @@ const layer = Layer.effect(
           })
         }
       }
-      return rows.map((row) => ({ ...fromRow(row), project: projects.get(row.project_id) ?? null }))
+      return yield* Effect.forEach(rows, (row) =>
+        SessionPermissionMode.resolveRow(db, row).pipe(
+          Effect.map((permissionMode) => ({
+            ...fromRow(row, permissionMode),
+            project: projects.get(row.project_id) ?? null,
+          })),
+        ),
+      )
     })
 
     const searchGlobal = Effect.fn("Session.searchGlobal")(function* (input: SearchGlobalInput) {
@@ -693,7 +730,9 @@ const layer = Layer.effect(
         .where(and(eq(SessionTable.parent_id, parentID)))
         .all()
         .pipe(Effect.orDie)
-      return rows.map(fromRow)
+      return yield* Effect.forEach(rows, (row) =>
+        SessionPermissionMode.resolveRow(db, row).pipe(Effect.map((permissionMode) => fromRow(row, permissionMode))),
+      )
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -769,6 +808,7 @@ const layer = Layer.effect(
       model?: Schema.Schema.Type<typeof Model>
       metadata?: typeof Metadata.Type
       permission?: PermissionV1.Ruleset
+      permissionMode?: PermissionMode
       workspaceID?: WorkspaceV2.ID
     }) {
       const ctx = yield* InstanceState.context
@@ -782,6 +822,7 @@ const layer = Layer.effect(
         model: input?.model,
         metadata: input?.metadata,
         permission: input?.permission,
+        permissionMode: input?.permissionMode,
         workspaceID: input?.workspaceID ?? workspace,
       })
     })
@@ -892,6 +933,18 @@ const layer = Layer.effect(
       yield* patch(input.sessionID, { permission: [...input.permission], time: { updated: Date.now() } }).pipe(
         Effect.orDie,
       )
+    })
+
+    const setPermissionMode = Effect.fn("Session.setPermissionMode")(function* (
+      input: typeof SetPermissionModeInput.Type,
+    ) {
+      yield* get(input.sessionID)
+      yield* events.publish(SessionEvent.PermissionModeChanged, {
+        sessionID: input.sessionID,
+        timestamp: yield* DateTime.now,
+        permissionMode: input.permissionMode,
+      })
+      yield* patch(input.sessionID, { time: { updated: Date.now() } }).pipe(Effect.orDie)
     })
 
     const setRevert = Effect.fn("Session.setRevert")(function* (input: {
@@ -1027,6 +1080,7 @@ const layer = Layer.effect(
       setMetadata,
       setAgentModel,
       setPermission,
+      setPermissionMode,
       setRevert,
       clearRevert,
       setSummary,
@@ -1115,7 +1169,11 @@ function listByProject(
     .all()
     .pipe(
       Effect.orDie,
-      Effect.map((rows) => rows.map(fromRow)),
+      Effect.flatMap((rows) =>
+        Effect.forEach(rows, (row) =>
+          SessionPermissionMode.resolveRow(db, row).pipe(Effect.map((permissionMode) => fromRow(row, permissionMode))),
+        ),
+      ),
     )
 }
 

@@ -9,7 +9,6 @@ import { useServerSync, type ServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal, type ModelSelection } from "@/context/local"
-import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
 import { useSDK, type DirectorySDK } from "@/context/sdk"
 import { useSync, type DirectorySync } from "@/context/sync"
@@ -17,12 +16,13 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import { formatServerError } from "@/utils/server-errors"
+import { formatServerError, PermissionModeError } from "@/utils/server-errors"
 import { ScopedKey } from "@/utils/server-scope"
 import { createPromptSubmissionState } from "./submission-state"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
 import { blobDataUrl } from "@/utils/draft-store"
+import type { PermissionMode } from "@/context/tabs"
 
 type PendingPrompt = {
   abort: AbortController
@@ -212,7 +212,7 @@ type PromptSubmitInput = {
   info: Accessor<{ id: string } | undefined>
   imageAttachments: Accessor<ImageAttachmentPart[]>
   commentCount: Accessor<number>
-  autoAccept: Accessor<boolean>
+  permissionMode: Accessor<PermissionMode>
   mode: Accessor<"normal" | "shell">
   working: Accessor<boolean>
   editor: () => HTMLDivElement | undefined
@@ -239,7 +239,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const sync = useSync()
   const serverSync = useServerSync()
   const local = useLocal()
-  const permission = usePermission()
   const prompt = input.prompt
   const layout = useLayout()
   const language = useLanguage()
@@ -249,6 +248,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const pendingKey = (sessionID: string) => ScopedKey.from(sdk().scope, sessionID)
 
   const errorMessage = (err: unknown) => {
+    if (err instanceof PermissionModeError) return formatServerError(err, language.t)
     if (err && typeof err === "object" && "message" in err && typeof err.message === "string") return err.message
     if (err && typeof err === "object" && "data" in err) {
       const data = (err as { data?: { message?: string } }).data
@@ -359,9 +359,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.resetHistoryNavigation()
 
     const projectDirectory = sdk().directory
-    const permissionState = permission.currentServerState()
     const isNewSession = !params.id
-    const shouldAutoAccept = isNewSession && input.autoAccept()
+    const permissionMode = isNewSession ? input.permissionMode() : undefined
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
@@ -416,9 +415,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         .api.session.create({
           agent: currentAgent.name,
           model: { id: currentModel.id, providerID: currentModel.provider.id, variant },
+          permissionMode,
           location: { directory: sessionDirectory },
         })
         .then(normalizeSessionInfo)
+        .then((session) => {
+          if (permissionMode === "default" || session.permissionMode === permissionMode) return session
+          throw new PermissionModeError()
+        })
         .catch((err) => {
           showToast({
             title: language.t("prompt.toast.sessionCreateFailed.title"),
@@ -431,7 +435,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         session = created
         await startTransition(() => {
           if (!session) return
-          if (shouldAutoAccept) permissionState.enableAutoAccept(session.id, sessionDirectory)
           local.session.promote(sessionDirectory, session.id, {
             agent: currentAgent.name,
             model: { providerID: currentModel.provider.id, modelID: currentModel.id },

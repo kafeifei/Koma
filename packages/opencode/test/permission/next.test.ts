@@ -1,7 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { test, expect } from "bun:test"
 import os from "os"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Permission } from "../../src/permission"
@@ -12,10 +12,27 @@ import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Database } from "@opencode-ai/core/database/database"
+import { ProjectTable } from "@opencode-ai/core/project/sql"
+import { SessionTable } from "@opencode-ai/core/session/sql"
+import { SessionEvent } from "@opencode-ai/core/session/event"
+import { eq } from "drizzle-orm"
+import { InstanceState } from "../../src/effect/instance-state"
+import { ProjectV2 } from "@opencode-ai/core/project"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { EventV2 } from "@opencode-ai/core/event"
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 const env = AppNodeBuilder.build(
-  LayerNode.group([Permission.node, EventV2Bridge.node, CrossSpawnSpawner.node, InstanceStore.node]),
+  LayerNode.group([
+    Database.node,
+    EventV2.node,
+    Permission.node,
+    EventV2Bridge.node,
+    CrossSpawnSpawner.node,
+    InstanceStore.node,
+  ]),
   [[InstanceStore.bootstrapNode, noopBootstrap]],
 )
 const it = testEffect(env)
@@ -72,6 +89,58 @@ const list = () =>
   Effect.gen(function* () {
     const permission = yield* Permission.Service
     return yield* permission.list()
+  })
+
+const createPermissionSession = (input: {
+  sessionID: SessionID
+  parentID?: SessionID
+  permissionMode?: "default" | "auto" | "full"
+}) =>
+  Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const ctx = yield* InstanceState.context
+    yield* db
+      .insert(ProjectTable)
+      .values({
+        id: ProjectV2.ID.make(ctx.project.id),
+        worktree: AbsolutePath.make(ctx.worktree),
+        vcs: ctx.project.vcs,
+        sandboxes: [],
+      })
+      .onConflictDoNothing()
+      .run()
+      .pipe(Effect.orDie)
+    yield* db
+      .insert(SessionTable)
+      .values({
+        id: SessionV2.ID.make(input.sessionID),
+        project_id: ProjectV2.ID.make(ctx.project.id),
+        parent_id: input.parentID ? SessionV2.ID.make(input.parentID) : undefined,
+        slug: input.sessionID,
+        directory: ctx.directory,
+        title: input.sessionID,
+        version: "test",
+        permission_mode: input.permissionMode,
+      })
+      .run()
+      .pipe(Effect.orDie)
+  })
+
+const setPermissionMode = (sessionID: SessionID, permissionMode: "default" | "auto" | "full") =>
+  Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const events = yield* EventV2Bridge.Service
+    yield* db
+      .update(SessionTable)
+      .set({ permission_mode: permissionMode })
+      .where(eq(SessionTable.id, SessionV2.ID.make(sessionID)))
+      .run()
+      .pipe(Effect.orDie)
+    yield* events.publish(SessionEvent.PermissionModeChanged, {
+      sessionID: SessionV2.ID.make(sessionID),
+      timestamp: yield* DateTime.now,
+      permissionMode,
+    })
   })
 
 // fromConfig tests
@@ -540,6 +609,11 @@ test("disabled - wildcard permission denies all tools", () => {
   expect(result.has("read")).toBe(true)
 })
 
+test("disabled - full mode keeps explicitly denied tools available", () => {
+  const result = Permission.disabled(["bash", "edit"], [{ permission: "*", pattern: "*", action: "deny" }], "full")
+  expect(result).toEqual(new Set())
+})
+
 test("disabled - specific allow overrides wildcard deny", () => {
   const result = Permission.disabled(
     ["bash", "edit", "read"],
@@ -554,6 +628,72 @@ test("disabled - specific allow overrides wildcard deny", () => {
 })
 
 // ask tests
+
+it.instance(
+  "ask - applies session modes and releases pending requests without saving grants",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("ses_mode_v1")
+      yield* createPermissionSession({ sessionID })
+      const request = (action: "ask" | "deny") =>
+        ask({
+          sessionID,
+          permission: "bash",
+          patterns: ["pwd"],
+          metadata: {},
+          always: ["pwd"],
+          ruleset: [{ permission: "bash", pattern: "*", action }],
+        })
+
+      yield* setPermissionMode(sessionID, "auto")
+      expect(yield* request("ask")).toBeUndefined()
+      expect(yield* fail(request("deny"))).toBeInstanceOf(PermissionV1.DeniedError)
+
+      yield* setPermissionMode(sessionID, "full")
+      expect(yield* request("deny")).toBeUndefined()
+
+      yield* setPermissionMode(sessionID, "default")
+      const first = yield* request("ask").pipe(Effect.forkScoped)
+      expect(yield* waitForPending(1)).toHaveLength(1)
+      yield* setPermissionMode(sessionID, "auto")
+      yield* Fiber.join(first)
+      expect(yield* list()).toEqual([])
+
+      yield* setPermissionMode(sessionID, "default")
+      const second = yield* request("ask").pipe(Effect.forkScoped)
+      expect(yield* waitForPending(1)).toHaveLength(1)
+      yield* rejectAll()
+      yield* Fiber.await(second)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - inherits the nearest parent session mode",
+  () =>
+    Effect.gen(function* () {
+      const parentID = SessionID.make("ses_mode_parent")
+      const childID = SessionID.make("ses_mode_child")
+      yield* createPermissionSession({ sessionID: parentID, permissionMode: "full" })
+      yield* createPermissionSession({ sessionID: childID, parentID })
+      const denied = () =>
+        ask({
+          sessionID: childID,
+          permission: "bash",
+          patterns: ["pwd"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "deny" }],
+        })
+
+      expect(yield* denied()).toBeUndefined()
+      yield* setPermissionMode(parentID, "default")
+      expect(yield* fail(denied())).toBeInstanceOf(PermissionV1.DeniedError)
+      yield* setPermissionMode(childID, "full")
+      expect(yield* denied()).toBeUndefined()
+    }),
+  { git: true },
+)
 
 it.instance(
   "ask - resolves immediately when action is allow",
@@ -1011,6 +1151,59 @@ it.live("permission requests stay isolated by directory", () =>
     yield* store.provide({ directory: two }, reply({ requestID: twoPending[0].id, reply: "reject" }))
 
     yield* Fiber.await(a)
+    yield* Fiber.await(b)
+  }),
+)
+
+it.live("a context-free mode event releases only the matching instance request", () =>
+  Effect.gen(function* () {
+    const one = yield* tmpdirScoped({ git: true })
+    const two = yield* tmpdirScoped({ git: true })
+    const store = yield* InstanceStore.Service
+    const database = yield* Database.Service
+    const events = yield* EventV2.Service
+    const aID = SessionID.make("ses_mode_dir_a")
+    const bID = SessionID.make("ses_mode_dir_b")
+    yield* store.provide({ directory: one }, createPermissionSession({ sessionID: aID }))
+    yield* store.provide({ directory: two }, createPermissionSession({ sessionID: bID }))
+    const input = (sessionID: SessionID) => ({
+      sessionID,
+      permission: "bash",
+      patterns: ["pwd"],
+      metadata: {},
+      always: [],
+      ruleset: [{ permission: "bash", pattern: "*", action: "ask" as const }],
+    })
+    const a = yield* store.provide({ directory: one }, ask(input(aID))).pipe(Effect.forkScoped)
+    const b = yield* store.provide({ directory: two }, ask(input(bID))).pipe(Effect.forkScoped)
+    yield* store.provide({ directory: one }, waitForPending(1))
+    yield* store.provide({ directory: two }, waitForPending(1))
+
+    const replied = yield* Deferred.make<string | undefined>()
+    const unsubscribe = yield* events.listen((event) => {
+      if (event.type === Permission.Event.Replied.type && (event.data as { sessionID: SessionID }).sessionID === aID) {
+        Deferred.doneUnsafe(replied, Effect.succeed(event.location?.directory))
+      }
+      return Effect.void
+    })
+    yield* Effect.addFinalizer(() => unsubscribe)
+    yield* database.db
+      .update(SessionTable)
+      .set({ permission_mode: "auto" })
+      .where(eq(SessionTable.id, SessionV2.ID.make(aID)))
+      .run()
+      .pipe(Effect.orDie)
+    yield* events.publish(SessionEvent.PermissionModeChanged, {
+      sessionID: SessionV2.ID.make(aID),
+      timestamp: yield* DateTime.now,
+      permissionMode: "auto",
+    })
+
+    yield* Fiber.join(a)
+    expect(yield* Deferred.await(replied)).toBe(one)
+    expect(yield* store.provide({ directory: one }, list())).toEqual([])
+    expect((yield* store.provide({ directory: two }, list())).map((item) => item.sessionID)).toEqual([bID])
+    yield* store.provide({ directory: two }, rejectAll())
     yield* Fiber.await(b)
   }),
 )

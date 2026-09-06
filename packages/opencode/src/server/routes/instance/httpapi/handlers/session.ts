@@ -199,6 +199,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           permission: Permission.merge(current.permission ?? [], ctx.payload.permission),
         })
       }
+      if (ctx.payload.permissionMode !== undefined) {
+        yield* SessionError.mapStorageNotFound(
+          session.setPermissionMode({
+            sessionID: ctx.params.sessionID,
+            permissionMode: ctx.payload.permissionMode,
+          }),
+        )
+      }
       if (ctx.payload.time && "archived" in ctx.payload.time) {
         yield* SessionError.mapLifecycle(
           session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived ?? undefined }),

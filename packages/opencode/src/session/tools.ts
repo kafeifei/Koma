@@ -92,8 +92,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   for (const item of yield* registry.tools({
     modelID: ModelV2.ID.make(input.model.api.id),
     providerID: input.model.providerID,
-    agent: input.agent,
-    permission: input.session.permission,
+    agent: input.session.permissionMode === "full" ? { ...input.agent, permission: [] } : input.agent,
+    permission: input.session.permissionMode === "full" ? [] : input.session.permission,
   })) {
     const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     tools[item.id] = tool({

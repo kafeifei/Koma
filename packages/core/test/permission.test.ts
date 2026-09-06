@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Cause, Deferred, Effect, Fiber, Layer } from "effect"
+import { Cause, DateTime, Deferred, Effect, Fiber, Layer } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -18,6 +18,8 @@ import { SessionStore } from "@opencode-ai/core/session/store"
 import { eq } from "drizzle-orm"
 import { location } from "./fixture/location"
 import { testEffect } from "./lib/effect"
+import { SessionEvent } from "@opencode-ai/core/session/event"
+import { SessionPermissionMode } from "@opencode-ai/core/session/permission-mode"
 
 const current = Layer.succeed(
   Location.Service,
@@ -75,6 +77,24 @@ function setRules(rules: PermissionV2.Ruleset) {
   })
 }
 
+function setMode(permission_mode: "default" | "auto" | "full", sessionID = SessionV2.ID.make("ses_test")) {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const events = yield* EventV2.Service
+    yield* db
+      .update(SessionTable)
+      .set({ permission_mode })
+      .where(eq(SessionTable.id, sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* events.publish(SessionEvent.PermissionModeChanged, {
+      sessionID,
+      timestamp: yield* DateTime.now,
+      permissionMode: permission_mode,
+    })
+  })
+}
+
 function assertion(input: Partial<PermissionV2.AssertInput> = {}) {
   return {
     id: PermissionV2.ID.create("per_test"),
@@ -103,6 +123,87 @@ function waitForRequest() {
 }
 
 describe("PermissionV2", () => {
+  it.effect("applies auto and full without changing configured rules", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "ask" }])
+      const service = yield* PermissionV2.Service
+      yield* setMode("auto")
+      expect(yield* service.ask(assertion())).toMatchObject({ effect: "allow" })
+      yield* setRules([{ action: "read", resource: "*", effect: "deny" }])
+      expect(yield* service.ask(assertion())).toMatchObject({ effect: "deny" })
+      yield* setMode("full")
+      expect(yield* service.ask(assertion())).toMatchObject({ effect: "allow" })
+      yield* setMode("default")
+      expect(yield* service.ask(assertion())).toMatchObject({ effect: "deny" })
+    }),
+  )
+
+  it.effect("inherits the nearest parent permission mode dynamically", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "deny" }])
+      const { db } = yield* Database.Service
+      const childID = SessionV2.ID.make("ses_child")
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: childID,
+          project_id: Project.ID.global,
+          parent_id: SessionV2.ID.make("ses_test"),
+          slug: "child",
+          directory: "/project",
+          title: "child",
+          version: "test",
+          agent: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+      const service = yield* PermissionV2.Service
+      yield* setMode("full")
+      expect(yield* service.ask(assertion({ sessionID: childID }))).toMatchObject({ effect: "allow" })
+      yield* setMode("default")
+      expect(yield* service.ask(assertion({ sessionID: childID }))).toMatchObject({ effect: "deny" })
+    }),
+  )
+
+  it.effect("falls back to default for a malformed cyclic parent chain", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const { db } = yield* Database.Service
+      const childID = SessionV2.ID.make("ses_cycle_child")
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: childID,
+          project_id: Project.ID.global,
+          parent_id: SessionV2.ID.make("ses_test"),
+          slug: "cycle-child",
+          directory: "/project",
+          title: "cycle child",
+          version: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+      yield* db
+        .update(SessionTable)
+        .set({ parent_id: childID })
+        .where(eq(SessionTable.id, SessionV2.ID.make("ses_test")))
+        .run()
+        .pipe(Effect.orDie)
+      expect(yield* SessionPermissionMode.resolve(db, childID)).toBe("default")
+    }),
+  )
+
+  it.effect("releases an existing pending request when auto is enabled", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const { service, fiber, request } = yield* waitForRequest()
+      expect(yield* service.get(request.id)).toBeDefined()
+      yield* setMode("auto")
+      yield* Fiber.join(fiber)
+      expect(yield* service.get(request.id)).toBeUndefined()
+    }),
+  )
+
   it.effect("returns the evaluated effect and only queues prompts", () =>
     Effect.gen(function* () {
       yield* setup([{ action: "read", resource: "*", effect: "allow" }])

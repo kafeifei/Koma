@@ -4,6 +4,9 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { usePermission } from "@/context/permission"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
+import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
+import { showToast } from "@/utils/toast"
 import {
   monoDefault,
   monoFontFamily,
@@ -24,27 +27,30 @@ export type { ShellOption, ShellSelectOption } from "./general-controller-behavi
 
 export function createPermissionScopeController(sessionID: Accessor<string | undefined>) {
   const permission = usePermission()
+  const serverSdk = useServerSDK()
   const serverSync = useServerSync()
+  const language = useLanguage()
   const directory = createMemo(() => {
     const id = sessionID()
-    if (!id) return undefined
-    return serverSync().session.lineage.peek(id)?.session.directory
+    return id ? serverSync().session.get(id)?.directory : undefined
   })
 
   return {
     accepting: createMemo(() => {
       const id = sessionID()
-      const dir = directory()
-      if (!id || !dir) return false
-      return permission.isAutoAccepting(id, dir)
+      return !!id && permission.sessionMode(serverSdk().scope, id) === "auto"
     }),
-    enabled: createMemo(() => !!directory()),
+    enabled: createMemo(() => !!sessionID() && !!directory()),
     set: (checked: boolean) => {
       const id = sessionID()
-      const dir = directory()
-      if (!id || !dir) return
-      if (checked) return permission.enableAutoAccept(id, dir)
-      permission.disableAutoAccept(id, dir)
+      const value = directory()
+      if (!id || !value) return
+      void permission.setSessionMode(serverSdk().scope, id, value, checked ? "auto" : "default").catch((error) =>
+        showToast({
+          title: language.t("prompt.permission.updateFailed.title"),
+          description: formatServerError(error, language.t, language.t("prompt.permission.updateFailed.description")),
+        }),
+      )
     },
   }
 }
