@@ -231,7 +231,11 @@ const layer: Layer.Layer<
       const root = pathSvc.join(Global.Path.data, "worktree", ctx.project.id)
       yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
-      return yield* candidate({ root, name: input?.name ? slugify(input.name) : "", detached: input?.detached })
+      return yield* candidate({
+        root: yield* fs.resolve(root),
+        name: input?.name ? slugify(input.name) : "",
+        detached: input?.detached,
+      })
     })
 
     const options = Effect.fn("Worktree.options")(function* () {
