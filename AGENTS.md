@@ -1,11 +1,13 @@
 ## 本仓项目边界（先读）
 
-- 开始工作前阅读 [PROJECT.md](./PROJECT.md)，再阅读修改目录下的 `AGENTS.md`。`PROJECT.md` 说明本 fork 的目标与分界；[CONTEXT.md](./CONTEXT.md) 是上游 Session Runtime 的术语和设计约束，不能替代项目定位。
+- 开始工作前阅读 [PROJECT.md](./PROJECT.md) 和 [DEVELOPMENT.md](./DEVELOPMENT.md)，再阅读修改目录下的 `AGENTS.md`。前者说明产品分界，后者规定多线开发、自动合线与本地交付；[CONTEXT.md](./CONTEXT.md) 是上游 Session Runtime 的术语和设计约束，不能替代项目定位。
 - 本仓基于 `anomalyco/opencode`，`origin` 是 `kafeifei/opencode`。当前目标是在 OpenCode 现有能力上建设更接近 Codex 的项目／任务工作台，独立桌面实验渠道名为 **OpenCode Lab**。
 - 优先复用现有 App、Session UI、会话、事件、服务和 SDK。工作台需要的 API 补齐、数据一致性修复可以落在所属后端层；不要另建一套 Task／Session 数据源或执行循环。
 - 当前阶段不是从零建设 sayMiao 多 agent 平台。替换执行引擎、引入 Cindy／ACP 作为主架构、跨引擎调度等须另行明确目标和授权；不能从“像 Codex”自行推导这些要求。
 - 本地产品改造与上游通用修复分清归属，保留上游许可证、包边界和协议语义。下面的工程规范继续适用；上游贡献流程见 `CONTRIBUTING.md`。
-- 保留已有未提交改动和运行状态。文档、诊断或验证任务不自动授权清理数据、重启应用／服务、提交、推送、合并或发布。源码、构建产物、已安装应用、正在运行实例分别核验。
+- 开发阶段采用轻量流程：新实施任务各用独立分支／worktree，完成聚焦验证后默认提交本任务并自动合入本地 `dev`，无需逐步等用户指挥；明确的“先别提交／合并”等限制优先。现有在途工作按原授权收尾，独立答疑／诊断仍只读。
+- `发 Lab`／`发 debug` 表示将本次已就绪改动汇入 `dev`，从干净主 checkout 构建并安装 `/Applications/OpenCode Lab.app`。本地合线和交付串行；开发、测试并行。不自动推送、公开发布或重启应用／服务。
+- 保留已有未提交改动、用户数据和运行状态，不以自动合线为由 stash／reset 或收走他人改动。源码、候选包、已安装应用、正在运行实例分别核验；只运行与改动有关的必要检查。
 
 ## 上游工程规范
 
