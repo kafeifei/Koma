@@ -1599,6 +1599,20 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     (part().tool !== "task" || (part().state.status === "error" && !taskId()))
   const preview = () => !!props.onPreviewSession && part().tool === "task" && !!taskId()
   const handleTriggerClick = (event: MouseEvent) => {
+    if (part().tool === "task") {
+      console.info(
+        "[subagent-navigation]",
+        JSON.stringify({
+          phase: "click",
+          sessionID: data.sessionID,
+          targetSessionID: taskId(),
+          partID: part().id,
+          status: part().state.status,
+          action: preview() ? "preview" : inspect() ? "inspect-error" : "inline",
+          modified: event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey,
+        }),
+      )
+    }
     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     if (preview()) {
       const id = taskId()
@@ -2055,7 +2069,9 @@ ToolRegistry.register({
     const running = createMemo(() => props.status === "pending" || props.status === "running")
 
     const href = createMemo(() => sessionLink(childSessionId(), data.sessionHref))
-    const clickable = createMemo(() => !!(childSessionId() && (props.onPreviewSession || data.navigateToSession || href())))
+    const clickable = createMemo(
+      () => !!(childSessionId() && (props.onPreviewSession || data.navigateToSession || href())),
+    )
 
     const open = () => {
       const id = childSessionId()
@@ -2068,6 +2084,17 @@ ToolRegistry.register({
     }
 
     const navigate = (event: MouseEvent) => {
+      console.info(
+        "[subagent-navigation]",
+        JSON.stringify({
+          phase: "click",
+          sessionID: data.sessionID,
+          targetSessionID: childSessionId(),
+          status: props.status,
+          action: !childSessionId() ? "missing-target" : props.onPreviewSession ? "preview" : "navigate",
+          modified: event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey,
+        }),
+      )
       if (!props.onPreviewSession && !data.navigateToSession) return
       if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
       event.preventDefault()

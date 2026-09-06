@@ -8,7 +8,7 @@ import type { ToolPart } from "@opencode-ai/sdk/v2"
 export function useSidePanel() {
   const layout = useLayout()
   const terminal = useTerminal()
-  const { sessionKey, tabs, view } = useSessionLayout()
+  const { sessionKey, tabs, view, params } = useSessionLayout()
   const ownership = createSessionOwnership(sessionKey)
 
   const activate = (tab: string) => {
@@ -76,6 +76,16 @@ export function useSidePanel() {
     },
     previewSession: (sessionID: string) => {
       preview(childSessionTab(sessionID))
+      console.info(
+        "[subagent-navigation]",
+        JSON.stringify({
+          phase: "activate",
+          sessionID: params.id,
+          targetSessionID: sessionID,
+          selected: tabs().active() === childSessionTab(sessionID),
+          opened: view().reviewPanel.opened(),
+        }),
+      )
     },
     pin: (tab: string) => {
       void tabs().open(tab)
