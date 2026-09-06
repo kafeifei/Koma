@@ -1,5 +1,5 @@
 import { createStore, produce, reconcile } from "solid-js/store"
-import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, on, onCleanup, onMount, type Accessor } from "solid-js"
 import { useLocation } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -309,6 +309,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const [ephemeral, setEphemeral] = createStore({
       reviewPanelSource: "other" as ReviewPanelSource,
       sessionTabPreview: {} as Record<string, string | undefined>,
+      titlebarPanel: undefined as { owner: symbol; width: number | undefined } | undefined,
     })
 
     const MAX_SESSION_KEYS = 50
@@ -743,6 +744,14 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       session: {
         width: createMemo(() => store.session?.width ?? DEFAULT_SESSION_WIDTH),
+        panelWidth: () => ephemeral.titlebarPanel?.width,
+        registerPanel(width: Accessor<number | undefined>) {
+          const owner = Symbol()
+          createEffect(on(width, (width) => setEphemeral("titlebarPanel", { owner, width })))
+          onCleanup(() => {
+            if (ephemeral.titlebarPanel?.owner === owner) setEphemeral("titlebarPanel", undefined)
+          })
+        },
         resize(width: number) {
           if (!store.session) {
             setStore("session", { width })

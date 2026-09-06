@@ -31,6 +31,7 @@ import { applyPath, backPath, forwardPath } from "./titlebar-history"
 import { TitlebarTabStrip } from "@/components/titlebar-tab-strip"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
+import { createElementSize } from "@solid-primitives/resize-observer"
 import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "@/components/titlebar-session-events"
 import { useGlobal } from "@/context/global"
 import { ServerConnection, useServer } from "@/context/server"
@@ -67,7 +68,7 @@ export function useTitlebarRightMount() {
 export function Titlebar(props: {
   update?: TitlebarUpdate
   debugTools?: { visible: boolean; toggle: () => void }
-  workspace?: { opened: boolean; toggle: () => void }
+  workspace?: { opened: boolean; docked: boolean; toggle: () => void }
 }) {
   const layout = useLayout()
   const platform = usePlatform()
@@ -80,6 +81,10 @@ export function Titlebar(props: {
   const params = useParams()
   const useV2Titlebar = createMemo(() => settings.general.newLayoutDesigns())
   const mobile = createMediaQuery("(max-width: 767px)")
+  const segmented = () => !!props.workspace && useV2Titlebar() && !mobile()
+  const split = () => segmented() && layout.session.panelWidth() !== undefined
+  let navigation: HTMLDivElement | undefined
+  const navigationSize = createElementSize(() => navigation)
   const bottom = createMemo(() => useV2Titlebar() && mobile() && settings.general.mobileTitlebarPosition() === "bottom")
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
@@ -178,6 +183,9 @@ export function Titlebar(props: {
   return (
     <header
       data-slot={useV2Titlebar() ? "titlebar-v2" : undefined}
+      data-segmented={segmented()}
+      data-docked={segmented() && props.workspace?.docked}
+      data-split={split()}
       classList={{
         "shrink-0 relative flex flex-row": true,
         "h-9 bg-v2-background-bg-deep overflow-visible": useV2Titlebar(),
@@ -187,11 +195,15 @@ export function Titlebar(props: {
       style={{
         "min-height": minHeight(),
         // Keep native macOS traffic lights clear even when the desktop window is narrow.
-        "padding-left": macTrafficLights() ? `${macTrafficLightsBaseWidth / zoom()}px` : 0,
-        width: windows() ? `env(titlebar-area-width, calc(100vw - ${windowsControlsWidth()}))` : undefined,
-        "max-width": windows() ? `env(titlebar-area-width, calc(100vw - ${windowsControlsWidth()}))` : undefined,
+        "padding-left": macTrafficLights() && !segmented() ? `${macTrafficLightsBaseWidth / zoom()}px` : 0,
+        "--titlebar-mac-inset": macTrafficLights() ? `${macTrafficLightsBaseWidth / zoom()}px` : "0px",
+        "--titlebar-windows-inset": windows() ? windowsControlsWidth() : "0px",
+        width:
+          windows() && !segmented() ? `env(titlebar-area-width, calc(100vw - ${windowsControlsWidth()}))` : undefined,
+        "max-width":
+          windows() && !segmented() ? `env(titlebar-area-width, calc(100vw - ${windowsControlsWidth()}))` : undefined,
         // Native Windows caption controls remain on the physical right in both writing directions.
-        "margin-right": windows() ? "auto" : undefined,
+        "margin-right": windows() && !segmented() ? "auto" : undefined,
       }}
       data-tauri-drag-region
     >
@@ -403,7 +415,17 @@ export function Titlebar(props: {
 
             return (
               <div
+                data-slot="workspace-titlebar-tracks"
                 class="h-full flex-1 overflow-hidden flex flex-row items-center gap-1.5 px-2 md:pr-3"
+                style={{
+                  "grid-template-columns": segmented()
+                    ? `${props.workspace?.docked ? "var(--workspace-sidebar-width)" : "max-content"} ${
+                        split()
+                          ? `${Math.max(0, layout.session.panelWidth()! - (props.workspace?.docked ? 0 : (navigationSize.width ?? 0)))}px`
+                          : "minmax(0, 1fr)"
+                      } ${split() ? "minmax(0, 1fr)" : "auto"}`
+                    : undefined,
+                }}
                 classList={{
                   "pt-2": !bottom(),
                   "pb-2": bottom(),
@@ -411,45 +433,52 @@ export function Titlebar(props: {
                   "md:pl-4": !macTrafficLights(),
                 }}
               >
-                <ChannelIndicator debugTools={props.debugTools} />
-                <Show when={windows() || linux()}>
-                  <WindowsAppMenu command={command} platform={platform} variant="v2" />
-                </Show>
-                <TooltipV2
-                  placement="bottom"
-                  value={
-                    <>
-                      {props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title")}
-                      <KeybindV2
-                        keys={command.keybindParts(props.workspace ? "sidebar.toggle" : "home.toggle")}
-                        variant="neutral"
-                      />
-                    </>
-                  }
-                  class="shrink-0"
+                <div
+                  ref={navigation}
+                  data-slot="workspace-titlebar-nav"
+                  classList={{ contents: !segmented() }}
+                  data-tauri-drag-region
                 >
-                  <IconButtonV2
-                    type="button"
-                    variant="ghost-muted"
-                    size="large"
-                    class="!w-9 shrink-0"
-                    icon={<IconV2 name={props.workspace ? "sidebar-right" : "grid-plus"} />}
-                    state={
-                      props.workspace
-                        ? props.workspace.opened
-                          ? "pressed"
-                          : undefined
-                        : layout.route().type === "home"
-                          ? "pressed"
-                          : undefined
+                  <ChannelIndicator debugTools={props.debugTools} />
+                  <Show when={windows() || linux()}>
+                    <WindowsAppMenu command={command} platform={platform} variant="v2" />
+                  </Show>
+                  <TooltipV2
+                    placement="bottom"
+                    value={
+                      <>
+                        {props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title")}
+                        <KeybindV2
+                          keys={command.keybindParts(props.workspace ? "sidebar.toggle" : "home.toggle")}
+                          variant="neutral"
+                        />
+                      </>
                     }
-                    onClick={props.workspace ? props.workspace.toggle : toggleHome}
-                    aria-label={props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title")}
-                    aria-expanded={props.workspace ? props.workspace.opened : undefined}
-                    aria-controls={props.workspace ? "task-sidebar" : undefined}
-                    aria-pressed={props.workspace ? undefined : layout.route().type === "home"}
-                  />
-                </TooltipV2>
+                    class="shrink-0"
+                  >
+                    <IconButtonV2
+                      type="button"
+                      variant="ghost-muted"
+                      size="large"
+                      class="!w-9 shrink-0"
+                      icon={<IconV2 name={props.workspace ? "sidebar-right" : "grid-plus"} />}
+                      state={
+                        props.workspace
+                          ? props.workspace.opened
+                            ? "pressed"
+                            : undefined
+                          : layout.route().type === "home"
+                            ? "pressed"
+                            : undefined
+                      }
+                      onClick={props.workspace ? props.workspace.toggle : toggleHome}
+                      aria-label={props.workspace ? language.t("command.sidebar.toggle") : language.t("home.title")}
+                      aria-expanded={props.workspace ? props.workspace.opened : undefined}
+                      aria-controls={props.workspace ? "task-sidebar" : undefined}
+                      aria-pressed={props.workspace ? undefined : layout.route().type === "home"}
+                    />
+                  </TooltipV2>
+                </div>
 
                 <div classList={{ contents: !props.workspace, hidden: !!props.workspace }}>
                   <TitlebarTabStrip
@@ -507,8 +536,10 @@ export function Titlebar(props: {
                     </Show>
                   </div>
                 </Show>
-                <div class="flex-1" />
-                <TitlebarV2Right state={v2RightState()} />
+                <div class="flex-1" classList={{ hidden: segmented() }} />
+                <div data-slot="workspace-titlebar-tools" classList={{ contents: !segmented() }} data-tauri-drag-region>
+                  <TitlebarV2Right state={v2RightState()} />
+                </div>
               </div>
             )
           }}

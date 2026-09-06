@@ -389,6 +389,7 @@ export default function Page() {
   })
 
   const [ui, setUi] = createStore({
+    panelWidth: undefined as number | undefined,
     pendingMessage: undefined as string | undefined,
     reviewSnap: false,
     scrollGesture: 0,
@@ -469,10 +470,19 @@ export default function Page() {
   )
   const desktopSidePanelOpen = createMemo(() => desktopSessionResizeOpen() || desktopFileTreeOpen())
   let panelRow: HTMLDivElement | undefined
+  let sessionPanel: HTMLDivElement | undefined
   const [panelRowWidth, setPanelRowWidth] = createSignal<number>()
   createResizeObserver(
     () => panelRow,
     ({ width }) => setPanelRowWidth(width),
+  )
+  createResizeObserver(
+    () => sessionPanel,
+    ({ width }) => setUi("panelWidth", width),
+  )
+  // Follow the rendered width, including transitions, rather than the saved preference.
+  layout.session.registerPanel(() =>
+    newSessionDesign() && params.id && desktopSidePanelOpen() ? ui.panelWidth : undefined,
   )
   const sessionPanelMax = createMemo(() => {
     const available = panelRowWidth()
@@ -2258,6 +2268,7 @@ export default function Page() {
         <Show when={!isDesktop() && !!params.id && !settings.general.newLayoutDesigns()}>{mobileTabs()}</Show>
 
         <div
+          ref={sessionPanel}
           classList={{
             "@container relative shrink-0 flex flex-col min-h-0 h-full flex-1 md:flex-none transition-[width]": true,
             "duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":

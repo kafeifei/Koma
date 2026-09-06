@@ -59,16 +59,59 @@ test.describe("new layout", () => {
     const frame = session.locator(":scope > div").filter({ has: timelinePart(page, shellPartID) })
     const inspector = side.locator('[data-component="tool-inspector-panel"]')
     const output = inspector.locator('[data-slot="bash-pre"]')
+    const header = page.locator('[data-slot="titlebar-v2"]')
+    const nav = header.locator('[data-slot="workspace-titlebar-nav"]')
+    const heading = header.locator('[data-slot="workspace-titlebar-heading"]')
+    const tools = header.locator('[data-slot="workspace-titlebar-tools"]')
+    const aligned = async (docked = true, direction = "ltr") => {
+      await expect(header).toHaveAttribute("data-segmented", "true")
+      await expect(header).toHaveAttribute("data-docked", String(docked))
+      await expect(header).toHaveAttribute("data-split", "true")
+      await expect(nav).toHaveCSS("border-inline-end-width", docked ? "1px" : "0px")
+      await expect(tools).toHaveCSS("border-inline-start-width", "1px")
+      await expect
+        .poll(
+          async () => {
+            const [top, navigation, title, actions, right, left] = await Promise.all(
+              [header, nav, heading, tools, side, sidebar].map((item) => item.boundingBox()),
+            )
+            if (!top || !navigation || !title || !actions || !right || (docked && !left)) return Infinity
+            return Math.max(
+              ...[navigation, title, actions].flatMap((box) => [
+                Math.abs(box.y - top.y),
+                Math.abs(box.y + box.height - top.y - top.height),
+              ]),
+              Math.abs(direction === "rtl" ? actions.x + actions.width - right.x - right.width : actions.x - right.x),
+              ...(docked && left ? [Math.abs(navigation.x - left.x), Math.abs(navigation.width - left.width)] : []),
+            )
+          },
+          { message: "full-height titlebar dividers align with the visible panel boundaries" },
+        )
+        .toBeLessThanOrEqual(1)
+    }
+
+    await expect(sidebar.locator('[data-slot="workspace-footer"]')).toBeVisible()
+    await expect(
+      sidebar.locator('[data-slot="workspace-footer"]').getByRole("button", { name: "Add project", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      sidebar
+        .locator('[data-slot="workspace-section-heading"]')
+        .getByRole("button", { name: "Add project", exact: true }),
+    ).toBeVisible()
 
     await timelinePart(page, shellPartID).locator('[data-slot="collapsible-trigger"]').click()
     await expect(inspector).toContainText(shellOutput)
     await expect(sidebar).toHaveCSS("width", "248px")
+    await aligned()
     await handle.hover()
     const start = (await handle.boundingBox())!
     await page.mouse.down()
     await page.mouse.move(start.x + start.width / 2 + 72, start.y + start.height / 2, { steps: 8 })
+    await aligned()
     await page.mouse.up()
     await expect(sidebar).toHaveCSS("width", "320px")
+    await aligned()
     await expect(output).toHaveText(`$ printf alpha\n\n${shellOutput}`)
     await expect(output).toBeInViewport({ ratio: 1 })
 
@@ -105,8 +148,10 @@ test.describe("new layout", () => {
       const edge = (await divider.boundingBox())!
       await page.mouse.down()
       await page.mouse.move(edge.x + edge.width / 2 - 100, edge.y + edge.height / 2, { steps: 8 })
+      await aligned(true, direction)
       await page.mouse.up()
       await expect(session).toHaveCSS("width", `${chatWidth - (direction === "ltr" ? 100 : 0)}px`)
+      await aligned(true, direction)
       await expect(output).toHaveText(`$ printf alpha\n\n${shellOutput}`)
       await expect(output).toBeInViewport({ ratio: 1 })
       if (direction === "rtl") {
@@ -124,8 +169,10 @@ test.describe("new layout", () => {
 
     await toggle.click()
     await expect(sidebar).toBeHidden()
+    await aligned(false)
     await toggle.click()
     await expect(sidebar).toHaveCSS("width", "320px")
+    await aligned()
     await expect(inspector).toContainText(shellOutput)
     await expect
       .poll(() =>
@@ -148,6 +195,7 @@ test.describe("new layout", () => {
       .and(page.locator('[aria-controls="task-sidebar"]'))
     const side = workspace(page)
     const session = side.locator("xpath=../../preceding-sibling::div[1]")
+    const header = page.locator('[data-slot="titlebar-v2"]')
 
     await expect(sidebar).toHaveCSS("width", "248px")
     await handle.hover()
@@ -175,11 +223,15 @@ test.describe("new layout", () => {
       [390, parentID, parentTitle],
     ] as const) {
       await page.setViewportSize({ width, height: 900 })
+      await expect(header).toHaveAttribute("data-segmented", String(width >= 768))
+      await expect(header).toHaveAttribute("data-docked", "false")
+      await expect(header).toHaveAttribute("data-split", String(width >= 768))
       await expect(toggle).toHaveAttribute("aria-expanded", "false")
       await expect(sidebar).toBeHidden()
       await toggle.click()
       await expect(sidebar).toBeVisible()
       await expect(sidebar).toHaveCSS("width", "280px")
+      await expect(header).toHaveAttribute("data-docked", "false")
       await expect(handle).toHaveCount(0)
       await expect(sidebar).toBeInViewport({ ratio: 1 })
       await test.info().attach(`sidebar-drawer-${width}`, {
@@ -197,6 +249,43 @@ test.describe("new layout", () => {
       body: await page.screenshot(),
       contentType: "image/png",
     })
+  })
+
+  test("clears titlebar split after closing the side workspace and leaving the session", async ({ page }) => {
+    const header = page.locator('[data-slot="titlebar-v2"]')
+    const tools = header.locator('[data-slot="workspace-titlebar-tools"]')
+    const sidebar = page.locator('[data-component="task-sidebar"]')
+    await expect(header).toHaveAttribute("data-split", "true")
+    await expect(tools.locator("#opencode-titlebar-right")).toHaveCount(1)
+    const host = await tools.locator("#opencode-titlebar-right").elementHandle()
+
+    await page.getByRole("button", { name: "Toggle review" }).click()
+    await expect(workspace(page)).toHaveCount(0)
+    await expect(header).toHaveAttribute("data-split", "false")
+    await expect(tools).toHaveCSS("border-inline-start-width", "0px")
+
+    await page.getByRole("button", { name: "Toggle review" }).click()
+    for (const destination of ["Home", "New task"]) {
+      await expect(workspace(page)).toHaveAttribute("aria-hidden", "false")
+      await expect(header).toHaveAttribute("data-split", "true")
+      await sidebar
+        .locator('[data-slot="workspace-actions"]')
+        .getByRole("button", { name: destination, exact: true })
+        .click()
+      await expect(page).toHaveURL(destination === "Home" ? new URL("/", page.url()).href : /\/new-session\?draftId=/)
+      await expect(header.locator('[data-slot="workspace-titlebar-heading"]')).toContainText(destination)
+      await expect(workspace(page)).toHaveCount(0)
+      await expect(header).toHaveAttribute("data-split", "false")
+      await expect(tools).toHaveCSS("border-inline-start-width", "0px")
+      await expect(tools.locator("#opencode-titlebar-right")).toHaveCount(1)
+      expect(
+        await tools.locator("#opencode-titlebar-right").evaluate((node, original) => node === original, host),
+      ).toBe(true)
+      if (destination === "Home") {
+        await sidebar.locator(`[data-session-id="${parentID}"]`).click()
+        await expectSessionTitle(page, parentTitle)
+      }
+    }
   })
 
   test("replaces temporary tool details and keeps a pinned tab without expanding the chat row", async ({ page }) => {
