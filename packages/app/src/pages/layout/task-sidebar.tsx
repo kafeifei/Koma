@@ -1,4 +1,4 @@
-import { createMemo, For, Show, Suspense } from "solid-js"
+import { createMemo, For, Show, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import type { Session } from "@opencode-ai/sdk/v2/client"
@@ -31,7 +31,7 @@ import { pathKey } from "@/utils/path-key"
 import { BuildInfo } from "@/components/build-info"
 import "./task-sidebar.css"
 
-export function TaskSidebar(props: { opened: boolean; onNavigate: () => void }) {
+export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: () => void }>) {
   const global = useGlobal()
   const layout = useLayout()
   const command = useCommand()
@@ -143,6 +143,7 @@ export function TaskSidebar(props: { opened: boolean; onNavigate: () => void }) 
         </button>
         <BuildInfo />
       </div>
+      {props.children}
     </aside>
   )
 }

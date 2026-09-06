@@ -44,6 +44,158 @@ test.describe("new layout", () => {
     await expect(menu.getByRole("menuitem", { name: /browser/i })).toHaveCount(0)
   })
 
+  test("resizes and restores the task sidebar beside flat, usable panels", async ({ page }) => {
+    const sidebar = page.locator('[data-component="task-sidebar"]')
+    const handle = sidebar.locator('[data-component="resize-handle"]')
+    const toggle = page
+      .getByRole("button", { name: "Toggle sidebar", exact: true })
+      .and(page.locator('[aria-controls="task-sidebar"]'))
+    const side = workspace(page)
+    // The review panel is nested in two wrappers beside the main session panel.
+    const session = side.locator("xpath=../../preceding-sibling::div[1]")
+    const frame = session.locator(":scope > div").filter({ has: timelinePart(page, shellPartID) })
+    const inspector = side.locator('[data-component="tool-inspector-panel"]')
+    const output = inspector.locator('[data-slot="bash-pre"]')
+
+    await timelinePart(page, shellPartID).locator('[data-slot="collapsible-trigger"]').click()
+    await expect(inspector).toContainText(shellOutput)
+    await expect(sidebar).toHaveCSS("width", "248px")
+    await handle.hover()
+    const start = (await handle.boundingBox())!
+    await page.mouse.down()
+    await page.mouse.move(start.x + start.width / 2 + 72, start.y + start.height / 2, { steps: 8 })
+    await page.mouse.up()
+    await expect(sidebar).toHaveCSS("width", "320px")
+    await expect(output).toHaveText(`$ printf alpha\n\n${shellOutput}`)
+    await expect(output).toBeInViewport({ ratio: 1 })
+
+    for (const panel of [sidebar, frame, side]) {
+      await expect(panel).toHaveCSS("border-radius", "0px")
+      await expect(panel).toHaveCSS("box-shadow", "none")
+    }
+    await expect
+      .poll(async () => {
+        const left = (await sidebar.boundingBox())!
+        const chat = (await session.boundingBox())!
+        const right = (await side.boundingBox())!
+        return Math.max(
+          Math.abs(chat.x - left.x - left.width),
+          Math.abs(right.x - chat.x - chat.width),
+          Math.abs(chat.y - right.y),
+          Math.abs(right.x + right.width - 1440),
+          Math.abs(chat.y + chat.height - 900),
+          Math.abs(right.y + right.height - 900),
+        )
+      })
+      .toBeLessThanOrEqual(1)
+    await test.info().attach("desktop-sidebar-320-shell", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+
+    const divider = session.locator('[data-component="resize-handle"][data-direction="horizontal"]')
+    const chatWidth = (await session.boundingBox())!.width
+    for (const direction of ["ltr", "rtl"] as const) {
+      await page.evaluate((dir) => (document.documentElement.dir = dir), direction)
+      await expect(divider).toHaveCSS("direction", direction)
+      await divider.hover()
+      const edge = (await divider.boundingBox())!
+      await page.mouse.down()
+      await page.mouse.move(edge.x + edge.width / 2 - 100, edge.y + edge.height / 2, { steps: 8 })
+      await page.mouse.up()
+      await expect(session).toHaveCSS("width", `${chatWidth - (direction === "ltr" ? 100 : 0)}px`)
+      await expect(output).toHaveText(`$ printf alpha\n\n${shellOutput}`)
+      await expect(output).toBeInViewport({ ratio: 1 })
+      if (direction === "rtl") {
+        await expect(side.locator(":scope > div")).toHaveCSS("border-right-width", "1px")
+        await expect(side.locator(":scope > div")).toHaveCSS("border-left-width", "0px")
+      }
+    }
+    await page.evaluate(() => (document.documentElement.dir = "ltr"))
+
+    await side.getByRole("button", { name: "Keep tab open" }).click()
+    await openPanelItem(page, "Background tasks")
+    await expect(side.locator('[data-component="background-tasks-panel"]')).toContainText(childTitle)
+    await side.getByRole("tab", { name: /Shell/ }).click()
+    await expect(inspector).toContainText(shellOutput)
+
+    await toggle.click()
+    await expect(sidebar).toBeHidden()
+    await toggle.click()
+    await expect(sidebar).toHaveCSS("width", "320px")
+    await expect(inspector).toContainText(shellOutput)
+    await expect
+      .poll(() =>
+        page.evaluate(() => JSON.parse(localStorage.getItem("opencode.window.browser.dat:workspace.sidebar") ?? "{}")),
+      )
+      .toMatchObject({ opened: true, width: 320 })
+
+    await page.reload()
+    await expectSessionTitle(page, parentTitle)
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar).toHaveCSS("width", "320px")
+    await expect(handle).toBeVisible()
+  })
+
+  test("bounds task sidebar resizing and keeps narrow drawers free of drag handles and overflow", async ({ page }) => {
+    const sidebar = page.locator('[data-component="task-sidebar"]')
+    const handle = sidebar.locator('[data-component="resize-handle"]')
+    const toggle = page
+      .getByRole("button", { name: "Toggle sidebar", exact: true })
+      .and(page.locator('[aria-controls="task-sidebar"]'))
+    const side = workspace(page)
+    const session = side.locator("xpath=../../preceding-sibling::div[1]")
+
+    await expect(sidebar).toHaveCSS("width", "248px")
+    await handle.hover()
+    const start = (await handle.boundingBox())!
+    await page.mouse.down()
+    await page.mouse.move(start.x + start.width / 2 - 160, start.y + start.height / 2, { steps: 8 })
+    await page.mouse.up()
+    await expect(sidebar).toHaveCSS("width", "248px")
+
+    await page.setViewportSize({ width: 1000, height: 900 })
+    await handle.hover()
+    const narrow = (await handle.boundingBox())!
+    await page.mouse.down()
+    await page.mouse.move(990, narrow.y + narrow.height / 2, { steps: 8 })
+    await page.mouse.up()
+    await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeGreaterThanOrEqual(248)
+    await expect.poll(async () => (await session.boundingBox())?.width).toBeGreaterThanOrEqual(450)
+    await expect.poll(async () => (await side.boundingBox())?.width).toBeGreaterThanOrEqual(248)
+    await expect(side).toBeInViewport({ ratio: 1 })
+    await openPanelItem(page, "Background tasks")
+    await expect(side.locator('[data-component="background-tasks-panel"]')).toContainText(childTitle)
+
+    for (const [width, sessionID, title] of [
+      [900, otherID, otherTitle],
+      [390, parentID, parentTitle],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(toggle).toHaveAttribute("aria-expanded", "false")
+      await expect(sidebar).toBeHidden()
+      await toggle.click()
+      await expect(sidebar).toBeVisible()
+      await expect(sidebar).toHaveCSS("width", "280px")
+      await expect(handle).toHaveCount(0)
+      await expect(sidebar).toBeInViewport({ ratio: 1 })
+      await test.info().attach(`sidebar-drawer-${width}`, {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      })
+      await sidebar.locator(`[data-session-id="${sessionID}"]`).click()
+      await expectSessionTitle(page, title)
+      await expect(sidebar).toBeHidden()
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+        .toBe(0)
+    }
+    await test.info().attach("mobile-session-390", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+  })
+
   test("replaces temporary tool details and keeps a pinned tab without expanding the chat row", async ({ page }) => {
     const shell = timelinePart(page, shellPartID)
     const context = page.locator(`[data-timeline-part-ids*="${readPartID}"]`)

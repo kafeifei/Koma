@@ -1,6 +1,8 @@
 import { createEffect, Show, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
+import { createElementSize } from "@solid-primitives/resize-observer"
+import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
 import { useLanguage } from "@/context/language"
@@ -10,13 +12,25 @@ import { setV2Toast, ToastRegion } from "@/utils/toast"
 import { TaskSidebar } from "./layout/task-sidebar"
 import { debugToolsEnabled } from "@/utils/debug-tools"
 import { WORKSPACE_PANEL_MIN_WIDTH } from "./layout/layout-width"
+import { REVIEW_PANE_WIDTH_MIN, SESSION_PANEL_WIDTH_MIN } from "./session/session-panel-width"
 
 export default function NewLayout(props: ParentProps) {
   const platform = usePlatform()
   const language = useLanguage()
   const mobile = createMediaQuery("(max-width: 900px)")
+  let body: HTMLDivElement | undefined
+  const bodySize = createElementSize(() => body)
   const [state, setState] = createStore({ debugTools: false, mobileSidebar: false })
-  const [sidebar, setSidebar] = persisted(Persist.window("workspace.sidebar"), createStore({ opened: true }))
+  const [sidebar, setSidebar] = persisted(
+    Persist.window("workspace.sidebar"),
+    createStore({ opened: true, width: WORKSPACE_PANEL_MIN_WIDTH }),
+  )
+  const maxWidth = () =>
+    Math.max(
+      WORKSPACE_PANEL_MIN_WIDTH,
+      Math.min(480, (bodySize.width ?? 0) - SESSION_PANEL_WIDTH_MIN - REVIEW_PANE_WIDTH_MIN),
+    )
+  const sidebarWidth = () => Math.max(WORKSPACE_PANEL_MIN_WIDTH, Math.min(sidebar.width, maxWidth()))
   const opened = () => (mobile() ? state.mobileSidebar : sidebar.opened)
   const toggle = () =>
     mobile() ? setState("mobileSidebar", (value) => !value) : setSidebar("opened", (value) => !value)
@@ -40,7 +54,7 @@ export default function NewLayout(props: ParentProps) {
       style={{
         "padding-top": "env(safe-area-inset-top, 0px)",
         "padding-bottom": "env(safe-area-inset-bottom, 0px)",
-        "--workspace-sidebar-width": `${WORKSPACE_PANEL_MIN_WIDTH}px`,
+        "--workspace-sidebar-width": `${sidebarWidth()}px`,
       }}
     >
       <Titlebar
@@ -53,12 +67,23 @@ export default function NewLayout(props: ParentProps) {
         }
       />
       <div
+        ref={body}
         data-slot="workspace-body"
         onKeyDown={(event) => {
           if (event.key === "Escape" && mobile()) setState("mobileSidebar", false)
         }}
       >
-        <TaskSidebar opened={opened()} onNavigate={() => setState("mobileSidebar", false)} />
+        <TaskSidebar opened={opened()} onNavigate={() => setState("mobileSidebar", false)}>
+          <Show when={!mobile() && opened()}>
+            <ResizeHandle
+              direction="horizontal"
+              size={sidebarWidth()}
+              min={WORKSPACE_PANEL_MIN_WIDTH}
+              max={maxWidth()}
+              onResize={(width) => setSidebar("width", width)}
+            />
+          </Show>
+        </TaskSidebar>
         <Show when={mobile() && opened()}>
           <button
             type="button"
