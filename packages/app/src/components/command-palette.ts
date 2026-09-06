@@ -1,3 +1,5 @@
+import { createMediaQuery } from "@solid-primitives/media"
+import { useSettings } from "@/context/settings"
 import { getFilename } from "@opencode-ai/core/util/path"
 import type { Project } from "@opencode-ai/sdk/v2/client"
 import type { SessionInfo } from "@opencode-ai/client/promise"
@@ -65,14 +67,18 @@ export function createCommandPaletteFileEntry(path: string, category: string): C
 export function createCommandPaletteFileOpener(onOpenFile?: (path: string) => void) {
   const file = useFile()
   const layout = useLayout()
-  const { tabs, view } = useSessionLayout()
+  const { params, tabs, view } = useSessionLayout()
+  const settings = useSettings()
+  const desktop = createMediaQuery("(min-width: 768px)")
 
   return (path: string) => {
     const value = file.tab(path)
     void tabs().open(value)
     void file.load(path)
-    if (!view().reviewPanel.opened()) view().reviewPanel.open()
-    layout.fileTree.setTab("all")
+    const workspace = settings.general.newLayoutDesigns() && desktop() && !!params.id
+    const panel = workspace ? view().workspacePanel : view().reviewPanel
+    panel.open()
+    if (!workspace) layout.fileTree.setTab("all")
     onOpenFile?.(path)
     tabs().setActive(value)
   }

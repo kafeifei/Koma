@@ -38,11 +38,32 @@
     border-bottom: 1px solid var(--v2-border-border-muted);
   }
 
+  [data-slot="workspace-titlebar-heading"]:has(#opencode-titlebar-session-heading > *) {
+    #opencode-titlebar-session-heading {
+      display: flex;
+    }
+
+    [data-slot="workspace-titlebar-heading-fallback"] {
+      display: none;
+    }
+  }
+
+  #opencode-titlebar-session-heading > div {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+  }
+
   [data-slot="workspace-titlebar-tools"] {
     justify-content: flex-end;
     padding-right: var(--titlebar-windows-inset);
     padding-left: 0;
     border-bottom: 1px solid var(--v2-border-border-muted);
+  }
+
+  #opencode-titlebar-workspace-toggle {
+    margin-inline-start: auto;
   }
 
   &[data-docked="true"] [data-slot="workspace-titlebar-nav"] {

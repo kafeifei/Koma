@@ -32,6 +32,10 @@ export type PromptInputControls = {
       open: (tab: string) => void | Promise<void>
       setActive: (tab: string) => void
     }
+    workspacePanel?: {
+      opened: () => boolean
+      open: () => void
+    }
     reviewPanel: {
       opened: () => boolean
       open: () => void

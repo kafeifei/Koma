@@ -43,12 +43,32 @@ test.describe("new layout", () => {
     await expect(workspace(page)).toHaveAttribute("aria-hidden", "false")
   })
 
-  test("offers files, terminals, and background tasks without a browser panel", async ({ page }) => {
+  test("offers peer workspace tabs without a background panel", async ({ page }) => {
     await sideTabs(page).getByRole("button", { name: "Open panel" }).click()
 
     const menu = page.getByRole("menu")
-    await expect(menu.getByRole("menuitem")).toHaveText(["Terminal", "Open file", "Background tasks"])
+    await expect(menu.getByRole("menuitem")).toHaveText(["Terminal", "Open file", "Review"])
+    await expect(menu.getByRole("menuitem", { name: "Background tasks" })).toHaveCount(0)
     await expect(menu.getByRole("menuitem", { name: /browser/i })).toHaveCount(0)
+  })
+
+  test("closes and reopens Review as a peer workspace tab", async ({ page }) => {
+    const side = workspace(page)
+    const top = sideTabs(page)
+    await openPanelItem(page, "Review")
+
+    const review = top.getByRole("tab", { name: "Review" })
+    await expect(review).toHaveAttribute("data-selected", "")
+    await expect(side.locator('[data-component="session-review-v2"]')).toBeVisible()
+    await expect(side.getByRole("button", { name: "Toggle file tree" })).toBeVisible()
+    await closeSideTab(review)
+    await expect(review).toHaveCount(0)
+    await expect(side).toHaveAttribute("aria-hidden", "false")
+    await expect(side.locator('[data-component="session-review-v2"]')).toHaveCount(0)
+
+    await openPanelItem(page, "Review")
+    await expect(review).toHaveAttribute("data-selected", "")
+    await expect(side.locator('[data-component="session-review-v2"]')).toBeVisible()
   })
 
   test("resizes and restores the task sidebar beside flat, usable panels", async ({ page }) => {
@@ -159,15 +179,15 @@ test.describe("new layout", () => {
       await expect(output).toHaveText(`$ printf alpha\n\n${shellOutput}`)
       await expect(output).toBeInViewport({ ratio: 1 })
       if (direction === "rtl") {
-        await expect(side.locator(":scope > div")).toHaveCSS("border-right-width", "1px")
-        await expect(side.locator(":scope > div")).toHaveCSS("border-left-width", "0px")
+        await expect(side).toHaveCSS("border-right-width", "1px")
+        await expect(side).toHaveCSS("border-left-width", "0px")
       }
     }
     await page.evaluate(() => (document.documentElement.dir = "ltr"))
 
     await sideTabs(page).getByRole("tab", { name: /Shell/ }).click()
-    await openPanelItem(page, "Background tasks")
-    await expect(side.locator('[data-component="background-tasks-panel"]')).toContainText(childTitle)
+    await openPanelItem(page, "Review")
+    await expect(side.locator('[data-component="session-review-v2"]')).toBeVisible()
     await sideTabs(page).getByRole("tab", { name: /Shell/ }).click()
     await expect(inspector).toContainText(shellOutput)
 
@@ -219,8 +239,8 @@ test.describe("new layout", () => {
     await expect.poll(async () => (await session.boundingBox())?.width).toBeGreaterThanOrEqual(450)
     await expect.poll(async () => (await side.boundingBox())?.width).toBeGreaterThanOrEqual(248)
     await expect(side).toBeInViewport({ ratio: 1 })
-    await openPanelItem(page, "Background tasks")
-    await expect(side.locator('[data-component="background-tasks-panel"]')).toContainText(childTitle)
+    await openPanelItem(page, "Review")
+    await expect(side.locator('[data-component="session-review-v2"]')).toBeVisible()
 
     for (const [width, sessionID, title] of [
       [900, otherID, otherTitle],
@@ -255,57 +275,36 @@ test.describe("new layout", () => {
     })
   })
 
-  test("clears titlebar split after closing the side workspace and leaving the session", async ({ page }) => {
+  test("keeps one task title menu and the workspace toggle at the window edge", async ({ page }) => {
     const header = page.locator('[data-slot="titlebar-v2"]')
-    const heading = header.locator('[data-slot="workspace-titlebar-heading"]')
+    const heading = header.locator("#opencode-titlebar-session-heading")
     const tools = header.locator('[data-slot="workspace-titlebar-tools"]')
-    const sidebar = page.locator('[data-component="task-sidebar"]')
-    await expect(header).toHaveAttribute("data-split", "true")
-    await expect(heading.getByRole("button", { name: "Status" })).toBeVisible()
-    await expect(sideTabs(page).getByRole("button", { name: "Status" })).toHaveCount(0)
-    await expect(heading.locator("#opencode-titlebar-right")).toHaveCount(1)
+    const toggleHost = tools.locator("#opencode-titlebar-workspace-toggle")
+    const toggle = toggleHost.getByRole("button", { name: "Toggle review" })
 
-    await page.setViewportSize({ width: 1280, height: 900 })
-    await expect(header).toHaveAttribute("data-segmented", "true")
-    await page.setViewportSize({ width: 700, height: 900 })
-    await expect(header).toHaveAttribute("data-segmented", "false")
-    await expect(page.getByRole("button", { name: "Status" })).toBeVisible()
-    await page.setViewportSize({ width: 1280, height: 900 })
-    await expect(header).toHaveAttribute("data-segmented", "true")
-    await expect(heading.getByRole("button", { name: "Status" })).toBeVisible()
-    await expect(heading.getByRole("button", { name: "Toggle review" })).toBeVisible()
-    await expect(workspace(page)).toHaveAttribute("aria-hidden", "false")
-    const host = await heading.locator("#opencode-titlebar-right").elementHandle()
+    await expect(heading.locator("[data-session-title]")).toHaveCount(1)
+    await expect(heading.getByRole("heading", { name: parentTitle })).toHaveCount(1)
+    await expect(heading.getByRole("button", { name: "More options" })).toBeVisible()
+    await expect(page.locator("[data-session-title]")).toHaveCount(1)
+    await expect(toggle).toBeVisible()
+    await expect
+      .poll(async () => {
+        const [bar, host] = await Promise.all([header.boundingBox(), toggleHost.boundingBox()])
+        if (!bar || !host) return Infinity
+        return Math.abs(bar.x + bar.width - host.x - host.width)
+      })
+      .toBeLessThanOrEqual(1)
 
-    await page.getByRole("button", { name: "Toggle review" }).click()
+    const expanded = (await toggle.boundingBox())!
+    await toggle.click()
     await expect(workspace(page)).toHaveCount(0)
-    await expect(header).toHaveAttribute("data-split", "false")
-    await expect(tools).toHaveCSS("border-inline-start-width", "0px")
-    await expect(heading).toHaveCSS("border-bottom-width", "1px")
     await expect(tools).toHaveCSS("border-bottom-width", "1px")
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(await toggle.boundingBox()).toEqual(expanded)
 
-    await page.getByRole("button", { name: "Toggle review" }).click()
-    for (const destination of ["Home", "New task"]) {
-      await expect(workspace(page)).toHaveAttribute("aria-hidden", "false")
-      await expect(header).toHaveAttribute("data-split", "true")
-      await sidebar
-        .locator('[data-slot="workspace-actions"]')
-        .getByRole("button", { name: destination, exact: true })
-        .click()
-      await expect(page).toHaveURL(destination === "Home" ? new URL("/", page.url()).href : /\/new-session\?draftId=/)
-      await expect(header.locator('[data-slot="workspace-titlebar-heading"]')).toContainText(destination)
-      await expect(workspace(page)).toHaveCount(0)
-      await expect(header).toHaveAttribute("data-split", "false")
-      await expect(tools).toHaveCSS("border-inline-start-width", "0px")
-      await expect(heading.locator("#opencode-titlebar-right")).toHaveCount(1)
-      expect(
-        await heading.locator("#opencode-titlebar-right").evaluate((node, original) => node === original, host),
-      ).toBe(true)
-      if (destination === "Home") {
-        await sidebar.locator(`[data-session-id="${parentID}"]`).click()
-        await expectSessionTitle(page, parentTitle)
-      }
-    }
+    await toggle.click()
+    await expect(workspace(page)).toHaveAttribute("aria-hidden", "false")
+    await expect(toggle).toHaveAttribute("aria-expanded", "true")
   })
 
   test("replaces temporary tool details and keeps a pinned tab without expanding the chat row", async ({ page }) => {
@@ -315,13 +314,14 @@ test.describe("new layout", () => {
 
     const side = workspace(page)
     await expect(side.locator('[data-component="side-panel-content"]')).toHaveAttribute("data-panel-type", "tool")
+    await expect(side.getByRole("button", { name: "Toggle file tree" })).toHaveCount(0)
     await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
     await expect(side.locator('[role="tabpanel"]:visible')).toHaveCount(1)
     await expect(side.getByRole("combobox", { name: "Filter files" })).toBeHidden()
     await expect(shell.locator('[data-slot="collapsible-trigger"]')).toHaveAttribute("aria-expanded", "false")
     await expect(shell).not.toContainText(shellOutput)
     await sideTabs(page).getByRole("button", { name: "Open panel" }).click()
-    await expect(page.getByRole("menuitem")).toHaveText(["Terminal", "Open file", "Background tasks"])
+    await expect(page.getByRole("menuitem")).toHaveText(["Terminal", "Open file", "Review"])
     await page.keyboard.press("Escape")
 
     await context.locator('[data-slot="collapsible-trigger"]').click()
@@ -341,41 +341,6 @@ test.describe("new layout", () => {
     await expect(readTab).toHaveCount(0)
   })
 
-  for (const entry of ["timeline", "background list"] as const) {
-    test(`returns from Shell details opened from the ${entry}`, async ({ page }) => {
-      const parentURL = page.url()
-      const side = workspace(page)
-      const background = side.locator('[data-component="background-tasks-panel"]')
-      const shell = background.locator('[data-slot="inspector-tool-row"]').filter({ hasText: "bash" })
-
-      if (entry === "background list") {
-        await openPanelItem(page, "Background tasks")
-        await expect(shell.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "completed")
-        await shell.click()
-      } else {
-        await timelinePart(page, shellPartID).locator('[data-slot="collapsible-trigger"]').click()
-      }
-
-      await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
-      await side.getByRole("button", { name: "Background tasks", exact: true }).click()
-      await expect(shell.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "completed")
-      await expect(side.locator('[data-component="tool-inspector-panel"]')).toHaveCount(0)
-      await expect(page).toHaveURL(parentURL)
-
-      await shell.click()
-      await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
-      await expect(side.getByRole("button", { name: "Keep tab open" })).toHaveCount(0)
-      await sideTabs(page).getByRole("tab", { name: /Shell/ }).click()
-      const back = side.getByRole("button", { name: "Background tasks", exact: true })
-      await back.focus()
-      await back.press("Enter")
-      await expect(shell.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "completed")
-      await expect(sideTabs(page).getByRole("tab", { name: /Shell/ })).toBeVisible()
-      await sideTabs(page).getByRole("tab", { name: /Shell/ }).click()
-      await expect(side.locator('[data-component="tool-inspector-panel"]')).toContainText(shellOutput)
-    })
-  }
-
   test("previews a subagent without changing the parent route and reports its live status", async ({ page }) => {
     const navigation: Array<Record<string, unknown>> = []
     page.on("console", (message) => {
@@ -387,12 +352,13 @@ test.describe("new layout", () => {
     const parentURL = page.url()
     await timelinePart(page, taskPartID).locator('[data-component="task-tool-card"]').click()
 
-    const panel = page.locator('[data-component="child-session-panel"]')
+    const panel = workspace(page).locator('[data-component="child-session-panel"]')
     await expect(page).toHaveURL(parentURL)
     await expectSessionTitle(page, parentTitle)
     await expect(panel).toContainText(childTitle)
     await expect(panel.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "running")
     await expect(panel.locator('[data-inspector-message-id="msg_child_assistant"]')).toContainText(childCommand)
+    await expect(workspace(page).getByRole("button", { name: "Toggle file tree" })).toHaveCount(0)
     await expect
       .poll(() =>
         [
@@ -430,26 +396,13 @@ test.describe("new layout", () => {
     await expect(childTab).toHaveCount(0)
   })
 
-  test("shows background activity beside the active todo dock", async ({ page }) => {
+  test("keeps the active todo dock beside the workspace", async ({ page }) => {
     const dock = page.locator('[data-component="session-todo-dock"]')
     await expect(dock).toBeVisible()
     await expect(dock).toContainText("Keep the side workspace visible")
 
-    await openPanelItem(page, "Background tasks")
-    const background = page.locator('[data-component="background-tasks-panel"]')
-    await expect(background).toBeVisible()
-    await expect(
-      background
-        .locator('[data-slot="inspector-tool-row"]')
-        .filter({ hasText: "bash" })
-        .locator('[data-slot="inspector-status"]'),
-    ).toHaveAttribute("data-status", "completed")
-    await expect(
-      background
-        .locator('[data-slot="inspector-child-row"]')
-        .filter({ hasText: childTitle })
-        .locator('[data-slot="inspector-status"]'),
-    ).toHaveAttribute("data-status", "running")
+    await openPanelItem(page, "Review")
+    await expect(workspace(page).locator('[data-component="session-review-v2"]')).toBeVisible()
     await expect(dock).toBeVisible()
   })
 
@@ -476,8 +429,9 @@ test.describe("new layout", () => {
     await page.keyboard.type("beta-input")
     await expect.poll(() => pty.input(ptyB).join("")).toContain("beta-input")
 
-    await openPanelItem(page, "Background tasks")
-    await expect(page.locator('[data-component="background-tasks-panel"]')).toBeVisible()
+    await timelinePart(page, taskPartID).locator('[data-component="task-tool-card"]').click()
+    await expect(workspace(page).locator('[data-component="child-session-panel"]')).toBeVisible()
+    await expect(workspace(page).getByRole("button", { name: "Toggle file tree" })).toHaveCount(0)
     expect(pty.deletes).toEqual([])
 
     await sideTabs(page)
@@ -527,7 +481,7 @@ test.describe("v1 file preview tabs", () => {
   }, testInfo) => {
     const side = workspace(page)
     await openPanelItem(page, "Open file")
-    await expect(side.locator('[data-component="file-panel-toolbar"]')).toHaveCount(0)
+    await expect(side.locator('[data-component="file-panel-toolbar"]')).toBeHidden()
     const filter = side.getByRole("combobox", { name: "Filter files" })
     await filter.fill("alpha")
     await expect(side.getByRole("option", { name: /alpha\.ts/ })).toBeVisible()
@@ -537,7 +491,13 @@ test.describe("v1 file preview tabs", () => {
     await expect(alphaTab).toBeVisible()
     await expect(side.getByText("contents:src/alpha.ts", { exact: true })).toBeVisible()
     await expect(side.locator('[data-component="file-panel-toolbar"]')).toHaveCount(1)
+    await expect(side.getByRole("button", { name: "Toggle file tree" })).toBeVisible()
     await expect(side.getByRole("button", { name: "Keep tab open" })).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(() => JSON.parse(localStorage.getItem("opencode.global.dat:layout") ?? "{}").fileTree?.tab),
+      )
+      .toBe("changes")
 
     await openPanelItem(page, "Open file")
     await filter.fill("beta")
@@ -552,7 +512,7 @@ test.describe("v1 file preview tabs", () => {
     await timelinePart(page, taskPartID).locator('[data-component="task-tool-card"]').click()
     await expect(betaTab).toBeVisible()
     await expect(sideTabs(page).getByRole("tab", { name: childTitle })).toBeVisible()
-    await expect(side.locator('[data-component="file-panel-toolbar"]')).toHaveCount(0)
+    await expect(side.locator('[data-component="file-panel-toolbar"]')).toBeHidden()
     await page.screenshot({ path: testInfo.outputPath("file-and-subagent-tabs.png"), fullPage: true })
 
     await closeSideTab(betaTab)
@@ -563,6 +523,8 @@ test.describe("v1 file preview tabs", () => {
     const side = workspace(page)
     const top = sideTabs(page)
     const heading = page.locator('[data-slot="workspace-titlebar-heading"]')
+    const toggle = page.locator("#opencode-titlebar-workspace-toggle")
+    await openPanelItem(page, "Review")
 
     for (const path of overflowFiles) {
       await openPanelItem(page, "Open file")
@@ -578,13 +540,15 @@ test.describe("v1 file preview tabs", () => {
 
     await expect
       .poll(async () => {
-        const [tabs, middle, content] = await Promise.all([top, heading, side].map((item) => item.boundingBox()))
-        if (!tabs || !middle || !content) return Infinity
+        const [tabs, middle, content, right] = await Promise.all(
+          [top, heading, side, toggle].map((item) => item.boundingBox()),
+        )
+        if (!tabs || !middle || !content || !right) return Infinity
         return Math.max(
           Math.abs(tabs.y - middle.y),
           Math.abs(tabs.height - middle.height),
           Math.abs(tabs.x - content.x),
-          Math.abs(tabs.width - content.width),
+          Math.abs(right.x + right.width - content.x - content.width),
         )
       })
       .toBeLessThanOrEqual(1)
@@ -622,25 +586,6 @@ test.describe("v1 file preview tabs", () => {
     const row = page.locator('[data-slot="side-panel-tab-menu-row"]').filter({ hasText: closeFromMenu })
     await row.getByRole("button", { name: "Close tab" }).click()
     await expect(row).toHaveCount(0)
-  })
-})
-
-test.describe("cold-cache child discovery", () => {
-  test.beforeEach(async ({ page }) => {
-    await setup(page, true, { parentTask: false })
-    await page.goto(sessionHref(parentID))
-    await expectSessionTitle(page, parentTitle)
-    await page.getByRole("button", { name: "Toggle review" }).click()
-  })
-
-  test("finds a child from the session index before its task metadata is loaded", async ({ page }) => {
-    await openPanelItem(page, "Background tasks")
-
-    const background = page.locator('[data-component="background-tasks-panel"]')
-    await expect(background.locator(`[data-slot="inspector-tool-row"]`)).toHaveCount(2)
-    const child = background.locator('[data-slot="inspector-child-row"]').filter({ hasText: childTitle })
-    await expect(child).toBeVisible()
-    await expect(child.locator('[data-slot="inspector-status"]')).toHaveAttribute("data-status", "running")
   })
 })
 
@@ -891,7 +836,7 @@ function timelinePart(page: Page, partID: string) {
 }
 
 function workspace(page: Page) {
-  return page.locator('#review-panel[aria-label="Side workspace"]')
+  return page.locator('#side-workspace-panel[aria-label="Side workspace"]')
 }
 
 function sideTabs(page: Page) {

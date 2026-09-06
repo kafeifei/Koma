@@ -2,7 +2,7 @@ import { createMemo, createSignal, createUniqueId, Show } from "solid-js"
 import { createQuery, keepPreviousData } from "@tanstack/solid-query"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionFilePanelV2, SessionFilePanelV2Empty } from "@opencode-ai/session-ui/v2/session-file-panel-v2"
-import { SessionReviewV2Sidebar } from "@opencode-ai/session-ui/v2/session-review-v2"
+import { SessionReviewV2Sidebar, SessionReviewV2SidebarToggle } from "@opencode-ai/session-ui/v2/session-review-v2"
 import FileTreeV2, { type Kind } from "@/components/file-tree-v2"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -95,11 +95,18 @@ export function SessionFileBrowserTab(props: {
   // unmounts the whole panel on every file-tab switch and resets sidebar scroll.
   return (
     <SessionFilePanelV2
-      toolbar={!props.placeholder && !!props.active}
+      toolbar
       toolbarStart={
-        <span class="min-w-0 truncate" title={props.active}>
-          {props.active}
-        </span>
+        <>
+          <SessionReviewV2SidebarToggle
+            opened={sidebarOpened()}
+            disabled={props.placeholder}
+            onToggle={props.state.toggleSidebar}
+          />
+          <span class="min-w-0 truncate" title={props.active}>
+            {props.active ?? language.t("command.file.open")}
+          </span>
+        </>
       }
       toolbarEnd={
         <Show when={!props.placeholder && props.active}>
