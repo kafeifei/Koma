@@ -19,7 +19,7 @@ test.beforeEach(async ({ page }, info) => {
   const sessionDirectory = info.title.startsWith("archives reclaimed") ? reclaimedDirectory : directory
   await page.setViewportSize({ width: 1200, height: 800 })
   await mockOpenCodeServer(page, {
-    protocol: archiveTest || info.title.startsWith("removes") ? "v1" : "v2",
+    protocol: archiveTest || info.title.startsWith("removes") || info.title.startsWith("deletes") ? "v1" : "v2",
     eventRetry: 60_000,
     findFiles: () => ["TaskWorkspaceRegression"],
     directory,
@@ -298,6 +298,33 @@ test("archives and cancels and retries deleting a task without losing the dialog
   await expect(page.getByRole("dialog")).toBeHidden()
   await expect(sidebar.locator('[data-session-id="ses-task-b"]')).toBeHidden()
   expect(requests).toEqual(["delete", "delete"])
+  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeVisible()
+})
+
+test("deletes the active task and keeps the workbench usable", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  await sidebar.locator('[data-session-id="ses-task-b"]').click()
+  await expect(page.getByRole("heading", { name: "Beta task", exact: true })).toBeVisible()
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click()
+  await expect(page.getByRole("dialog")).toBeHidden()
+  await expect(sidebar.locator('[data-session-id="ses-task-b"]')).toBeHidden()
+  await sidebar.locator('[data-session-id="ses-task-a"]').click()
+  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeVisible()
+})
+
+test("archives a task then deletes the last row in its archived project", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click()
+  await sidebar.locator('[data-action="workspace-archives"]').click()
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click()
+  await expect(page.getByRole("dialog")).toBeHidden()
+  await expect(sidebar.locator('[data-slot="workspace-project"]')).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeVisible()
 })
 
 test("archives failed worktree cleanup and retries archive", async ({ page }) => {

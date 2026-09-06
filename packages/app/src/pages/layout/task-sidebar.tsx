@@ -274,7 +274,10 @@ function TaskServer(props: {
       </Show>
       <For each={groups().map((group) => group.project.worktree)}>
         {(directory) => {
-          const group = () => groups().find((item) => item.project.worktree === directory)!
+          const group = createMemo<ReturnType<typeof groups>[number]>(
+            (previous) => groups().find((item) => item.project.worktree === directory) ?? previous,
+            groups().find((item) => item.project.worktree === directory)!,
+          )
           return (
             <TaskProject
               project={group().project}
@@ -390,18 +393,25 @@ function TaskProject(props: {
       </div>
       <div hidden={!open()}>
         <For each={visible().map((session) => session.id)}>
-          {(id) => (
-            <TaskSession
-              session={visible().find((session) => session.id === id)!}
-              context={props.context}
-              projectDirectory={props.project.worktree}
-              server={props.server}
-              active={id === props.activeID}
-              archived={props.archived}
-              snippet={props.snippets.get(id)}
-              onNavigate={props.onNavigate}
-            />
-          )}
+          {(id) => {
+            // Keep the last summary until keyed disposal finishes when a mutation removes this row.
+            const session = createMemo<Session>(
+              (previous) => visible().find((session) => session.id === id) ?? previous,
+              visible().find((session) => session.id === id)!,
+            )
+            return (
+              <TaskSession
+                session={session()}
+                context={props.context}
+                projectDirectory={props.project.worktree}
+                server={props.server}
+                active={id === props.activeID}
+                archived={props.archived}
+                snippet={props.snippets.get(id)}
+                onNavigate={props.onNavigate}
+              />
+            )
+          }}
         </For>
         <Show when={props.sessions.length === 0}>
           <div data-slot="workspace-empty">{language.t("home.sessions.empty")}</div>
