@@ -41,6 +41,7 @@ let variant: string | undefined
 let permissionMode: "default" | "auto" | "full" = "default"
 let echoPermissionMode = true
 let createSessionGate: Promise<void> | undefined
+let createWorktreeGate: Promise<void> | undefined
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 const [promptStore, setPromptStore] = createStore<PromptStore>({
@@ -112,7 +113,10 @@ const clientFor = (directory: string) => {
       abort: async () => ({ data: undefined }),
     },
     worktree: {
-      create: async () => ({ data: { directory: `${directory}/new` } }),
+      create: async () => {
+        await createWorktreeGate
+        return { data: { directory: `${directory}/new` } }
+      },
     },
   }
 }
@@ -142,6 +146,7 @@ beforeAll(async () => {
 
   mock.module("@opencode-ai/core/util/encode", () => ({
     base64Encode: (value: string) => value,
+    checksum: (value: string) => value,
   }))
 
   mock.module("@/context/local", () => ({
@@ -167,6 +172,7 @@ beforeAll(async () => {
 
   mock.module("@/context/tabs", () => ({
     useTabs: () => ({
+      state: () => prompt,
       draft: () => ({ server: "project-server" }),
       promoteDraft: (draftID: string, session: { server: string; sessionId: string }) => {
         promotedDrafts.push({ draftID, ...session })
@@ -294,11 +300,46 @@ beforeEach(() => {
   permissionMode = "default"
   echoPermissionMode = true
   createSessionGate = undefined
+  createWorktreeGate = undefined
   serverSessionSyncs = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
 describe("prompt submit worktree selection", () => {
+  test("a pending worktree keeps the source identity until its real destination is created", async () => {
+    const gate = Promise.withResolvers<void>()
+    createWorktreeGate = gate.promise
+    selected = "create"
+    search.draftId = "input-source"
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      permissionMode: () => "full",
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => {},
+      promptLength: () => 2,
+      addToHistory: () => {},
+      resetHistoryNavigation: () => {},
+      setMode: () => {},
+      setPopover: () => {},
+      newSessionWorktree: () => selected,
+    })
+    const result = submit.handleSubmit({ preventDefault() {} } as Event)
+    expect(createdSessions).toHaveLength(0)
+    search.draftId = "input-other"
+    selected = "/other"
+    gate.resolve()
+    await result
+    expect(createdSessions).toEqual(["/repo/main/new"])
+    expect(promotedDrafts).toEqual([{ draftID: "input-source", server: "project-server", sessionId: "session-1" }])
+    expect(sessionCreateInputs[0]).toMatchObject({ permissionMode: "full", location: { directory: "/repo/main/new" } })
+    expect(sentShell[0]).toMatchObject({ sessionID: "session-1", command: "ls" })
+  })
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       prompt,
@@ -410,6 +451,7 @@ describe("prompt submit worktree selection", () => {
   })
 
   test("captures the permission mode before asynchronous session creation", async () => {
+    search.draftId = "input-source"
     let release = () => {}
     createSessionGate = new Promise<void>((resolve) => {
       release = resolve
@@ -436,10 +478,14 @@ describe("prompt submit worktree selection", () => {
 
     const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     permissionMode = "full"
+    search.draftId = "input-destination"
+    selected = "/repo/worktree-b"
     release()
     await result
 
     expect(sessionCreateInputs[0]).toMatchObject({ permissionMode: "default" })
+    expect(createdSessions).toEqual(["/repo/worktree-a"])
+    expect(promotedDrafts[0]).toMatchObject({ draftID: "input-source" })
   })
 
   test("promotes drafts using the selected project's server", async () => {

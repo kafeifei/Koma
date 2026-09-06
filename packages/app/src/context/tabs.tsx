@@ -3,10 +3,17 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createStore, produce } from "solid-js/store"
 import { Persist, persisted, removePersisted, draftPersistedKeys } from "@/utils/persist"
 import { ServerConnection, useServer } from "./server"
-import { createEffect, getOwner, onCleanup, startTransition } from "solid-js"
+import { createEffect, getOwner, onCleanup, startTransition, untrack } from "solid-js"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { usePlatform } from "./platform"
-import { uuid } from "@/utils/uuid"
+import { pathKey } from "@/utils/path-key"
+import {
+  directoryInputID,
+  isDirectoryInput,
+  isLegacyDraft,
+  prefillDirectoryInput,
+  removeLegacyDrafts,
+} from "./input-retention"
 import { SessionTabsRemovedDetail } from "@/components/titlebar-session-events"
 import { sessionHref } from "@/utils/session-route"
 import { createTabMemory } from "./tab-memory"
@@ -121,10 +128,21 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
 
     onCleanup(memory.dispose)
 
+    let legacyCleanupStarted = false
+    createEffect(() => {
+      if (!ready() || legacyCleanupStarted) return
+      legacyCleanupStarted = true
+      const snapshot = untrack(() => [...store])
+      void removeLegacyDrafts(snapshot, platform).then((retained) => {
+        const removed = new Set(snapshot.filter((tab) => !retained.includes(tab)).map(tabKey))
+        if (removed.size) setStore((tabs) => tabs.filter((tab) => !removed.has(tabKey(tab))))
+      })
+    })
+
     createEffect(() => {
       if (!ready() || !recentReady()) return
       const servers = new Set(server.list.map(ServerConnection.key))
-      const next = store.filter((tab) => servers.has(tab.server))
+      const next = store.filter((tab) => isLegacyDraft(tab) || servers.has(tab.server))
       if (next.length !== store.length) {
         for (const tab of store) {
           if (!servers.has(tab.server)) {
@@ -165,7 +183,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       void startTransition(() => {
         setStore(
           produce((tabs) => {
-            tabs.splice(index, 1)
+            if (!draftID || !isDirectoryInput(draftID)) tabs.splice(index, 1)
           }),
         )
         if (nextTab === null) {
@@ -174,9 +192,10 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         }
         if (nextTab) navigateTab(nextTab)
       }).finally(() => closing.delete(key))
-      memory.remove(key)
+      // Pending attachment reads and submissions still own this directory's prompt state.
+      if (!draftID || !isDirectoryInput(draftID)) memory.remove(key)
       removeInfo(key)
-      if (draftID) removeDraftPersisted(draftID)
+      if (draftID && !isDirectoryInput(draftID)) removeDraftPersisted(draftID)
     }
 
     const actions = {
@@ -210,13 +229,16 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return tab
       },
       async newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
-        const draftID = uuid()
-        const tab = { type: "draft" as const, draftID, ...draft }
-        memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { prompt, model }))
+        await ready.promise
+        const draftID = directoryInputID(server.scope(draft.server), draft.directory)
+        const existing = store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === draftID)
+        const tab = existing ?? { type: "draft" as const, draftID, ...draft, directory: pathKey(draft.directory) }
+        const input = memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { model }))
+        await prefillDirectoryInput(input, prompt)
         await startTransition(() => {
           setStore(
             produce((tabs) => {
-              tabs.push(tab)
+              if (!tabs.some((tab) => tab.type === "draft" && tab.draftID === draftID)) tabs.push(tab)
             }),
           )
           navigate(draftHref(draftID))
@@ -231,23 +253,29 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           )
         })
       },
-      promoteDraft(draftID: string, session: Omit<SessionTab, "type">) {
+      promoteDraft(draftID: string, session: Omit<SessionTab, "type">, activate = true) {
         // Keep the replacement and navigation atomic so /new-session never renders
         // after its backing draft tab has been removed from the store.
-        const active = location.pathname === "/new-session" && location.query.draftId === draftID
+        const active = activate && location.pathname === "/new-session" && location.query.draftId === draftID
         const next = { type: "session" as const, ...session }
         void startTransition(() => {
           setStore(
             produce((tabs) => {
               const index = tabs.findIndex((tab) => tab.type === "draft" && tab.draftID === draftID)
+              if (isDirectoryInput(draftID)) {
+                if (!tabs.some((tab) => tabKey(tab) === tabKey(next))) tabs.push(next)
+                return
+              }
               if (index !== -1) tabs[index] = next
             }),
           )
-          if (recent.key === `draft:${draftID}`) setRecentKey(tabKey(next))
+          if (active && recent.key === `draft:${draftID}`) setRecentKey(tabKey(next))
           if (active) navigateTab(next)
         })
-        memory.remove(`draft:${draftID}`)
-        removeDraftPersisted(draftID)
+        if (!isDirectoryInput(draftID)) {
+          memory.remove(`draft:${draftID}`)
+          removeDraftPersisted(draftID)
+        }
       },
       removeTab,
       // User-initiated close: records the tab so it can be reopened.
@@ -289,13 +317,17 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       },
       removeServer(key: ServerConnection.Key) {
         updateClosed((stack) => stack.filter((entry) => entry.tab.server !== key))
-        const drafts = store.flatMap((tab) => (tab.type === "draft" && tab.server === key ? [tab.draftID] : []))
-        const removed = store.filter((tab) => tab.server === key).map(tabKey)
-        setStore((tabs) => tabs.filter((tab) => tab.server !== key))
+        const drafts = store.flatMap((tab) =>
+          tab.type === "draft" && tab.server === key && !isLegacyDraft(tab) ? [tab.draftID] : [],
+        )
+        const removed = store.filter((tab) => tab.server === key && !isLegacyDraft(tab)).map(tabKey)
+        setStore((tabs) => tabs.filter((tab) => tab.server !== key || isLegacyDraft(tab)))
         for (const key of removed) memory.remove(key)
         for (const key of removed) removeInfo(key)
         if (recent.key && removed.includes(recent.key)) setRecentKey(undefined)
-        for (const draftID of drafts) removeDraftPersisted(draftID)
+        for (const draftID of drafts) {
+          if (!isDirectoryInput(draftID)) removeDraftPersisted(draftID)
+        }
         if (server.key === key) navigate("/")
       },
       removeSessions: (input: SessionTabsRemovedDetail) => {

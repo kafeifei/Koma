@@ -541,28 +541,30 @@ export function removePersisted(
   target: { draft?: boolean; storage?: string; legacyStorageNames?: string[]; key: string },
   platform?: Platform,
 ) {
+  const pending: Promise<unknown>[] = []
   if (target.draft && platform?.draftStore) {
-    void platform.draftStore.removeItem(`${target.storage ?? "default"}:${target.key}`)
+    pending.push(Promise.resolve(platform.draftStore.removeItem(`${target.storage ?? "default"}:${target.key}`)))
   }
   const isDesktop = platform?.platform === "desktop" && !!platform.storage
 
   if (isDesktop) {
-    void platform.storage?.(target.storage)?.removeItem(target.key)
+    pending.push(Promise.resolve(platform.storage?.(target.storage)?.removeItem(target.key)))
     for (const storage of target.legacyStorageNames ?? []) {
-      void platform.storage?.(storage)?.removeItem(target.key)
+      pending.push(Promise.resolve(platform.storage?.(storage)?.removeItem(target.key)))
     }
-    return
+    return Promise.all(pending).then(() => {})
   }
 
   if (!target.storage) {
     localStorageDirect().removeItem(target.key)
-    return
+    return Promise.all(pending).then(() => {})
   }
 
   localStorageWithPrefix(target.storage).removeItem(target.key)
   for (const storage of target.legacyStorageNames ?? []) {
     localStorageWithPrefix(storage).removeItem(target.key)
   }
+  return Promise.all(pending).then(() => {})
 }
 
 export function persisted<T>(

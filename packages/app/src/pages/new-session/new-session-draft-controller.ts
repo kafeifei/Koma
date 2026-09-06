@@ -4,6 +4,7 @@ import { usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import { useComments } from "@/context/comments"
 import { useLocal } from "@/context/local"
 import { usePrompt } from "@/context/prompt"
+import { prefillDirectoryInput } from "@/context/input-retention"
 import { useServerSync } from "@/context/server-sync"
 import { createPromptInputController, createPromptProjectControls } from "@/pages/session/composer"
 import { createPromptModelSelection } from "@/pages/session/composer/prompt-model-selection"
@@ -44,7 +45,7 @@ export function createNewSessionDraftController(workspace: { worktree: () => str
     untrack(() => {
       const text = searchParams.prompt
       if (!text) return
-      prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      void prefillDirectoryInput({ ...prompt.capture(), ready: prompt.ready }, text)
       setSearchParams({ ...searchParams, prompt: undefined })
     })
   })

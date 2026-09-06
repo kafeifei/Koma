@@ -137,4 +137,11 @@ describe("closed tab stack", () => {
     expect(nextTabAfterClose(tabs, 1, true)).toEqual(sessionTab("c"))
     expect(nextTabAfterClose([sessionTab("a")], 0, true)).toBeNull()
   })
+
+  test("closing an input skips other directory inputs", () => {
+    const input: Tab = { type: "draft", draftID: "input:a", server, directory: "/repo" }
+    const other: Tab = { ...input, draftID: "input:b", directory: "/other" }
+    expect(nextTabAfterClose([sessionTab("a"), input, other], 1, true)).toEqual(sessionTab("a"))
+    expect(nextTabAfterClose([input, other], 0, true)).toBeNull()
+  })
 })

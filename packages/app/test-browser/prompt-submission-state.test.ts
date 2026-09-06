@@ -3,6 +3,51 @@ import { createPromptState } from "@/context/prompt"
 import { createPromptSubmissionState } from "@/components/prompt-input/submission-state"
 
 describe("prompt submission state", () => {
+  test("keeps source edits and context added while first session creation is pending", () => {
+    const source = createPromptState({ prompt: "submitted" })
+    source.context.add({ type: "file", path: "original.ts" })
+    const submission = createPromptSubmissionState({
+      target: source,
+      prompt: source.current(),
+      context: source.context.items().slice(),
+    })
+    source.set([{ type: "text", content: "next input", start: 0, end: 10 }])
+    source.context.add({ type: "file", path: "next.ts" })
+    const session = createPromptState()
+    submission.retarget(session)
+    submission.clear()
+    expect(source.current()[0]).toMatchObject({ content: "next input" })
+    expect(source.context.items().map((item) => item.path)).toEqual(["original.ts", "next.ts"])
+    expect(session.context.items().map((item) => item.path)).toEqual(["original.ts"])
+    expect(submission.restore()?.prompt[0]).toMatchObject({ content: "submitted" })
+  })
+
+  test("consumes only captured source context and preserves context added during creation", () => {
+    const source = createPromptState({ prompt: "submitted" })
+    source.context.add({ type: "file", path: "original.ts" })
+    const submission = createPromptSubmissionState({
+      target: source,
+      prompt: source.current(),
+      context: source.context.items().slice(),
+    })
+    source.context.add({ type: "file", path: "next.ts" })
+    submission.retarget(createPromptState())
+    submission.clear()
+    expect(source.dirty()).toBe(false)
+    expect(source.context.items().map((item) => item.path)).toEqual(["next.ts"])
+  })
+
+  test("does not clear or restore over target edits made before clearing", () => {
+    const source = createPromptState({ prompt: "submitted" })
+    const session = createPromptState()
+    const submission = createPromptSubmissionState({ target: source, prompt: source.current(), context: [] })
+    submission.retarget(session)
+    session.set([{ type: "text", content: "next session input", start: 0, end: 18 }])
+    submission.clear()
+    expect(session.current()[0]).toMatchObject({ content: "next session input" })
+    expect(submission.restore()).toBeUndefined()
+  })
+
   test("keeps failed submission restoration with the prompt where it started", () => {
     const target = createPromptState()
     const submission = createPromptSubmissionState({

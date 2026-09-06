@@ -13,6 +13,25 @@ import { measureSessionSwitch, waitForStableTimeline } from "./session-tab-switc
 
 type Result = Awaited<ReturnType<typeof measureSessionSwitch>>
 
+benchmark("benchmarks workbench sidebar session switching", async ({ browser, report }, testInfo) => {
+  benchmark.setTimeout(180_000)
+  const results = { cold: [] as Result[], hot: [] as Result[] }
+  const runs = Number(process.env.SESSION_TAB_SWITCH_RUNS ?? 3)
+  for (const mode of ["cold", "hot"] as const) {
+    for (let run = 0; run < runs; run++) {
+      results[mode].push(
+        await withBenchmarkPage(
+          browser,
+          `session-sidebar-switch-${mode}-${run}`,
+          (page) => trial(page, mode, { newLayoutDesigns: true, sidebar: true }),
+          testInfo,
+        ),
+      )
+    }
+  }
+  report({ results, summary: summarize(results) }, { runs, navigation: "workbench-sidebar" })
+})
+
 benchmark("benchmarks cold and hot session tab switching", async ({ browser, report }, testInfo) => {
   benchmark.setTimeout(180_000)
   const results = { cold: [] as Result[], hot: [] as Result[] }
@@ -56,7 +75,7 @@ benchmark(
 async function trial(
   page: Page,
   mode: "cold" | "hot",
-  options?: { newLayoutDesigns?: boolean; reviewPane?: "closed" | "open" },
+  options?: { newLayoutDesigns?: boolean; reviewPane?: "closed" | "open"; sidebar?: boolean },
 ) {
   const reviewDiffs = options?.newLayoutDesigns ? createReviewDiffs() : undefined
   await mockStressTimeline(page, { vcsDiff: reviewDiffs })
@@ -66,7 +85,7 @@ async function trial(
     await page.goto(stressSessionHref(fixture.targetID))
     await expectSessionTitle(page, fixture.expected.targetTitle)
     await waitForStableTimeline(page, fixture.expected.targetMessageIDs.at(-1)!)
-    await switchSession(page, fixture.sourceID, fixture.expected.sourceTitle)
+    await switchSession(page, fixture.sourceID, fixture.expected.sourceTitle, options?.sidebar)
   } else {
     await page.goto(stressSessionHref(fixture.sourceID))
     await expectSessionTitle(page, fixture.expected.sourceTitle)
@@ -86,7 +105,7 @@ async function trial(
     sourceIDs,
     lastID,
     href,
-    switch: () => switchSession(page, fixture.targetID, fixture.expected.targetTitle),
+    switch: () => switchSession(page, fixture.targetID, fixture.expected.targetTitle, options?.sidebar),
   })
   return result
 }
@@ -122,9 +141,11 @@ function summarizeReviewPane(results: Record<"closed" | "open", Record<"cold" | 
   )
 }
 
-async function switchSession(page: Page, sessionID: string, title: string) {
+async function switchSession(page: Page, sessionID: string, title: string, sidebar?: boolean) {
   const href = stressSessionHref(sessionID)
-  const tab = page.locator(`[data-slot="titlebar-tabs"] a[href="${href}"]`).first()
+  const tab = sidebar
+    ? page.locator(`[data-component="task-sidebar"] [data-session-id="${sessionID}"]`)
+    : page.locator(`[data-slot="titlebar-tabs"] a[href="${href}"]`).first()
   await expect(tab).toBeVisible()
   await tab.click()
   await expectSessionTitle(page, title)

@@ -10,9 +10,8 @@ import { useGlobal, type ServerCtx } from "@/context/global"
 import { createHomeSessionQuery } from "@/context/global-sync/home-session-query"
 import { useLanguage } from "@/context/language"
 import { useLayout, type LocalProject } from "@/context/layout"
-import { createDraftPromptSession } from "@/context/prompt-state"
 import { ServerConnection, serverName } from "@/context/server"
-import { tabHref, useTabs, type DraftTab } from "@/context/tabs"
+import { tabHref, useTabs } from "@/context/tabs"
 import { createHomeController } from "@/pages/home/home-controller"
 import { createHomeProjectsController } from "@/pages/home/home-projects-controller"
 import { sessionTitle } from "@/utils/session-title"
@@ -152,7 +151,6 @@ function TaskServer(props: {
   onChooseProject: () => void
 }) {
   const global = useGlobal()
-  const tabs = useTabs()
   const layout = useLayout()
   const language = useLanguage()
   const context = createMemo(() => global.ensureServerCtx(props.conn))
@@ -194,20 +192,11 @@ function TaskServer(props: {
       matches: [...snippets().keys()],
     }).filter((group) => !props.archived || group.sessions.length > 0),
   )
-  const drafts = createMemo(() =>
-    tabs.store.filter((tab): tab is DraftTab => tab.type === "draft" && tab.server === key()).toReversed(),
-  )
 
   return (
     <section data-slot="workspace-server" data-server-key={key()}>
       <Show when={props.showServer}>
         <div data-slot="workspace-section-heading">{serverName(props.conn)}</div>
-      </Show>
-      <Show when={!props.archived && drafts().length > 0}>
-        <div data-slot="workspace-section-heading">{language.t("workspace.drafts")}</div>
-        <For each={drafts()}>
-          {(draft) => <TaskDraft tab={draft} query={props.query} onNavigate={props.onNavigate} />}
-        </For>
       </Show>
       <div data-slot="workspace-section-heading">
         <span>{language.t(props.archived ? "workspace.archived" : "home.projects")}</span>
@@ -485,44 +474,5 @@ function TaskSession(props: {
         </Show>
       </a>
     </TaskSidebarMenu>
-  )
-}
-
-function TaskDraft(props: { tab: DraftTab; query: string; onNavigate: () => void }) {
-  const tabs = useTabs()
-  const layout = useLayout()
-  const language = useLanguage()
-  const prompt = tabs.state(props.tab, "prompt", () => createDraftPromptSession(props.tab.draftID))
-  const title = createMemo(
-    () =>
-      prompt
-        .current()
-        .flatMap((part) => (part.type === "text" ? [part.content] : []))
-        .join(" ")
-        .trim() || language.t("workspace.newTask"),
-  )
-  const active = () => {
-    const route = layout.route()
-    return route.type === "draft" && route.draftID === props.tab.draftID
-  }
-  return (
-    <Show when={`${title()} ${props.tab.directory}`.toLowerCase().includes(props.query.trim().toLowerCase())}>
-      <a
-        href={tabHref(props.tab)}
-        data-slot="workspace-task"
-        data-draft-id={props.tab.draftID}
-        aria-current={active() ? "page" : undefined}
-        title={props.tab.directory}
-        onClick={(event) => {
-          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-          event.preventDefault()
-          tabs.select(props.tab)
-          props.onNavigate()
-        }}
-      >
-        <Icon name="edit" />
-        <span data-slot="workspace-task-title">{title()}</span>
-      </a>
-    </Show>
   )
 }

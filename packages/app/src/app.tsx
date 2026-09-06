@@ -55,6 +55,7 @@ import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
+import { isDirectoryInput } from "@/context/input-retention"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
 import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
@@ -189,7 +190,10 @@ function DraftRoute() {
   return (
     <Show when={tabs.ready()}>
       <Show
-        when={tabs.store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === search.draftId)}
+        when={tabs.store.find(
+          (tab): tab is DraftTab =>
+            tab.type === "draft" && isDirectoryInput(tab.draftID) && tab.draftID === search.draftId,
+        )}
         keyed
         fallback={<Navigate href="/" />}
       >

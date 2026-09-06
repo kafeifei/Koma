@@ -2,6 +2,9 @@ import { createMemo, createSignal } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useSync } from "@/context/sync"
+import { ServerConnection } from "@/context/server"
+import { useServerSDK } from "@/context/server-sdk"
+import { useTabs } from "@/context/tabs"
 
 const workspaceBarEnabled = import.meta.env.VITE_OPENCODE_CHANNEL !== "prod"
 
@@ -35,6 +38,8 @@ export function createNewSessionWorkspaceController() {
   const sdk = useSDK()
   const sync = useSync()
   const serverSync = useServerSync()
+  const serverSDK = useServerSDK()
+  const tabs = useTabs()
   const [worktree, setWorktree] = createSignal<string>()
   const visible = createMemo(() => workspaceBarEnabled && sync().project?.vcs === "git")
   const value = createMemo(() =>
@@ -59,8 +64,15 @@ export function createNewSessionWorkspaceController() {
     selection: {
       value,
       reset: () => setWorktree(),
-      set: (worktree: string) =>
-        setWorktree(normalizeNewSessionWorktree(worktree, sdk().directory, sync().project?.worktree)),
+      set: (worktree: string) => {
+        if (worktree === "create") {
+          setWorktree(worktree)
+          return
+        }
+        const directory = worktree === "main" ? projectRoot() : worktree
+        setWorktree()
+        void tabs.newDraft({ server: ServerConnection.key(serverSDK().server), directory })
+      },
     },
     project: {
       root: projectRoot,

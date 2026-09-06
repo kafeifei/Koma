@@ -3,7 +3,7 @@ import { showToast } from "@/utils/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
-import { batch, startTransition, type Accessor } from "solid-js"
+import { batch, onCleanup, startTransition, type Accessor } from "solid-js"
 import { useTabs } from "@/context/tabs"
 import { useServerSync, type ServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -23,6 +23,7 @@ import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
 import { blobDataUrl } from "@/utils/draft-store"
 import type { PermissionMode } from "@/context/tabs"
+import { createPromptSession } from "@/context/prompt-state"
 
 type PendingPrompt = {
   abort: AbortController
@@ -243,6 +244,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
   const [search] = useSearchParams<{ draftId?: string }>()
   const tabs = useTabs()
+  let disposed = false
+  onCleanup(() => {
+    disposed = true
+  })
   const pendingKey = (sessionID: string) => ScopedKey.from(sdk().scope, sessionID)
 
   const errorMessage = (err: unknown) => {
@@ -300,9 +305,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
   }
 
-  const seed = (dir: string, info: Session) => {
-    serverSync().session.remember(info)
-    const [, setStore] = serverSync().child(dir)
+  const seed = (source: ServerSync, dir: string, info: Session) => {
+    source.session.remember(info)
+    const [, setStore] = source.child(dir)
     setStore("session", (list: Session[]) => {
       const result = Binary.search(list, info.id, (item) => item.id)
       const next = [...list]
@@ -319,6 +324,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     event.preventDefault()
 
     const target = prompt.capture()
+    const sourceSDK = sdk()
+    const sourceSync = sync()
+    const sourceServerSync = serverSync()
+    const draftID = search.draftId
+    const draftServer = draftID ? tabs.draft(draftID).server : undefined
+    const active = () => !disposed && prompt.capture() === target
     const submission = createPromptSubmissionState({
       target,
       prompt: target.current(),
@@ -350,13 +361,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.addToHistory(currentPrompt, mode)
     input.resetHistoryNavigation()
 
-    const projectDirectory = sdk().directory
+    const projectDirectory = sourceSDK.directory
     const isNewSession = !params.id
     const permissionMode = isNewSession ? input.permissionMode() : undefined
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
-    let client = sdk().client
+    let client = sourceSDK.client
+    let session = input.info()
 
     if (isNewSession) {
       if (worktreeSelection === "create") {
@@ -378,7 +390,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           })
           return
         }
-        WorktreeState.pending(sdk().scope, createdWorktree.directory)
+        WorktreeState.pending(sourceSDK.scope, createdWorktree.directory)
         sessionDirectory = createdWorktree.directory
       }
 
@@ -387,20 +399,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
 
       if (sessionDirectory !== projectDirectory) {
-        client = sdk().createClient({
+        client = sourceSDK.createClient({
           directory: sessionDirectory,
           throwOnError: true,
         })
-        serverSync().child(sessionDirectory)
+        sourceServerSync.child(sessionDirectory)
       }
 
-      input.onNewSessionWorktreeReset?.()
+      if (active()) input.onNewSessionWorktreeReset?.()
     }
 
-    let session = input.info()
     if (!session && isNewSession) {
-      const created = await sdk()
-        .api.session.create({
+      const created = await sourceSDK.api.session
+        .create({
           agent: currentAgent.name,
           model: { id: currentModel.id, providerID: currentModel.provider.id, variant },
           permissionMode,
@@ -419,8 +430,16 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           return undefined
         })
       if (created) {
-        seed(sessionDirectory, created)
+        seed(sourceServerSync, sessionDirectory, created)
         session = created
+        const scope = { dir: base64Encode(sessionDirectory), id: created.id }
+        const destination = draftServer
+          ? tabs.state({ type: "session", server: draftServer, sessionId: created.id }, "prompt", () =>
+              createPromptSession(sourceSDK.scope, scope),
+            )
+          : undefined
+        if (destination) await destination.ready.promise
+        submission.retarget(destination?.capture() ?? prompt.capture(scope))
         await startTransition(() => {
           if (!session) return
           local.session.promote(sessionDirectory, session.id, {
@@ -428,11 +447,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             model: { providerID: currentModel.provider.id, modelID: currentModel.id },
             variant: variant ?? null,
           })
-          layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
-          const draftID = search.draftId
-          if (draftID) tabs.promoteDraft(draftID, { server: tabs.draft(draftID).server, sessionId: session.id })
-          else navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
-          submission.retarget(prompt.capture({ dir: base64Encode(sessionDirectory), id: session.id }))
+          if (active()) layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
+          if (draftID && draftServer)
+            tabs.promoteDraft(
+              draftID,
+              { server: draftServer, sessionId: session.id },
+              active() && target.current() === currentPrompt,
+            )
+          else if (active()) navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
         })
       }
     }
@@ -461,6 +483,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const clearInput = () => {
       submission.clear()
+      if (disposed || !submission.current(prompt.capture())) return
       input.setMode("normal")
       input.setPopover(null)
     }
@@ -469,7 +492,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const restored = submission.restore()
       if (!restored) return false
       restored.target.set(restored.prompt, input.promptLength(restored.prompt))
-      if (!submission.current(prompt.capture())) return true
+      if (disposed || !submission.current(prompt.capture())) return true
       input.setMode(mode)
       input.setPopover(null)
       requestAnimationFrame(() => {
@@ -489,13 +512,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    input.onSubmit?.()
+    if (active() && target.current() === currentPrompt) input.onSubmit?.()
 
     if (mode === "shell") {
       clearInput()
       const eventID = Event.ID.create()
-      sdk()
-        .api.session.shell({
+      sourceSDK.api.session
+        .shell({
           sessionID: session.id,
           id: eventID,
           command: text,
@@ -515,13 +538,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     if (text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
-      const customCommand = sync().data.command.find((c) => c.name === commandName)
+      const customCommand = sourceSync.data.command.find((c) => c.name === commandName)
       if (customCommand) {
         clearInput()
         const messageID = Identifier.ascending("message")
-        serverSync().session.set("session_status", session.id, { type: "busy" })
-        sdk()
-          .api.session.command({
+        sourceServerSync.session.set("session_status", session.id, { type: "busy" })
+        sourceSDK.api.session
+          .command({
             sessionID: session.id,
             id: messageID,
             command: commandName,
@@ -536,7 +559,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             ),
           })
           .catch((err) => {
-            serverSync().session.set("session_status", session.id, { type: "idle" })
+            sourceServerSync.session.set("session_status", session.id, { type: "idle" })
             showToast({
               title: language.t("prompt.toast.commandSendFailed.title"),
               description: formatServerError(err, language.t, language.t("common.requestFailed")),
@@ -551,7 +574,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const messageID = Identifier.ascending("message")
 
     const removeOptimisticMessage = () => {
-      sync().session.optimistic.remove({
+      sourceSync.session.optimistic.remove({
         directory: sessionDirectory,
         sessionID: session.id,
         messageID,
@@ -562,23 +585,23 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     clearInput()
 
     const waitForWorktree = async () => {
-      const worktree = WorktreeState.get(sdk().scope, sessionDirectory)
+      const worktree = WorktreeState.get(sourceSDK.scope, sessionDirectory)
       if (!worktree || worktree.status !== "pending") return true
 
       if (sessionDirectory === projectDirectory) {
-        sync().set("session_status", session.id, { type: "busy" })
+        sourceSync.set("session_status", session.id, { type: "busy" })
       }
 
       const controller = new AbortController()
       const cleanup = () => {
         if (sessionDirectory === projectDirectory) {
-          sync().set("session_status", session.id, { type: "idle" })
+          sourceSync.set("session_status", session.id, { type: "idle" })
         }
         removeOptimisticMessage()
         if (restoreInput()) restoreCommentItems(submission.target(), commentItems)
       }
 
-      pending.set(pendingKey(session.id), { abort: controller, cleanup })
+      pending.set(ScopedKey.from(sourceSDK.scope, session.id), { abort: controller, cleanup })
 
       const abortWait = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
         if (controller.signal.aborted) {
@@ -606,31 +629,31 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
 
       const result = await Promise.race([
-        WorktreeState.wait(sdk().scope, sessionDirectory),
+        WorktreeState.wait(sourceSDK.scope, sessionDirectory),
         abortWait,
         timeout,
       ]).finally(() => {
         if (timer.id === undefined) return
         clearTimeout(timer.id)
       })
-      pending.delete(pendingKey(session.id))
+      pending.delete(ScopedKey.from(sourceSDK.scope, session.id))
       if (controller.signal.aborted) return false
       if (result.status === "failed") throw new Error(result.message)
       return true
     }
 
     void sendFollowupDraft({
-      api: sdk().api.session,
-      sync: sync(),
-      serverSync: serverSync(),
+      api: sourceSDK.api.session,
+      sync: sourceSync,
+      serverSync: sourceServerSync,
       draft,
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
     }).catch((err) => {
-      pending.delete(pendingKey(session.id))
+      pending.delete(ScopedKey.from(sourceSDK.scope, session.id))
       if (sessionDirectory === projectDirectory) {
-        sync().set("session_status", session.id, { type: "idle" })
+        sourceSync.set("session_status", session.id, { type: "idle" })
       }
       showToast({
         title: language.t("prompt.toast.promptSendFailed.title"),
