@@ -1303,8 +1303,16 @@ describe("CodexHost native process boundaries", () => {
 
   test("native plans are validated live data and become unavailable after reconnect", () =>
     harness(async ({ host, sessions, scope, home }) => {
+      const config = "[tools.update_plan]\nenabled = false\n"
+      await writeFile(path.join(home, "config.toml"), config)
       const id = await seed(sessions, scope)
       await run(host.snapshot(id))
+      expect(JSON.parse((await readFile(path.join(home, "starts.jsonl"), "utf8")).trim())).toEqual([
+        "app-server",
+        "--stdio",
+        "-c",
+        "tools.update_plan.enabled=true",
+      ])
       await command(home, [
         {
           method: "turn/plan/updated",
@@ -1340,6 +1348,10 @@ describe("CodexHost native process boundaries", () => {
       await Bun.sleep(40)
       const restored = await run(host.snapshot(id))
       expect(restored.plan).toEqual({ status: "unavailable" })
+      const starts = (await readFile(path.join(home, "starts.jsonl"), "utf8")).trim().split("\n")
+      expect(starts).toHaveLength(2)
+      expect(starts[1]).toBe(starts[0])
+      expect(await readFile(path.join(home, "config.toml"), "utf8")).toBe(config)
     }))
 
   test("summary turn completion retains streamed user and tool identities", () =>

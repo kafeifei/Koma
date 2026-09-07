@@ -8,6 +8,7 @@ if (process.argv.includes("--version")) {
   process.exit(0)
 }
 const home = process.env.CODEX_HOME!
+appendFileSync(path.join(home, "starts.jsonl"), `${JSON.stringify(process.argv.slice(2))}\n`)
 const configPath = path.join(home, "fixture.json")
 type Config = {
   thread: v2.Thread

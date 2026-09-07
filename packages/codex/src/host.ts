@@ -428,6 +428,7 @@ const layer = Layer.effect(
             codexHome: home,
             cwd: home,
             runtimeScope,
+            args: ["-c", "tools.update_plan.enabled=true"],
             capabilities: { experimentalApi: true, requestAttestation: false },
             requestHandler: request,
           })

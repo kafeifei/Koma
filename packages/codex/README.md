@@ -101,7 +101,9 @@ its final-status watch is separate from persisted child history after restart.
 Native `turn/plan/updated` notifications are exposed as a validated, read-only
 live plan. This binary provides no replay source for those updates, so a new
 connection reports the plan as unavailable until another native update arrives.
-The Host does not enable optional planning or subagent tools in native config.
+The Host enables the native `update_plan` tool with `tools.update_plan.enabled=true`
+when starting app-server so the model can create and update the live plan. It does
+not enable optional subagent tools or modify the user's native config file.
 
 The current implementation remains subject to the integration acceptance gates
 in [the integration plan](../../docs/plans/codex-native-integration.md), including
