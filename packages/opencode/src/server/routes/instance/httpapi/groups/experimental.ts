@@ -4,6 +4,7 @@ import { MCP } from "@/mcp"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { Worktree } from "@/worktree"
+import { WorktreeBranch } from "@/worktree/branch"
 import { WorktreeMerge } from "@/worktree/merge"
 import { WorktreeManager } from "@/worktree/manager"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
@@ -71,6 +72,7 @@ const WorktreeErrorName = Schema.Union([
   Schema.Literal("WorktreeRemoveFailedError"),
   Schema.Literal("WorktreeResetFailedError"),
   Schema.Literal("WorktreeListFailedError"),
+  Schema.Literal("WorktreeCheckoutFailedError"),
   Schema.Literal("WorktreeMergeFailedError"),
   Schema.Literal("WorktreeManagerFailedError"),
 ])
@@ -111,6 +113,7 @@ export const ExperimentalPaths = {
   toolIDs: "/experimental/tool/ids",
   worktree: "/experimental/worktree",
   worktreeReset: "/experimental/worktree/reset",
+  worktreeCheckout: "/experimental/worktree/checkout",
   worktreeOptions: "/experimental/worktree/options",
   worktreeStatus: "/experimental/session/:sessionID/worktree",
   session: "/experimental/session",
@@ -211,6 +214,19 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "worktree.options",
             summary: "Get worktree options",
             description: "Get local branch choices and the default base without fetching or changing the repository.",
+          }),
+        ),
+        HttpApiEndpoint.post("worktreeCheckout", ExperimentalPaths.worktreeCheckout, {
+          query: WorkspaceRoutingQuery,
+          payload: WorktreeBranch.CheckoutInput,
+          success: described(WorktreeBranch.CheckoutResult, "Current local branch"),
+          error: WorktreeApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "worktree.checkout",
+            summary: "Checkout local branch",
+            description:
+              "Switch the selected checkout to an existing local branch while preserving working tree changes.",
           }),
         ),
         HttpApiEndpoint.get("worktreeStatus", ExperimentalPaths.worktreeStatus, {

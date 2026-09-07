@@ -1,8 +1,9 @@
-import { createEffect, createMemo, createResource } from "solid-js"
+import { createMemo, createResource } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSDK } from "@/context/sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useSync } from "@/context/sync"
+import { pathKey } from "@/utils/path-key"
 import { Persist, persisted } from "@/utils/persist"
 
 const workspaceBarEnabled = import.meta.env.VITE_OPENCODE_CHANNEL !== "prod"
@@ -23,12 +24,11 @@ export function resolveNewSessionWorktree(isolated: boolean) {
   return isolated ? "create" : "main"
 }
 
-export function resolveNewSessionBranch(input: { isolated: boolean; current?: string; base?: string }) {
-  return input.isolated ? input.base : input.current
-}
-
-export function resolveNewSessionBaseBranch(input: { selected?: string; current?: string; fallback?: string }) {
-  return input.selected ?? input.current ?? input.fallback
+export function resolveNewSessionBranch(input: { selected?: string; branches: string[]; current?: string }) {
+  if (input.selected) return input.selected
+  if (input.branches.includes("main")) return "main"
+  if (input.branches.includes("dev")) return "dev"
+  return input.current ?? input.branches[0]
 }
 
 export function createNewSessionWorkspaceController() {
@@ -39,9 +39,13 @@ export function createNewSessionWorkspaceController() {
     Persist.global("new-session.worktree"),
     createStore({ isolated: true }),
   )
-  const [state, setState] = createStore<{ projectRoot?: string; baseBranch?: string }>({})
+  const [branchPreference, setBranchPreference, , branchPreferenceReady] = persisted(
+    Persist.serverGlobal(sdk().scope, "new-session.branch"),
+    createStore({ selected: {} as Record<string, string> }),
+  )
   const visible = createMemo(() => workspaceBarEnabled && sync().project?.vcs === "git")
   const projectRoot = createMemo(() => sync().project?.worktree ?? sdk().directory)
+  const projectKey = createMemo(() => pathKey(projectRoot()))
   const [options, optionsControl] = createResource(
     () => (visible() ? sdk().directory : undefined),
     async (directory) => {
@@ -65,46 +69,34 @@ export function createNewSessionWorkspaceController() {
       failed: optionsFailed(),
     }),
   )
-  const worktreeReady = createMemo(
-    () => preferenceReady() && (!isolated() || (!options.loading && !optionsFailed() && hasHead())),
-  )
-  const value = createMemo(() => resolveNewSessionWorktree(isolated()))
-
-  createEffect(() => {
-    const root = projectRoot()
-    if (state.projectRoot === root) return
-    setState({ projectRoot: root, baseBranch: undefined })
-  })
-
   const currentBranch = createMemo(() => options()?.currentBranch ?? serverSync().child(sdk().directory)[0].vcs?.branch)
-  const defaultBranch = createMemo(() => options()?.defaultBranch ?? currentBranch() ?? options()?.branches?.[0])
-  const selectedBaseBranch = createMemo(() =>
-    resolveNewSessionBaseBranch({
-      selected: state.projectRoot === projectRoot() ? state.baseBranch : undefined,
+  const selectedBranch = createMemo(() =>
+    resolveNewSessionBranch({
+      selected: branchPreference.selected[projectKey()],
+      branches: options()?.branches ?? [],
       current: currentBranch(),
-      fallback: defaultBranch(),
     }),
   )
-  const branch = createMemo(() =>
-    resolveNewSessionBranch({ isolated: isolated(), current: currentBranch(), base: selectedBaseBranch() }),
+  const worktreeReady = createMemo(
+    () =>
+      preferenceReady() &&
+      branchPreferenceReady() &&
+      (!visible() || (!options.loading && !optionsFailed() && (!hasHead() || !!selectedBranch()))),
   )
+  const value = createMemo(() => resolveNewSessionWorktree(isolated()))
 
   return {
     selection: {
       value,
       isolated,
-      reset: () => setState({ baseBranch: undefined }),
+      reset: () => undefined,
       setIsolated: (value: boolean) => setPreference("isolated", value),
-      disabled: createMemo(
-        () =>
-          !preferenceReady() || options.loading || (!hasHead() && !optionsFailed()) || (optionsFailed() && !isolated()),
-      ),
+      disabled: createMemo(() => !preferenceReady() || options.loading || (!hasHead() && !optionsFailed())),
       ready: worktreeReady,
       loading: () => options.loading,
       failed: optionsFailed,
       retry: () => void optionsControl.refetch(),
-      useLocal: () => setPreference("isolated", false),
-      setBaseBranch: (baseBranch: string) => setState({ projectRoot: projectRoot(), baseBranch }),
+      setBaseBranch: (branch: string) => setBranchPreference("selected", projectKey(), branch),
     },
     project: {
       root: projectRoot,
@@ -113,9 +105,10 @@ export function createNewSessionWorkspaceController() {
     },
     bar: {
       visible,
-      branch,
+      branch: selectedBranch,
       currentBranch,
-      baseBranch: selectedBaseBranch,
+      baseBranch: selectedBranch,
+      submitBranch: () => (visible() && hasHead() ? selectedBranch() : undefined),
     },
   }
 }

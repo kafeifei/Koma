@@ -2206,6 +2206,7 @@ export type WorktreeError = {
     | "WorktreeRemoveFailedError"
     | "WorktreeResetFailedError"
     | "WorktreeListFailedError"
+    | "WorktreeCheckoutFailedError"
     | "WorktreeMergeFailedError"
     | "WorktreeManagerFailedError"
   data: {
@@ -2218,6 +2219,14 @@ export type WorktreeOptions = {
   currentBranch?: string
   defaultBranch?: string
   branches: Array<string>
+}
+
+export type WorktreeCheckoutInput = {
+  branch: string
+}
+
+export type WorktreeCheckoutResult = {
+  branch: string
 }
 
 export type WorktreeLifecycleStatus = {
@@ -8358,6 +8367,34 @@ export type WorktreeOptionsResponses = {
 }
 
 export type WorktreeOptionsResponse = WorktreeOptionsResponses[keyof WorktreeOptionsResponses]
+
+export type WorktreeCheckoutData = {
+  body?: WorktreeCheckoutInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/checkout"
+}
+
+export type WorktreeCheckoutErrors = {
+  /**
+   * WorktreeError | InvalidRequestError
+   */
+  400: WorktreeError | InvalidRequestError
+}
+
+export type WorktreeCheckoutError = WorktreeCheckoutErrors[keyof WorktreeCheckoutErrors]
+
+export type WorktreeCheckoutResponses = {
+  /**
+   * Current local branch
+   */
+  200: WorktreeCheckoutResult
+}
+
+export type WorktreeCheckoutResponse = WorktreeCheckoutResponses[keyof WorktreeCheckoutResponses]
 
 export type WorktreeStatusData = {
   body?: never

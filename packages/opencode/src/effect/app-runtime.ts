@@ -43,6 +43,7 @@ import { Project } from "@/project/project"
 import { Vcs } from "@/project/vcs"
 import { Workspace } from "@/control-plane/workspace"
 import { Worktree } from "@/worktree"
+import { WorktreeBranch } from "@/worktree/branch"
 import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
@@ -102,6 +103,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     Vcs.node,
     Workspace.node,
     Worktree.node,
+    WorktreeBranch.node,
     Installation.node,
     ShareNext.node,
     SessionShare.node,

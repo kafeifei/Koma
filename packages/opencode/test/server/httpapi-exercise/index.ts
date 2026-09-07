@@ -539,6 +539,18 @@ const scenarios: Scenario[] = [
     check(Array.isArray(body.branches), "worktree options should include available branches")
   }),
   http.protected
+    .post("/experimental/worktree/checkout", "worktree.checkout")
+    .mutating()
+    .at((ctx) => ({
+      path: "/experimental/worktree/checkout",
+      headers: ctx.headers(),
+      body: { branch: "main" },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.branch === "main", "branch checkout should return the active local branch")
+    }),
+  http.protected
     .get("/experimental/session/{sessionID}/worktree", "worktree.status")
     .at((ctx) => ({
       path: route("/experimental/session/{sessionID}/worktree", { sessionID: "ses_unmanaged" }),

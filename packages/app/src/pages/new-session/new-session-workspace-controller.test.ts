@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
 import {
-  resolveNewSessionBaseBranch,
   resolveNewSessionBranch,
   resolveNewSessionIsolation,
   resolveNewSessionWorktree,
@@ -36,14 +35,17 @@ describe("new session workspace selection", () => {
     expect(resolveNewSessionWorktree(false)).toBe("main")
   })
 
-  test("shows the chosen starting branch only in isolation mode", () => {
-    expect(resolveNewSessionBranch({ isolated: true, current: "feature", base: "dev" })).toBe("dev")
-    expect(resolveNewSessionBranch({ isolated: false, current: "feature", base: "dev" })).toBe("feature")
+  test("keeps branch choice independent from isolation and falls back in product order", () => {
+    const branches = ["release", "dev", "main", "feature"]
+    expect(resolveNewSessionBranch({ selected: "release", branches, current: "feature" })).toBe("release")
+    expect(resolveNewSessionBranch({ branches, current: "feature" })).toBe("main")
+    expect(resolveNewSessionBranch({ branches: ["release", "dev", "feature"], current: "feature" })).toBe("dev")
+    expect(resolveNewSessionBranch({ branches: ["release", "feature"], current: "feature" })).toBe("feature")
   })
 
-  test("starts from the current directory branch before falling back to the repository default", () => {
-    expect(resolveNewSessionBaseBranch({ selected: "release", current: "feature", fallback: "dev" })).toBe("release")
-    expect(resolveNewSessionBaseBranch({ current: "feature", fallback: "dev" })).toBe("feature")
-    expect(resolveNewSessionBaseBranch({ fallback: "dev" })).toBe("dev")
+  test("keeps a remembered branch when it is no longer in the current options", () => {
+    expect(resolveNewSessionBranch({ selected: "deleted", branches: ["dev", "feature"], current: "feature" })).toBe(
+      "deleted",
+    )
   })
 })

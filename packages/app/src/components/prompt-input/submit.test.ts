@@ -9,6 +9,7 @@ let createPromptSubmit: typeof import("./submit").createPromptSubmit
 const createdClients: string[] = []
 const createdSessions: string[] = []
 const worktreeCreateInputs: unknown[] = []
+const worktreeCheckoutInputs: unknown[] = []
 let promptSent: (() => void) | undefined
 const sessionCreateInputs: Array<{
   agent?: string
@@ -64,6 +65,8 @@ let permissionMode: "default" | "auto" | "full" = "default"
 let echoPermissionMode = true
 let createSessionGate: Promise<void> | undefined
 let createWorktreeGate: Promise<void> | undefined
+let checkoutWorktreeGate: Promise<void> | undefined
+let checkoutWorktreeError = false
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 const [promptStore, setPromptStore] = createStore<PromptStore>({
@@ -166,6 +169,12 @@ const clientFor = (directory: string) => {
         worktreeCreateInputs.push(input)
         await createWorktreeGate
         return { data: { directory: `${directory}/new` } }
+      },
+      checkout: async (input: { directory: string; worktreeCheckoutInput: { branch: string } }) => {
+        worktreeCheckoutInputs.push(input)
+        await checkoutWorktreeGate
+        if (checkoutWorktreeError) throw new Error("branch checkout failed")
+        return { data: { branch: input.worktreeCheckoutInput.branch } }
       },
     },
   }
@@ -411,6 +420,7 @@ beforeEach(() => {
   createdClients.length = 0
   createdSessions.length = 0
   worktreeCreateInputs.length = 0
+  worktreeCheckoutInputs.length = 0
   promptSent = undefined
   sessionCreateInputs.length = 0
   optimistic.length = 0
@@ -432,6 +442,8 @@ beforeEach(() => {
   echoPermissionMode = true
   createSessionGate = undefined
   createWorktreeGate = undefined
+  checkoutWorktreeGate = undefined
+  checkoutWorktreeError = false
   serverSessionSyncs = 0
   externalCreates.length = 0
   externalSubmits.length = 0
@@ -605,6 +617,74 @@ describe("prompt submit worktree selection", () => {
       { directory: "/repo/worktree-b", sessionID: "session-2" },
     ])
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
+  })
+
+  test("checks out the captured branch before creating a local session", async () => {
+    let branch = "release"
+    const gate = Promise.withResolvers<void>()
+    checkoutWorktreeGate = gate.promise
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      permissionMode: () => "default",
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: () => 2,
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => "main",
+      newSessionBaseBranch: () => branch,
+    })
+
+    const result = submit.handleSubmit(new Event("submit"))
+    branch = "dev"
+    await Bun.sleep(0)
+    expect(worktreeCheckoutInputs).toEqual([{ directory: "/repo/main", worktreeCheckoutInput: { branch: "release" } }])
+    expect(createdSessions).toEqual([])
+    gate.resolve()
+    await result
+
+    expect(createdSessions).toEqual(["/repo/main"])
+    expect(sessionCreateInputs[0]).toMatchObject({ location: { directory: "/repo/main" } })
+  })
+
+  test("keeps the draft and selection when local branch checkout fails", async () => {
+    checkoutWorktreeError = true
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      permissionMode: () => "default",
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: () => 2,
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => "main",
+      newSessionBaseBranch: () => "release",
+      onNewSessionWorktreeReset: () => {
+        resetCount++
+      },
+    })
+
+    await submit.handleSubmit(new Event("submit"))
+
+    expect(worktreeCheckoutInputs).toEqual([{ directory: "/repo/main", worktreeCheckoutInput: { branch: "release" } }])
+    expect(createdSessions).toEqual([])
+    expect(externalCreates).toEqual([])
+    expect(promptValue).toEqual([{ type: "text", content: "ls", start: 0, end: 2 }])
+    expect(resetCount).toBe(0)
   })
 
   test("includes the permission mode in session creation", async () => {
@@ -883,6 +963,8 @@ describe("Codex prompt submission", () => {
     shouldQueue?: () => boolean
     onQueue?: () => void
     onAbort?: () => void
+    newSessionWorktree?: () => string
+    newSessionBaseBranch?: () => string
   }) =>
     createPromptSubmit({
       prompt,
@@ -902,6 +984,8 @@ describe("Codex prompt submission", () => {
       shouldQueue: overrides?.shouldQueue,
       onQueue: overrides?.onQueue,
       onAbort: overrides?.onAbort,
+      newSessionWorktree: overrides?.newSessionWorktree,
+      newSessionBaseBranch: overrides?.newSessionBaseBranch,
     })
 
   test("creates a native session and clears only after a durable delivery acknowledgement", async () => {
@@ -925,6 +1009,18 @@ describe("Codex prompt submission", () => {
     expect(resetCount).toBe(1)
     expect(externalRequest).toBeUndefined()
     expect(storedSessions["/repo/main"]?.[0]).toMatchObject({ id: "native-session" })
+  })
+
+  test("checks out the selected branch before creating a native session", async () => {
+    externalEngine = "codex"
+
+    await create({ newSessionWorktree: () => "main", newSessionBaseBranch: () => "release" }).handleSubmit(
+      new Event("submit"),
+    )
+
+    expect(worktreeCheckoutInputs).toEqual([{ directory: "/repo/main", worktreeCheckoutInput: { branch: "release" } }])
+    expect(externalCreates).toHaveLength(1)
+    expect(externalCreates[0]).toMatchObject({ location: { directory: "/repo/main" } })
   })
 
   test("reuses the create request ID after an unknown result and preserves the input", async () => {
