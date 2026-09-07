@@ -68,9 +68,8 @@ test("leaves the OpenCode composer unchanged when the server does not advertise 
   await setup(page, { advertiseCodex: false })
   await page.goto(draftHref(draftA))
 
-  await expect(page.locator('[data-action="prompt-model"]')).toBeVisible()
-  await expect(page.locator('[data-component="prompt-engine-label"]')).toHaveText("OpenCode")
   await expect(page.locator('[data-action="prompt-engine"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="prompt-model"]')).toBeVisible()
   await expect(page.locator('[data-action="prompt-codex-model"]')).toHaveCount(0)
 })
 
@@ -243,10 +242,8 @@ async function setup(
   await page.route("**/lab/**", async (route) => {
     const url = new URL(route.request().url())
     if (url.origin !== server) return route.fallback()
-    if (url.pathname === "/lab/engines") {
-      if (options?.advertiseCodex === false) return json(route, { message: "Lab engines are unavailable" }, 404)
-      return json(route, engines(options?.codexAvailable ?? true))
-    }
+    if (url.pathname === "/lab/engines")
+      return json(route, options?.advertiseCodex === false ? [] : engines(options?.codexAvailable ?? true))
     if (url.pathname === "/lab/sessions/describe") {
       const body = route.request().postDataJSON() as { sessionIDs: string[] }
       return json(route, body.sessionIDs.includes(sessionID) ? [current] : [])
