@@ -41,6 +41,7 @@ export type CodexProjectedContent =
       type: "command"
       command: string
       cwd: string
+      commandActions?: BrowserValue[]
       status: string
       output?: string
       exitCode?: number
@@ -69,6 +70,7 @@ export type CodexProjectedItem = {
   nativeType: string
   time?: { created?: number; completed?: number; ran?: number }
   content: CodexProjectedContent
+  raw?: BrowserValue
 }
 
 export type CodexProjectedTurn = {
@@ -217,6 +219,7 @@ export function projectItem(
     nativeType,
     ...(time ? { time } : {}),
     content: projectContent(record, nativeType),
+    raw: toBrowserValue(record),
   }
 }
 
@@ -325,6 +328,7 @@ function projectContent(item: Record<string, unknown>, nativeType: string): Code
       type: "command",
       command: string(item.command),
       cwd: string(item.cwd),
+      ...(Array.isArray(item.commandActions) ? { commandActions: item.commandActions.map(toBrowserValue) } : {}),
       status: string(item.status) || "unknown",
       ...(typeof item.aggregatedOutput === "string" ? { output: item.aggregatedOutput } : {}),
       ...(typeof item.exitCode === "number" ? { exitCode: item.exitCode } : {}),

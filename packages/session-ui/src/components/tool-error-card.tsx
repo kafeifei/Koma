@@ -1,3 +1,4 @@
+import { toolPresentationName } from "./tool-presentation"
 import { type ComponentProps, createMemo, Show, splitProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Card, CardDescription } from "@opencode-ai/ui/card"
@@ -64,7 +65,7 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
       apply_patch: "ui.tool.patch",
       question: "ui.tool.questions",
     }
-    const key = map[split.tool]
+    const key = map[toolPresentationName(split.tool)]
     if (!key) return split.tool
     if (!key.includes(".")) return key
     return i18n.t(key)

@@ -123,6 +123,20 @@ describe("inspector data", () => {
     expect(toolStatus(task)).toBe("running")
   })
 
+  test("keeps Codex subagent identities from metadata and pending native input", () => {
+    expect(taskSessionID(tool("native", "completed", "child", "codex.subagent"))).toBe("child")
+    expect(
+      taskSessionID({
+        ...tool("pending", "pending", undefined, "codex.subagent"),
+        state: {
+          status: "pending",
+          input: { nativeSubagent: true, sessionId: "pending-child" },
+          raw: '{"nativeSubagent":true,"sessionId":"pending-child"}',
+        },
+      }),
+    ).toBe("pending-child")
+  })
+
   test("keeps completed and archived descendants scoped to the root", () => {
     const task = tool("task", "completed", "evicted-child")
     const sessions = {
@@ -163,5 +177,31 @@ describe("inspector data", () => {
       text: "done",
     })
     expect(rawToolDetail(tool("custom", "completed", undefined, "custom_mcp"), true)).toBeUndefined()
+  })
+
+  test("keeps native fallback input and failed output inspectable with registered renderers", () => {
+    expect(rawToolDetail(tool("search", "completed", undefined, "codex.webSearch"), true)).toBeUndefined()
+    const patch = tool("patch", "completed", undefined, "codex.fileChange")
+    if (!("metadata" in patch.state)) throw new Error("Expected completed metadata")
+    patch.state.metadata = { output: "raw patch output" }
+    expect(rawToolDetail(patch, true)).toBeUndefined()
+    expect(rawToolDetail(tool("command", "running", undefined, "codex.commandExecution"), true)).toBeUndefined()
+    expect(
+      rawToolDetail(
+        {
+          ...tool("pending", "pending", undefined, "codex.webSearch"),
+          state: { status: "pending", input: {}, raw: '{"query":"native state"}' },
+        },
+        true,
+      ),
+    ).toEqual({
+      type: "input",
+      text: '{"query":"native state"}',
+    })
+
+    const failed = tool("failed", "error", undefined, "codex.commandExecution")
+    if (!("metadata" in failed.state)) throw new Error("Expected error metadata")
+    failed.state.metadata = { output: "stdout before failure" }
+    expect(rawToolDetail(failed, true)).toEqual({ type: "output", text: "stdout before failure" })
   })
 })

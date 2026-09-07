@@ -8,6 +8,8 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { EventTable } from "@opencode-ai/core/event/sql"
 import { Location } from "@opencode-ai/core/location"
 import { ProjectV2 } from "@opencode-ai/core/project"
+import { SessionMessage } from "@opencode-ai/core/session/message"
+import { RelativePath } from "@opencode-ai/core/schema"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
@@ -53,6 +55,122 @@ const input = {
 } satisfies SessionExternal.CreateInput
 
 describe("SessionExternal", () => {
+  it.effect("titles new native tasks from the first prompt line without changing exact retries", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const request = {
+        ...input,
+        payload: { prompt: { text: "\n  验证 Codex 工具卡片  \nRun shell and edit a file." } },
+      }
+      const created = yield* external.create(request)
+      expect(created.session.title).toBe("验证 Codex 工具卡片")
+      const sessionID = created.session.id
+      yield* external.claimBinding({ sessionID, generation: "host:1" })
+      yield* external.bind({ sessionID, generation: "host:1", nativeThreadID: "native" })
+      const title = yield* external.syncTitle({
+        sessionID,
+        runtimeScope: input.runtimeScope,
+        nativeThreadID: "native",
+        title: "Native title",
+      })
+      expect(title).toBe("Native title")
+      expect((yield* external.create(request)).session.title).toBe("Native title")
+    }),
+  )
+
+  it.effect("preserves manually renamed titles and unrelated Session state", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const database = yield* Database.Service
+      const created = yield* external.create({ ...input, payload: { prompt: { text: "Initial title" } } })
+      const sessionID = created.session.id
+      yield* external.claimBinding({ sessionID, generation: "host:1" })
+      yield* external.bind({ sessionID, generation: "host:1", nativeThreadID: "native" })
+      const key = { sessionID, runtimeScope: input.runtimeScope, nativeThreadID: "native" }
+      const mismatched = yield* external
+        .syncTitle({ ...key, nativeThreadID: "other", title: "Wrong title" })
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(mismatched) && Cause.hasFails(mismatched.cause)).toBe(true)
+
+      yield* database.db
+        .update(SessionTable)
+        .set({
+          cost: 4.2,
+          tokens_input: 18,
+          time_archived: 42,
+          metadata: { retained: true },
+          parent_id: sessionID,
+          share_url: "https://example.test/shared",
+          permission_mode: "full",
+          permission: [{ permission: "shell", pattern: "*", action: "ask" }],
+          summary_additions: 2,
+          summary_deletions: 1,
+          summary_files: 1,
+          revert: {
+            messageID: SessionMessage.ID.make("msg_preserved"),
+            partID: "prt_preserved",
+            files: [
+              {
+                path: RelativePath.make("sample.txt"),
+                status: "modified",
+                additions: 1,
+                deletions: 1,
+                patch: "retained patch",
+              },
+            ],
+          },
+        })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+      const before = yield* database.db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get()
+      expect(yield* external.syncTitle({ ...key, title: "Native title" })).toBe("Native title")
+      const row = yield* database.db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get()
+      if (!before || !row) throw new Error("Expected retained Session row")
+      expect(row).toEqual({ ...before, title: "Native title" })
+      // No process-local provenance is available after restart.
+      expect(yield* external.syncTitle({ ...key, title: "Restart title" })).toBeUndefined()
+      expect(yield* external.syncTitle({ ...key, title: "Second native title", previousTitle: "Native title" })).toBe(
+        "Second native title",
+      )
+      yield* database.db
+        .update(SessionTable)
+        .set({ title: "My manual title" })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+      expect(
+        yield* external.syncTitle({ ...key, title: "Third native title", previousTitle: "Second native title" }),
+      ).toBeUndefined()
+      expect((yield* external.get(sessionID)).session.title).toBe("My manual title")
+      const events = yield* database.db.select().from(EventTable).where(eq(EventTable.aggregate_id, sessionID)).all()
+      expect(
+        events.filter(
+          (event) =>
+            event.type ===
+            EventV2.versionedType(SessionV1.Event.Updated.type, SessionV1.Event.Updated.durable!.version),
+        ),
+      ).toHaveLength(2)
+    }),
+  )
+
+  it.effect("repairs legacy default titles from their durable first prompt", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const database = yield* Database.Service
+      const created = yield* external.create({ ...input, payload: { prompt: { text: "Recovered first line\nrest" } } })
+      const sessionID = created.session.id
+      yield* external.claimBinding({ sessionID, generation: "host:1" })
+      yield* external.bind({ sessionID, generation: "host:1", nativeThreadID: "native" })
+      yield* database.db
+        .update(SessionTable)
+        .set({ title: "New session - 2026-09-07T00:00:00.000Z" })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+      expect(yield* external.syncTitle({ sessionID, runtimeScope: input.runtimeScope, nativeThreadID: "native" })).toBe(
+        "Recovered first line",
+      )
+    }),
+  )
+
   it.effect("durably fences native execution until its owner confirms all tools finished", () =>
     Effect.gen(function* () {
       const external = yield* SessionExternal.Service

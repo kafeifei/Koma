@@ -45,7 +45,7 @@ type Harness = {
 
 test.use({ viewport: { width: 1440, height: 1000 } })
 
-test("does not require ChatGPT sign-in for a local Codex provider", async ({ page }) => {
+test("keeps the ordinary Codex composer free of persistent control chrome", async ({ page }) => {
   const harness: Harness = {
     current: snapshot(31),
     account: { authenticated: false, requiresAuth: false },
@@ -55,8 +55,96 @@ test("does not require ChatGPT sign-in for a local Codex provider", async ({ pag
   }
   await setup(page, harness)
   const controls = await open(page)
-  await expect(controls.locator('[data-action="sign-in"]')).toHaveCount(0)
-  await expect(controls.locator('[data-action="cancel-sign-in"]')).toHaveCount(0)
+  await expect(controls).toHaveCount(0)
+  await expect(page.locator('[data-component="codex-session-controls"]')).toHaveCount(0)
+  await expect(page.locator('[data-component="prompt-input-v2"]')).toBeVisible()
+  await expect(page.getByText("Connected", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Codex is ready", { exact: true })).toHaveCount(0)
+})
+
+test("keeps the composer available for nonblocking interactions and hides it while the backend waits", async ({
+  page,
+}) => {
+  const transport = await installSseTransport(page, { server, retry: 20 })
+  const command = interaction({
+    id: "native-nonblocking-command",
+    revision: 35,
+    kind: "command",
+    title: "Review native command",
+    choices: [
+      { id: "opaque-command-once", kind: "allow" },
+      { id: "opaque-command-deny", kind: "deny" },
+    ],
+  })
+  const harness: Harness = {
+    current: snapshot(35, { interactions: [command], runtimeStatus: "active" }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  const controls = await open(page)
+  await transport.waitForConnection()
+  await expect(controls.locator(`[data-interaction-id="${command.id}"]`)).toBeVisible()
+  await expect(page.locator('[data-component="prompt-input-v2"]')).toBeVisible()
+
+  harness.current = snapshot(36, { interactions: [command], runtimeStatus: "waitingApproval" })
+  await sendRefresh(transport, harness.current.descriptor)
+  await expect(page.locator('[data-component="prompt-input-v2"]')).toHaveCount(0)
+
+  harness.current = snapshot(37)
+  await sendRefresh(transport, harness.current.descriptor)
+  await expect(controls).toHaveCount(0)
+  await expect(page.locator('[data-component="prompt-input-v2"]')).toBeVisible()
+})
+
+test("opens a mapped native subagent from its tool card without linking an unmapped native thread", async ({
+  page,
+}) => {
+  const mappedPartID = "prt_codex_subagent_mapped"
+  const unmappedPartID = "prt_codex_subagent_unmapped"
+  const nativeThreadID = "native-thread-child"
+  const unmappedNativeThreadID = "native-thread-unmapped"
+  const harness: Harness = {
+    current: snapshot(38, {
+      children: [{ sessionID: childID, nativeThreadID }],
+      messages: [
+        subagentMessage([
+          subagentTool(mappedPartID, nativeThreadID, childID),
+          subagentTool(unmappedPartID, unmappedNativeThreadID),
+        ]),
+      ],
+    }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  await open(page)
+
+  const mapped = page.locator(`[data-timeline-part-id="${mappedPartID}"]`)
+  const unmapped = page.locator(`[data-timeline-part-id="${unmappedPartID}"]`)
+  await expect(mapped).toBeVisible()
+  await expect(unmapped).toBeVisible()
+  await expect(mapped.locator(`a[href="${sessionHref(childID)}"]`)).toBeVisible()
+  await expect(unmapped.getByRole("link")).toHaveCount(0)
+  await expect(unmapped.locator('[data-component="task-tool-action"]')).toHaveCount(0)
+  await expect(page.locator(`a[href="${sessionHref(nativeThreadID)}"]`)).toHaveCount(0)
+  await expect(page.locator(`a[href="${sessionHref(unmappedNativeThreadID)}"]`)).toHaveCount(0)
+  await unmapped.getByRole("button").click()
+  await expect(page).toHaveURL(sessionHref(sessionID))
+
+  await mapped.locator(`a[href="${sessionHref(childID)}"]`).click()
+  const preview = page.getByRole("complementary", { name: "Side workspace" })
+  await expect(preview.getByText(childTitle, { exact: true })).toBeVisible()
+  await expect(preview.getByRole("link", { name: "Open full task", exact: true })).toHaveAttribute(
+    "href",
+    sessionHref(childID),
+  )
+  await expect(page).toHaveURL(sessionHref(sessionID))
+  await preview.getByRole("link", { name: "Open full task", exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/server/.+/session/${childID}$`))
+  await expectSessionTitle(page, childTitle)
 })
 
 test("settles native login cancellation and failure through the account snapshot", async ({ page }) => {
@@ -120,7 +208,7 @@ test("settles native login cancellation and failure through the account snapshot
   expect(harness.loginStarts).toEqual(["native-login-1", "native-login-2"])
 })
 
-test("refreshes the latest native plan and hides it when the report becomes unavailable", async ({ page }) => {
+test("shows only an available native plan and hides it when the report becomes unavailable", async ({ page }) => {
   const transport = await installSseTransport<{
     id: string
     type: "session.external.changed"
@@ -142,8 +230,8 @@ test("refreshes the latest native plan and hides it when the report becomes unav
   await setup(page, harness)
   const controls = await open(page)
   await transport.waitForConnection()
-  const plan = controls.locator('[data-component="codex-plan"]')
-  await expect(plan.getByText("Loading plan...", { exact: true })).toBeVisible()
+  const plan = controls.locator('[data-component="codex-plan-dock"]')
+  await expect(plan).toHaveCount(0)
 
   harness.current = snapshot(72, {
     plan: {
@@ -159,9 +247,10 @@ test("refreshes the latest native plan and hides it when the report becomes unav
     },
   })
   await sendRefresh(transport, harness.current.descriptor)
-  await expect(plan.getByText("Inspect the native state before changing it.", { exact: true })).toBeVisible()
-  await expect(plan.locator('[data-plan-step-status="inProgress"]')).toContainText("Inspect native state")
-  await expect(plan.locator('[data-plan-step-status="pending"]')).toContainText("Apply the focused change")
+  await expect(plan.locator('[data-component="session-todo-dock"]')).toBeVisible()
+  await expect(plan.locator('[data-state="in_progress"]')).toContainText("Inspect native state")
+  await expect(plan.locator('[data-state="pending"]')).toContainText("Apply the focused change")
+  await expect(plan.getByText("Inspect the native state before changing it.", { exact: true })).toHaveCount(0)
 
   harness.current = snapshot(73, {
     plan: {
@@ -177,55 +266,13 @@ test("refreshes the latest native plan and hides it when the report becomes unav
     },
   })
   await sendRefresh(transport, harness.current.descriptor)
-  await expect(plan.getByText("The inspection is complete.", { exact: true })).toBeVisible()
-  await expect(plan.locator('[data-plan-step-status="completed"]')).toContainText("Inspect native state")
-  await expect(plan.locator('[data-plan-step-status="inProgress"]')).toContainText("Apply the focused change")
+  await expect(plan.locator('[data-state="completed"]')).toContainText("Inspect native state")
+  await expect(plan.locator('[data-state="in_progress"]')).toContainText("Apply the focused change")
+  await expect(plan.getByText("The inspection is complete.", { exact: true })).toHaveCount(0)
 
   harness.current = snapshot(74, { plan: { status: "unavailable" } })
   await sendRefresh(transport, harness.current.descriptor)
   await expect(plan).toHaveCount(0)
-})
-
-test("keeps native controls live while an active task becomes idle during navigation", async ({ page }) => {
-  const childSnapshot = Promise.withResolvers<void>()
-  const continueSnapshot = Promise.withResolvers<void>()
-  const errors: string[] = []
-  page.on("pageerror", (error) => errors.push(error.message))
-  const initial = snapshot(81, {
-    children: [{ sessionID: childID, nativeThreadID: "native-thread-child" }],
-  })
-  const harness: Harness = {
-    current: { ...initial, descriptor: { ...initial.descriptor, runtimeStatus: "active" } },
-    replies: [],
-    queue: [],
-    deliveryReads: [],
-    beforeChildDescribe: async () => {
-      await continueSnapshot.promise
-    },
-    beforeChildSnapshot: async () => {
-      childSnapshot.resolve()
-      await continueSnapshot.promise
-    },
-  }
-  const transport = await installSseTransport(page, { server, retry: 20 })
-  await setup(page, harness)
-  const controls = await open(page)
-  await transport.waitForConnection()
-  await expect(controls.getByRole("button", { name: "Pause", exact: true })).toBeVisible()
-
-  await controls.getByRole("button", { name: "Open" }).click()
-  await childSnapshot.promise
-  harness.current = snapshot(82, {
-    children: [{ sessionID: childID, nativeThreadID: "native-thread-child" }],
-  })
-  await sendRefresh(transport, harness.current.descriptor)
-  await expect(controls.getByRole("button", { name: "Pause", exact: true })).toHaveCount(0)
-  expect(errors).toEqual([])
-
-  continueSnapshot.resolve()
-  await expect(page).toHaveURL(sessionHref(childID))
-  await expectSessionTitle(page, childTitle)
-  expect(errors).toEqual([])
 })
 
 test("submits exact native command choices and preserves secret answers", async ({ page }) => {
@@ -374,9 +421,7 @@ test("keeps MCP decline available until a typed form is valid and opens URL elic
   })
 })
 
-test("refreshes unknown receipts, resumes and withdraws the paused queue, then opens a bound child", async ({
-  page,
-}) => {
+test("refreshes unknown receipts, then resumes and withdraws the paused queue", async ({ page }) => {
   const unknown = delivery("receipt-unknown", "steer", "unknown")
   const resume = delivery("receipt-resume", "queue", "pending")
   const withdraw = delivery("receipt-withdraw", "queue", "pending")
@@ -384,7 +429,6 @@ test("refreshes unknown receipts, resumes and withdraws the paused queue, then o
     current: snapshot(61, {
       queuePaused: true,
       deliveries: [unknown, resume, withdraw],
-      children: [{ sessionID: childID, nativeThreadID: "native-thread-child" }],
     }),
     replies: [],
     queue: [],
@@ -407,7 +451,6 @@ test("refreshes unknown receipts, resumes and withdraws the paused queue, then o
           deliveries: current.deliveries.map((item) =>
             item.requestID === resume.requestID ? { ...item, state: "accepted" as const } : item,
           ),
-          children: current.children,
         })
       }
       return snapshot(63, {
@@ -415,7 +458,6 @@ test("refreshes unknown receipts, resumes and withdraws the paused queue, then o
         deliveries: current.deliveries.map((item) =>
           item.requestID === withdraw.requestID ? { ...item, state: "withdrawn" as const } : item,
         ),
-        children: current.children,
       })
     },
   }
@@ -435,10 +477,6 @@ test("refreshes unknown receipts, resumes and withdraws the paused queue, then o
   await withdrawRow.locator('[data-action="withdraw-delivery"]').click()
   await expect.poll(() => harness.queue.length).toBe(2)
   expect(harness.queue[1]).toEqual({ action: "withdraw", requestID: withdraw.requestID, revision: 62 })
-
-  await controls.locator(`[data-child-session-id="${childID}"]`).getByRole("button").click()
-  await expect(page).toHaveURL(new RegExp(`/server/.+/session/${childID}$`))
-  await expectSessionTitle(page, childTitle)
 })
 
 async function setup(page: Page, harness: Harness) {
@@ -552,9 +590,7 @@ async function setup(page: Page, harness: Harness) {
 async function open(page: Page) {
   await page.goto(sessionHref(sessionID))
   await expectSessionTitle(page, title)
-  const controls = page.locator('[data-component="codex-session-controls"]')
-  await expect(controls).toBeVisible()
-  return controls
+  return page.locator('[data-component="codex-session-docks"]')
 }
 
 function descriptor(id: string, revision: number, queuePaused = false): LabDescribeOutput[number] {
@@ -579,15 +615,21 @@ function snapshot(
     interactions?: LabSnapshotOutput["interactions"]
     deliveries?: LabSnapshotOutput["deliveries"]
     children?: LabSnapshotOutput["children"]
+    messages?: LabSnapshotOutput["messages"]
     plan?: LabSnapshotOutput["plan"]
+    runtimeStatus?: LabDescribeOutput[number]["runtimeStatus"]
   } = {},
 ): LabSnapshotOutput {
   const id = options.sessionID ?? sessionID
   return {
-    descriptor: descriptor(id, revision, options.queuePaused),
-    messages: [],
-    messageOrder: [],
-    partOrder: {},
+    descriptor: { ...descriptor(id, revision, options.queuePaused), runtimeStatus: options.runtimeStatus ?? "idle" },
+    messages: options.messages ?? [],
+    messageOrder: options.messages?.map((message) => message.id) ?? [],
+    partOrder: Object.fromEntries(
+      (options.messages ?? []).flatMap((message) =>
+        message.type === "assistant" ? [[message.id, message.content.map((part) => part.id)]] : [],
+      ),
+    ),
     interactions: options.interactions ?? [],
     deliveries: options.deliveries ?? [],
     usage: { status: "unavailable" },
@@ -597,6 +639,49 @@ function snapshot(
     sessionDiff: { status: "unavailable" },
     plan: options.plan,
     children: options.children ?? [],
+  }
+}
+
+function subagentMessage(
+  content: Extract<LabSnapshotOutput["messages"][number], { type: "assistant" }>["content"],
+): Extract<LabSnapshotOutput["messages"][number], { type: "assistant" }> {
+  return {
+    id: "msg_codex_subagents",
+    type: "assistant",
+    orderKey: "codex_order_subagents",
+    time: { created: 1_700_000_001_000, completed: 1_700_000_002_000 },
+    agent: "codex",
+    model: { providerID: "codex", id: "gpt-6" },
+    content,
+  }
+}
+
+function subagentTool(
+  id: string,
+  nativeThreadID: string,
+  mappedSessionID?: string,
+): Extract<Extract<LabSnapshotOutput["messages"][number], { type: "assistant" }>["content"][number], { type: "tool" }> {
+  return {
+    id,
+    type: "tool",
+    name: "codex.subagent",
+    time: { created: 1_700_000_001_000, completed: 1_700_000_002_000 },
+    state: {
+      status: "completed",
+      input: {
+        operation: "spawnAgent",
+        description: mappedSessionID ? "Inspect mapped child" : "Inspect unmapped native child",
+        nativeSubagent: true,
+        nativeThreadID,
+        ...(mappedSessionID ? { sessionId: mappedSessionID } : {}),
+      },
+      content: [{ type: "text", text: "Subagent completed" }],
+      structured: {
+        nativeSubagent: true,
+        nativeThreadID,
+        ...(mappedSessionID ? { sessionId: mappedSessionID } : {}),
+      },
+    },
   }
 }
 

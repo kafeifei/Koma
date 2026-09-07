@@ -1,0 +1,59 @@
+[
+  {
+    "type": "commandExecution",
+    "id": "exec-d478c171-f0bf-4577-accf-9e29d93d334a",
+    "pluginId": null,
+    "scriptPath": null,
+    "command": "/bin/zsh -lc \"cat sample.txt; printf 'sum='; expr 41 + 1\"",
+    "cwd": "/workspace",
+    "processId": "12147",
+    "source": "unifiedExecStartup",
+    "status": "completed",
+    "commandActions": [
+      {
+        "type": "unknown",
+        "command": "cat sample.txt; printf 'sum='; expr 41 + 1"
+      }
+    ],
+    "aggregatedOutput": "fixture-read-proof\nvalue=41\nsum=42\n",
+    "exitCode": 0,
+    "durationMs": 0
+  },
+  {
+    "type": "fileChange",
+    "id": "exec-bd18e2aa-eec6-454e-ba60-df5568ef541a",
+    "changes": [
+      {
+        "path": "/workspace/sample.txt",
+        "kind": {
+          "type": "update",
+          "move_path": null
+        },
+        "diff": "@@ -1,2 +1,2 @@\n fixture-read-proof\n-value=41\n+value=42\n"
+      }
+    ],
+    "status": "completed"
+  },
+  {
+    "type": "commandExecution",
+    "id": "exec-fe44a0be-6bbe-45a1-b4fa-170d55c20ba2",
+    "pluginId": null,
+    "scriptPath": null,
+    "command": "/bin/zsh -lc 'cat sample.txt'",
+    "cwd": "/workspace",
+    "processId": "47610",
+    "source": "unifiedExecStartup",
+    "status": "completed",
+    "commandActions": [
+      {
+        "type": "read",
+        "command": "cat sample.txt",
+        "name": "sample.txt",
+        "path": "/workspace/sample.txt"
+      }
+    ],
+    "aggregatedOutput": "fixture-read-proof\nvalue=42\n",
+    "exitCode": 0,
+    "durationMs": 0
+  }
+]

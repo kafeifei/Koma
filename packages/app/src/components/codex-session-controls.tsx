@@ -1,20 +1,29 @@
 import type { JsonValue, LabEnginesOutput, LabSnapshotOutput } from "@opencode-ai/lab-client"
 import { Button } from "@opencode-ai/ui/button"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
+import { DockTray } from "@opencode-ai/ui/dock-surface"
+import { Icon } from "@opencode-ai/ui/icon"
+import { DockPrompt } from "@opencode-ai/session-ui/dock-prompt"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { useNavigate } from "@solidjs/router"
-import { createEffect, createMemo, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { ServerConnection } from "@/context/server"
-import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
-import { sessionHref } from "@/utils/session-route"
+import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { showToast } from "@/utils/toast"
 
 type Interaction = LabSnapshotOutput["interactions"][number]
 type Delivery = LabSnapshotOutput["deliveries"][number]
+
+export function actionableCodexDeliveries(deliveries: readonly Delivery[]) {
+  return deliveries.filter((delivery) => ["pending", "sending", "unknown", "rejected"].includes(delivery.state))
+}
+
+export function codexSessionInteractionBlocked(snapshot: LabSnapshotOutput | undefined) {
+  if (!snapshot || !["waitingApproval", "waitingInput"].includes(snapshot.descriptor.runtimeStatus)) return false
+  return snapshot.interactions.some((interaction) => interaction.state === "pending")
+}
 
 type FormOption = { label: string; value: string }
 export type CodexFormField = {
@@ -119,10 +128,8 @@ export function codexFormContent(fields: readonly CodexFormField[], values: Reco
 
 export function CodexSessionControls(props: { sessionID?: string; engine?: "opencode" | "codex" }) {
   const serverSync = useServerSync()
-  const serverSDK = useServerSDK()
   const platform = usePlatform()
   const language = useLanguage()
-  const navigate = useNavigate()
   const [store, setStore] = createStore({
     busy: {} as Record<string, boolean | undefined>,
     errors: {} as Record<string, string | undefined>,
@@ -130,6 +137,7 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     answers: {} as Record<string, Record<string, string[] | undefined> | undefined>,
     other: {} as Record<string, Record<string, string | undefined> | undefined>,
     forms: {} as Record<string, Record<string, FormValue | undefined> | undefined>,
+    planCollapsed: false,
   })
 
   const external = createMemo(() => serverSync().external)
@@ -166,15 +174,9 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     }
   }
 
-  onMount(() => {
-    void external()
-      .refreshEngines()
-      .catch((error) => fail("account", error))
-  })
-
   createEffect(() => {
     const sessionID = props.sessionID
-    if (!sessionID) return
+    if (!visible() || !sessionID) return
     void external()
       .load(sessionID)
       .catch((error) => fail("snapshot", error))
@@ -228,31 +230,16 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     )
   }
 
-  const pause = () => {
-    const sessionID = props.sessionID
-    if (!sessionID) return
-    void run("pause", sessionID, () => external().actions.interrupt(sessionID))
-  }
-
   const checkDelivery = (delivery: Delivery) =>
     void run(`delivery:${delivery.requestID}`, delivery.sessionID, () =>
       external().actions.delivery({ sessionID: delivery.sessionID, requestID: delivery.requestID }),
     )
 
-  const deliveries = createMemo(() => {
-    const values = snapshot()?.deliveries ?? []
-    const recent = values.toSorted((a, b) => b.createdAt - a.createdAt).slice(0, 5)
-    return [
-      ...new Map(
-        [...values.filter((item) => item.state === "pending"), ...recent].map((item) => [item.requestID, item]),
-      ).values(),
-    ]
-  })
+  const deliveries = createMemo(() => actionableCodexDeliveries(snapshot()?.deliveries ?? []))
   const pendingQueue = createMemo(() =>
     snapshot()?.deliveries.find((item) => item.delivery === "queue" && item.state === "pending"),
   )
   const interactions = createMemo(() => snapshot()?.interactions.filter((item) => item.state === "pending") ?? [])
-  const pendingSettings = createMemo(() => descriptor()?.pendingSettings)
   const plan = createMemo(() => {
     const current = snapshot()?.plan
     return current?.status === "available" ? current.value : undefined
@@ -261,10 +248,34 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     () => engine()?.error || account()?.error || descriptor()?.error || external().data.errors[props.sessionID ?? ""],
   )
   const queuePaused = createMemo(() => descriptor()?.queuePaused === true)
-  const queueRunning = createMemo(() => {
-    const status = descriptor()?.runtimeStatus
-    return status !== undefined && ["active", "waitingApproval", "waitingInput"].includes(status)
-  })
+  const accountRequired = createMemo(
+    () => account() !== undefined && account()?.authenticated !== true && account()?.requiresAuth !== false,
+  )
+  const recoveryError = createMemo(
+    () => controlError() || store.errors.snapshot || store.errors.account || store.errors.recovery,
+  )
+  const planTodos = createMemo(() =>
+    (plan()?.steps ?? []).map((step) => ({
+      content: step.step,
+      status: step.status === "inProgress" ? "in_progress" : step.status,
+      priority: "medium",
+    })),
+  )
+  const actionable = createMemo(
+    () =>
+      visible() &&
+      (accountRequired() ||
+        !!recoveryError() ||
+        interactions().length > 0 ||
+        deliveries().length > 0 ||
+        planTodos().length > 0),
+  )
+
+  const retry = () =>
+    void run("recovery", props.sessionID, async () => {
+      await external().refreshEngines()
+      if (props.sessionID) await external().load(props.sessionID, { force: true })
+    })
 
   const choiceLabel = (choice: Interaction["choices"][number]) => {
     if (choice.label) return choice.label
@@ -300,21 +311,6 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
   const setFormValue = (interactionID: string, name: string, value: FormValue) =>
     setStore("forms", interactionID, (current) => ({ ...current, [name]: value }))
 
-  const statusLabel = createMemo(() => {
-    const status = descriptor()?.runtimeStatus
-    if (status === "resolving") return language.t("codex.runtime.resolving")
-    if (status === "creating") return language.t("codex.runtime.creating")
-    if (status === "idle") return language.t("codex.runtime.idle")
-    if (status === "active") return language.t("codex.runtime.active")
-    if (status === "waitingApproval") return language.t("codex.runtime.waitingApproval")
-    if (status === "waitingInput") return language.t("codex.runtime.waitingInput")
-    if (status === "interrupting") return language.t("codex.runtime.interrupting")
-    if (status === "disconnected") return language.t("codex.runtime.disconnected")
-    if (status === "systemError") return language.t("codex.runtime.systemError")
-    if (status === "bindingUnavailable") return language.t("codex.runtime.bindingUnavailable")
-    return undefined
-  })
-
   const deliveryState = (delivery: Delivery) => {
     if (delivery.state === "pending") return language.t("codex.delivery.pending")
     if (delivery.state === "sending") return language.t("codex.delivery.sending")
@@ -322,12 +318,6 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     if (delivery.state === "unknown") return language.t("codex.delivery.unknown")
     if (delivery.state === "rejected") return language.t("codex.delivery.rejected")
     return language.t("codex.delivery.withdrawn")
-  }
-
-  const planState = (status: "pending" | "inProgress" | "completed") => {
-    if (status === "pending") return language.t("codex.plan.pending")
-    if (status === "inProgress") return language.t("codex.plan.inProgress")
-    return language.t("codex.plan.completed")
   }
 
   function ChoiceButtons(interaction: Interaction, options?: { content?: JsonValue; disableAllow?: boolean }) {
@@ -408,15 +398,6 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
             </fieldset>
           )}
         </For>
-        <Button
-          data-action="reply-questions"
-          size="small"
-          variant="primary"
-          disabled={!questionsReady(interaction) || store.busy[`interaction:${interaction.id}`]}
-          onClick={() => interactionReply(interaction, { answers: questionAnswers(interaction) })}
-        >
-          {language.t("codex.interaction.reply")}
-        </Button>
       </div>
     )
   }
@@ -429,333 +410,322 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
       return codexFormContent(current, store.forms[interaction.id] ?? {})
     })
     return (
-      <div class="flex flex-col gap-3">
-        <Show
-          when={fields() !== undefined}
-          fallback={<div class="text-12-regular text-text-critical">{language.t("codex.form.invalid")}</div>}
+      <div data-interaction-id={interaction.id}>
+        <DockPrompt
+          kind="question"
+          header={
+            <div data-slot="question-header-title">{interaction.title || language.t("codex.interaction.title")}</div>
+          }
+          footer={
+            <>
+              <div />
+              <div data-slot="question-footer-actions">
+                {ChoiceButtons(interaction, { content: content(), disableAllow: !content() })}
+              </div>
+            </>
+          }
         >
-          <For each={fields() ?? []}>
-            {(field) => (
-              <div class="flex flex-col gap-1.5">
-                <Show
-                  when={field.type === "boolean"}
-                  fallback={
+          <div class="flex max-h-72 flex-col gap-3 overflow-y-auto px-2 pb-4">
+            <Show when={interaction.description}>
+              <div class="whitespace-pre-wrap text-12-regular text-text-weak">{interaction.description}</div>
+            </Show>
+            <Show
+              when={fields() !== undefined}
+              fallback={<div class="text-12-regular text-text-critical">{language.t("codex.form.invalid")}</div>}
+            >
+              <For each={fields() ?? []}>
+                {(field) => (
+                  <div class="flex flex-col gap-1.5">
                     <Show
-                      when={field.options?.length}
+                      when={field.type === "boolean"}
                       fallback={
-                        <TextField
-                          type={field.type === "number" || field.type === "integer" ? "number" : "text"}
-                          label={field.title}
-                          description={field.description}
-                          required={field.required}
-                          min={field.minimum}
-                          max={field.maximum}
-                          value={String(formValue(interaction.id, field))}
-                          disabled={store.busy[`interaction:${interaction.id}`]}
-                          onChange={(value) => setFormValue(interaction.id, field.name, value)}
-                        />
+                        <Show
+                          when={field.options?.length}
+                          fallback={
+                            <TextField
+                              type={field.type === "number" || field.type === "integer" ? "number" : "text"}
+                              label={field.title}
+                              description={field.description}
+                              required={field.required}
+                              min={field.minimum}
+                              max={field.maximum}
+                              value={String(formValue(interaction.id, field))}
+                              disabled={store.busy[`interaction:${interaction.id}`]}
+                              onChange={(value) => setFormValue(interaction.id, field.name, value)}
+                            />
+                          }
+                        >
+                          <fieldset class="flex flex-col gap-1.5">
+                            <legend class="text-12-medium text-text-base">{field.title}</legend>
+                            <Show when={field.description}>
+                              <div class="text-12-regular text-text-weak">{field.description}</div>
+                            </Show>
+                            <For each={field.options}>
+                              {(option) => {
+                                const selected = () => formValue(interaction.id, field)
+                                const checked = () => {
+                                  const current = selected()
+                                  return field.type === "array"
+                                    ? Array.isArray(current) && current.includes(option.value)
+                                    : current === option.value
+                                }
+                                return (
+                                  <Checkbox
+                                    checked={checked()}
+                                    disabled={store.busy[`interaction:${interaction.id}`]}
+                                    onChange={(next) => {
+                                      if (field.type !== "array") {
+                                        setFormValue(interaction.id, field.name, next ? option.value : "")
+                                        return
+                                      }
+                                      const value = selected()
+                                      const current = Array.isArray(value) ? value : []
+                                      setFormValue(
+                                        interaction.id,
+                                        field.name,
+                                        next
+                                          ? [...current, option.value]
+                                          : current.filter((item) => item !== option.value),
+                                      )
+                                    }}
+                                  >
+                                    {option.label}
+                                  </Checkbox>
+                                )
+                              }}
+                            </For>
+                          </fieldset>
+                        </Show>
                       }
                     >
-                      <fieldset class="flex flex-col gap-1.5">
-                        <legend class="text-12-medium text-text-base">{field.title}</legend>
-                        <Show when={field.description}>
-                          <div class="text-12-regular text-text-weak">{field.description}</div>
-                        </Show>
-                        <For each={field.options}>
-                          {(option) => {
-                            const selected = () => formValue(interaction.id, field)
-                            const checked = () => {
-                              const current = selected()
-                              return field.type === "array"
-                                ? Array.isArray(current) && current.includes(option.value)
-                                : current === option.value
-                            }
-                            return (
-                              <Checkbox
-                                checked={checked()}
-                                disabled={store.busy[`interaction:${interaction.id}`]}
-                                onChange={(next) => {
-                                  if (field.type !== "array") {
-                                    setFormValue(interaction.id, field.name, next ? option.value : "")
-                                    return
-                                  }
-                                  const value = selected()
-                                  const current = Array.isArray(value) ? value : []
-                                  setFormValue(
-                                    interaction.id,
-                                    field.name,
-                                    next ? [...current, option.value] : current.filter((item) => item !== option.value),
-                                  )
-                                }}
-                              >
-                                {option.label}
-                              </Checkbox>
-                            )
-                          }}
-                        </For>
-                      </fieldset>
+                      <Checkbox
+                        checked={formValue(interaction.id, field) === true}
+                        disabled={store.busy[`interaction:${interaction.id}`]}
+                        onChange={(value) => setFormValue(interaction.id, field.name, value)}
+                        description={field.description}
+                      >
+                        {field.title}
+                      </Checkbox>
                     </Show>
-                  }
-                >
-                  <Checkbox
-                    checked={formValue(interaction.id, field) === true}
-                    disabled={store.busy[`interaction:${interaction.id}`]}
-                    onChange={(value) => setFormValue(interaction.id, field.name, value)}
-                    description={field.description}
-                  >
-                    {field.title}
-                  </Checkbox>
-                </Show>
-              </div>
-            )}
-          </For>
-        </Show>
-        <Show when={!content()}>
-          <div class="text-12-regular text-text-critical">{language.t("codex.form.invalid")}</div>
-        </Show>
-        {ChoiceButtons(interaction, { content: content(), disableAllow: !content() })}
+                  </div>
+                )}
+              </For>
+            </Show>
+            <Show when={store.errors[`interaction:${interaction.id}`]}>
+              <div class="text-12-regular text-text-critical">{store.errors[`interaction:${interaction.id}`]}</div>
+            </Show>
+          </div>
+        </DockPrompt>
       </div>
     )
   }
 
   function InteractionCard(interaction: Interaction) {
+    if (interaction.kind === "form") return FormInteraction(interaction)
+    const question = interaction.kind === "question"
     return (
-      <section
-        data-interaction-id={interaction.id}
-        class="flex flex-col gap-2 rounded-md border border-border-weak-base bg-surface-base p-3"
-      >
-        <div class="text-12-medium text-text-base">{interaction.title || language.t("codex.interaction.title")}</div>
-        <Show when={interaction.description}>
-          <div class="whitespace-pre-wrap text-12-regular text-text-weak">{interaction.description}</div>
-        </Show>
-        <Show
-          when={
-            ["command", "file", "permissions", "unsupported"].includes(interaction.kind) &&
-            interaction.details !== undefined
+      <div data-interaction-id={interaction.id}>
+        <DockPrompt
+          kind={question ? "question" : "permission"}
+          header={
+            question ? (
+              <div data-slot="question-header-title">
+                {interaction.title || interaction.questions?.[0]?.header || language.t("codex.interaction.title")}
+              </div>
+            ) : (
+              <div data-slot="permission-row" data-variant="header">
+                <span data-slot="permission-icon">
+                  <Icon name="warning" size="normal" />
+                </span>
+                <div data-slot="permission-header-title">
+                  {interaction.title || language.t("codex.interaction.title")}
+                </div>
+              </div>
+            )
+          }
+          footer={
+            <>
+              <div />
+              <div data-slot={question ? "question-footer-actions" : "permission-footer-actions"}>
+                <Show
+                  when={question}
+                  fallback={<Show when={interaction.kind !== "unsupported"}>{ChoiceButtons(interaction)}</Show>}
+                >
+                  <Button
+                    data-action="reply-questions"
+                    size="normal"
+                    variant="primary"
+                    disabled={!questionsReady(interaction) || store.busy[`interaction:${interaction.id}`]}
+                    onClick={() => interactionReply(interaction, { answers: questionAnswers(interaction) })}
+                  >
+                    {language.t("codex.interaction.reply")}
+                  </Button>
+                </Show>
+              </div>
+            </>
           }
         >
-          <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background-base p-2 font-mono text-11-regular text-text-weak">
-            {JSON.stringify(interaction.details, undefined, 2)}
-          </pre>
-        </Show>
-        <Show when={interaction.kind === "url" && interaction.url}>
-          <Button
-            data-action="open-url"
-            size="small"
-            onClick={() => {
-              if (!webURL(interaction.url)) return
-              platform.openExternal(interaction.url)
-            }}
-          >
-            {language.t("codex.url.open")}
-          </Button>
-        </Show>
-        <Show when={interaction.kind === "question"}>{QuestionInteraction(interaction)}</Show>
-        <Show when={interaction.kind === "form"}>{FormInteraction(interaction)}</Show>
-        <Show when={!["question", "form", "unsupported"].includes(interaction.kind)}>{ChoiceButtons(interaction)}</Show>
-        <Show when={store.errors[`interaction:${interaction.id}`]}>
-          <div class="text-12-regular text-text-critical">{store.errors[`interaction:${interaction.id}`]}</div>
-        </Show>
-      </section>
+          <div class="flex max-h-72 flex-col gap-3 overflow-y-auto px-2 pb-4">
+            <Show when={interaction.description}>
+              <div class="whitespace-pre-wrap text-12-regular text-text-weak">{interaction.description}</div>
+            </Show>
+            <Show
+              when={
+                ["command", "file", "permissions", "unsupported"].includes(interaction.kind) &&
+                interaction.details !== undefined
+              }
+            >
+              <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-11-regular text-text-weak">
+                {JSON.stringify(interaction.details, undefined, 2)}
+              </pre>
+            </Show>
+            <Show when={interaction.kind === "url" && interaction.url}>
+              <Button
+                data-action="open-url"
+                size="small"
+                onClick={() => {
+                  if (!webURL(interaction.url)) return
+                  platform.openExternal(interaction.url)
+                }}
+              >
+                {language.t("codex.url.open")}
+              </Button>
+            </Show>
+            <Show when={question}>{QuestionInteraction(interaction)}</Show>
+            <Show when={store.errors[`interaction:${interaction.id}`]}>
+              <div class="text-12-regular text-text-critical">{store.errors[`interaction:${interaction.id}`]}</div>
+            </Show>
+          </div>
+        </DockPrompt>
+      </div>
     )
   }
 
   return (
-    <Show when={visible()}>
-      <aside
-        data-component="codex-session-controls"
-        class="flex flex-col gap-3 rounded-lg border border-border-weak-base bg-background-base p-3"
-      >
-        <div class="flex items-center justify-between gap-3">
-          <div class="text-12-medium text-text-base">{language.t("codex.controls.title")}</div>
-          <Show when={statusLabel()}>
-            <div class="text-11-regular text-text-weak">{statusLabel()}</div>
-          </Show>
-        </div>
-
-        <Show when={controlError()}>
-          <div class="whitespace-pre-wrap text-12-regular text-text-critical">{controlError()}</div>
-        </Show>
-
-        <Show when={account()?.authenticated}>
-          <div class="text-12-regular text-text-weak">
-            {language.t("codex.account.signedIn")}
-            {account()?.label ? ` · ${account()!.label}` : ""}
-          </div>
-        </Show>
-        <Show when={!account()?.authenticated && account()?.requiresAuth !== false}>
-          <div class="flex flex-wrap items-center gap-2">
-            <Show
-              when={loginID()}
-              fallback={
-                <Button
-                  data-action="sign-in"
-                  size="small"
-                  variant="primary"
-                  disabled={store.busy.account || engine()?.available === false}
-                  onClick={signIn}
+    <Show when={actionable()}>
+      <div data-component="codex-session-docks" class="flex flex-col gap-2">
+        <Show when={accountRequired() || !!recoveryError()}>
+          <DockTray data-component="codex-account-dock" attach="top">
+            <div class="flex min-h-12 flex-wrap items-center gap-2 px-3 py-2">
+              <div class="min-w-0 flex-1">
+                <Show
+                  when={recoveryError()}
+                  fallback={<span class="text-13-medium text-text-base">{language.t("codex.account.signIn")}</span>}
                 >
-                  {engine()?.available === false
-                    ? language.t("codex.account.unavailable")
-                    : language.t("codex.account.signIn")}
-                </Button>
-              }
-            >
-              <span class="text-12-regular text-text-weak">{language.t("codex.account.pending")}</span>
-              <Button data-action="cancel-sign-in" size="small" disabled={store.busy.account} onClick={cancelSignIn}>
-                {language.t("codex.account.cancelSignIn")}
-              </Button>
-            </Show>
-          </div>
-        </Show>
-
-        <Show when={pendingSettings()}>
-          <section class="flex flex-col gap-1 rounded-md bg-surface-base p-2">
-            <div class="text-11-medium text-text-base">{language.t("codex.pendingSettings.title")}</div>
-            <Show when={pendingSettings()?.model}>
-              <div class="text-11-regular text-text-weak">
-                {language.t("codex.settings.model")}: {pendingSettings()?.model}
+                  {(error) => <span class="whitespace-pre-wrap text-12-regular text-text-critical">{error()}</span>}
+                </Show>
               </div>
-            </Show>
-            <Show when={pendingSettings()?.effort}>
-              <div class="text-11-regular text-text-weak">
-                {language.t("codex.settings.effort")}: {pendingSettings()?.effort}
-              </div>
-            </Show>
-            <Show when={pendingSettings()?.permission}>
-              <div class="text-11-regular text-text-weak">
-                {language.t("codex.settings.permission")}: {pendingSettings()?.permission}
-              </div>
-            </Show>
-          </section>
-        </Show>
-
-        <Show when={snapshot()?.plan?.status === "loading"}>
-          <section data-component="codex-plan" class="flex flex-col gap-1.5 rounded-md bg-surface-base p-2">
-            <div class="text-11-medium text-text-base">{language.t("codex.plan.title")}</div>
-            <div class="text-11-regular text-text-weak">{language.t("codex.plan.loading")}</div>
-          </section>
-        </Show>
-        <Show when={plan()}>
-          <section data-component="codex-plan" class="flex flex-col gap-2 rounded-md bg-surface-base p-2">
-            <div class="text-11-medium text-text-base">{language.t("codex.plan.title")}</div>
-            <Show when={plan()?.explanation}>
-              <div class="whitespace-pre-wrap text-12-regular text-text-weak">{plan()?.explanation}</div>
-            </Show>
-            <ol class="flex flex-col gap-1.5">
-              <For each={plan()?.steps ?? []}>
-                {(step) => (
-                  <li
-                    data-plan-step-status={step.status}
-                    class="flex items-start justify-between gap-3 text-12-regular"
-                  >
-                    <span class="min-w-0 whitespace-pre-wrap text-text-base">{step.step}</span>
-                    <span class="shrink-0 text-11-regular text-text-weak">{planState(step.status)}</span>
-                  </li>
-                )}
-              </For>
-            </ol>
-          </section>
-        </Show>
-
-        <Show when={descriptor() !== undefined}>
-          <section class="flex flex-col gap-2">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-11-medium text-text-base">{language.t("codex.queue.title")}</span>
-              <Show when={queuePaused()}>
-                <span class="text-11-regular text-text-weak">{language.t("codex.queue.paused")}</span>
-                <Button
-                  data-action="resume-queue"
-                  size="small"
-                  disabled={!pendingQueue() || store.busy[`delivery:${pendingQueue()?.requestID}`]}
-                  onClick={() => {
-                    const delivery = pendingQueue()
-                    if (delivery) queue("resume", delivery)
-                  }}
-                >
-                  {language.t("codex.queue.resume")}
+              <Show when={!!recoveryError()}>
+                <Button data-action="retry" size="small" disabled={store.busy.recovery} onClick={retry}>
+                  {language.t("session.inspector.retry")}
                 </Button>
               </Show>
-              <Show when={!queuePaused() && queueRunning()}>
-                <Button data-action="pause-queue" size="small" disabled={store.busy.pause} onClick={pause}>
-                  {language.t("codex.queue.pause")}
+              <Show
+                when={!!loginID()}
+                fallback={
+                  <Show when={accountRequired()}>
+                    <Button
+                      data-action="sign-in"
+                      size="small"
+                      variant="primary"
+                      disabled={store.busy.account || engine()?.available === false}
+                      onClick={signIn}
+                    >
+                      {engine()?.available === false
+                        ? language.t("codex.account.unavailable")
+                        : language.t("codex.account.signIn")}
+                    </Button>
+                  </Show>
+                }
+              >
+                <span class="text-12-regular text-text-weak">{language.t("codex.account.pending")}</span>
+                <Button data-action="cancel-sign-in" size="small" disabled={store.busy.account} onClick={cancelSignIn}>
+                  {language.t("codex.account.cancelSignIn")}
                 </Button>
               </Show>
             </div>
-            <For each={deliveries()}>
-              {(delivery) => (
-                <div
-                  data-delivery-id={delivery.requestID}
-                  class="flex flex-wrap items-center gap-2 rounded-md bg-surface-base px-2 py-1.5 text-11-regular"
-                >
-                  <span class="text-text-base">
-                    {delivery.delivery === "queue"
-                      ? language.t("codex.delivery.queue")
-                      : language.t("codex.delivery.steer")}
-                  </span>
-                  <span class="text-text-weak">{deliveryState(delivery)}</span>
-                  <Show when={delivery.error}>
-                    <span class="text-text-critical">{delivery.error}</span>
-                  </Show>
-                  <Show when={delivery.state === "unknown"}>
-                    <span class="text-text-weak">{language.t("codex.delivery.unknownHint")}</span>
-                  </Show>
-                  <Show when={delivery.state === "unknown" || delivery.state === "sending"}>
-                    <Button
-                      data-action="check-delivery"
-                      size="small"
-                      disabled={store.busy[`delivery:${delivery.requestID}`]}
-                      onClick={() => checkDelivery(delivery)}
-                    >
-                      {language.t("codex.delivery.check")}
-                    </Button>
-                  </Show>
-                  <Show when={delivery.delivery === "queue" && delivery.state === "pending"}>
-                    <Button
-                      data-action="withdraw-delivery"
-                      size="small"
-                      disabled={store.busy[`delivery:${delivery.requestID}`]}
-                      onClick={() => queue("withdraw", delivery)}
-                    >
-                      {language.t("codex.queue.withdraw")}
-                    </Button>
-                  </Show>
-                </div>
-              )}
-            </For>
-          </section>
+          </DockTray>
         </Show>
 
         <For each={interactions()}>{InteractionCard}</For>
 
-        <Show when={(snapshot()?.children.length ?? 0) > 0}>
-          <section class="flex flex-col gap-2">
-            <div class="text-11-medium text-text-base">{language.t("session.inspector.subagents")}</div>
-            <For each={snapshot()?.children ?? []}>
-              {(child) => (
-                <div
-                  data-child-session-id={child.sessionID}
-                  class="flex items-center justify-between gap-2 rounded-md bg-surface-base px-2 py-1.5"
-                >
-                  <code class="min-w-0 truncate text-11-regular text-text-weak">{child.nativeThreadID}</code>
-                  <Button
-                    size="small"
-                    onClick={() => navigate(sessionHref(ServerConnection.key(serverSDK().server), child.sessionID))}
-                  >
-                    {language.t("common.open")}
-                  </Button>
-                </div>
-              )}
-            </For>
-          </section>
+        <Show when={deliveries().length > 0}>
+          <DockTray data-component="codex-queue-dock" attach="top">
+            <div class="flex max-h-42 flex-col gap-1.5 overflow-y-auto px-3 py-2">
+              <For each={deliveries()}>
+                {(delivery) => (
+                  <div data-delivery-id={delivery.requestID} class="flex min-w-0 flex-wrap items-center gap-2 py-1">
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-13-regular text-text-base">
+                        {delivery.input.prompt.text.trim().split(/\r?\n/).find(Boolean) ||
+                          language.t("common.attachment")}
+                      </div>
+                      <div class="flex flex-wrap gap-1.5 text-11-regular text-text-weak">
+                        <span>
+                          {delivery.delivery === "queue"
+                            ? language.t("codex.delivery.queue")
+                            : language.t("codex.delivery.steer")}
+                          {` · ${deliveryState(delivery)}`}
+                        </span>
+                        <Show when={delivery.state === "unknown"}>
+                          <span>{language.t("codex.delivery.unknownHint")}</span>
+                        </Show>
+                        <Show when={delivery.error}>
+                          {(error) => <span class="text-text-critical">{error()}</span>}
+                        </Show>
+                      </div>
+                    </div>
+                    <Show when={delivery.state === "unknown" || delivery.state === "sending"}>
+                      <Button
+                        data-action="check-delivery"
+                        size="small"
+                        disabled={store.busy[`delivery:${delivery.requestID}`]}
+                        onClick={() => checkDelivery(delivery)}
+                      >
+                        {language.t("codex.delivery.check")}
+                      </Button>
+                    </Show>
+                    <Show when={delivery.delivery === "queue" && delivery.state === "pending"}>
+                      <Button
+                        data-action="withdraw-delivery"
+                        size="small"
+                        disabled={store.busy[`delivery:${delivery.requestID}`]}
+                        onClick={() => queue("withdraw", delivery)}
+                      >
+                        {language.t("codex.queue.withdraw")}
+                      </Button>
+                      <Show when={queuePaused() && pendingQueue()?.requestID === delivery.requestID}>
+                        <Button
+                          data-action="resume-queue"
+                          size="small"
+                          variant="primary"
+                          disabled={store.busy[`delivery:${delivery.requestID}`]}
+                          onClick={() => queue("resume", delivery)}
+                        >
+                          {language.t("codex.queue.resume")}
+                        </Button>
+                      </Show>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          </DockTray>
         </Show>
 
-        <Show when={store.errors.snapshot || store.errors.account || store.errors.pause}>
-          <div class="text-12-regular text-text-critical">
-            {store.errors.snapshot ?? store.errors.account ?? store.errors.pause}
+        <Show when={planTodos().length > 0}>
+          <div data-component="codex-plan-dock">
+            <SessionTodoDock
+              todos={planTodos()}
+              collapsed={store.planCollapsed}
+              onToggle={() => setStore("planCollapsed", (value) => !value)}
+              collapseLabel={language.t("session.todo.collapse")}
+              expandLabel={language.t("session.todo.expand")}
+              dockProgress={1}
+            />
           </div>
         </Show>
-      </aside>
+      </div>
     </Show>
   )
 }

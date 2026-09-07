@@ -8,6 +8,8 @@ import { Database } from "../../database/database"
 import { makeGlobalNode } from "../../effect/app-node"
 import { EventV2 } from "../../event"
 import { InstallationVersion } from "../../installation/version"
+import { ModelV2 } from "../../model"
+import { ProviderV2 } from "../../provider"
 import { Location } from "../../location"
 import { ProjectV2 } from "../../project"
 import { ProjectTable } from "../../project/sql"
@@ -119,6 +121,13 @@ export interface Interface {
   readonly setExecutionPending: (sessionID: SessionSchema.ID, pending: boolean) => Effect.Effect<Binding, Error>
   readonly setQueuePaused: (sessionID: SessionSchema.ID, paused: boolean) => Effect.Effect<void, Error>
   readonly recover: (runtimeScope: string) => Effect.Effect<void>
+  readonly syncTitle: (input: {
+    sessionID: SessionSchema.ID
+    runtimeScope: string
+    nativeThreadID: string
+    title?: string
+    previousTitle?: string
+  }) => Effect.Effect<string | undefined, Error>
   readonly touch: (sessionID: SessionSchema.ID, time: number) => Effect.Effect<void, Error>
 }
 
@@ -226,7 +235,7 @@ const layer = Layer.effect(
         directory: input.location.directory,
         path: path.relative(project.directory, input.location.directory).replaceAll("\\", "/"),
         slug: Slug.create(),
-        title: input.title ?? `New session - ${new Date(time).toISOString()}`,
+        title: input.title ?? promptTitle(payload) ?? `New session - ${new Date(time).toISOString()}`,
         version: InstallationVersion,
         time: { created: time, updated: time },
       })
@@ -308,8 +317,127 @@ const layer = Layer.effect(
       return deliveryInfo(recorded)
     })
 
+    const syncTitle = Effect.fn("SessionExternal.syncTitle")(function* (input: Parameters<Interface["syncTitle"]>[0]) {
+      // Read and publish inside one transaction so a concurrent manual rename or
+      // usage update cannot be replaced by the full legacy Session projection.
+      return yield* db
+        .transaction(
+          () =>
+            Effect.gen(function* () {
+              const current = yield* get(input.sessionID)
+              if (
+                current.binding.runtimeScope !== input.runtimeScope ||
+                current.binding.nativeThreadID !== input.nativeThreadID
+              )
+                return yield* new ConflictError({ message: "Native title must belong to its bound Session" })
+              const row = yield* db
+                .select()
+                .from(SessionTable)
+                .where(eq(SessionTable.id, input.sessionID))
+                .get()
+                .pipe(Effect.orDie)
+              if (!row) return yield* new NotFoundError({ sessionID: input.sessionID, message: "Session disappeared" })
+              const first = yield* db
+                .select()
+                .from(SessionExternalDeliveryTable)
+                .where(
+                  and(
+                    eq(SessionExternalDeliveryTable.session_id, input.sessionID),
+                    eq(SessionExternalDeliveryTable.sequence, 1),
+                  ),
+                )
+                .get()
+                .pipe(Effect.orDie)
+              const initial = first?.create_scope ? promptTitle(first.payload) : undefined
+              if (
+                !/^New session - \d{4}-\d{2}-\d{2}T/.test(row.title) &&
+                row.title !== initial &&
+                row.title !== input.previousTitle
+              )
+                return
+              const title = input.title?.trim() || initial
+              if (!title || title === row.title) return
+              yield* events.publish(
+                SessionV1.Event.Updated,
+                {
+                  sessionID: input.sessionID,
+                  info: SessionV1.SessionInfo.make({
+                    id: row.id,
+                    engine: row.engine,
+                    projectID: row.project_id,
+                    workspaceID: row.workspace_id ?? undefined,
+                    parentID: row.parent_id ?? undefined,
+                    slug: row.slug,
+                    directory: row.directory,
+                    path: row.path ?? undefined,
+                    title,
+                    agent: row.agent ?? undefined,
+                    model: row.model
+                      ? {
+                          ...row.model,
+                          id: ModelV2.ID.make(row.model.id),
+                          providerID: ProviderV2.ID.make(row.model.providerID),
+                        }
+                      : undefined,
+                    version: row.version,
+                    share: row.share_url ? { url: row.share_url } : undefined,
+                    summary:
+                      row.summary_files === null
+                        ? undefined
+                        : {
+                            additions: row.summary_additions ?? 0,
+                            deletions: row.summary_deletions ?? 0,
+                            files: row.summary_files,
+                            diffs: row.summary_diffs ?? undefined,
+                          },
+                    metadata: row.metadata ?? undefined,
+                    cost: row.cost,
+                    tokens: {
+                      input: row.tokens_input,
+                      output: row.tokens_output,
+                      reasoning: row.tokens_reasoning,
+                      cache: { read: row.tokens_cache_read, write: row.tokens_cache_write },
+                    },
+                    revert: row.revert
+                      ? {
+                          ...row.revert,
+                          messageID: SessionV1.MessageID.make(row.revert.messageID),
+                          partID: row.revert.partID ? SessionV1.PartID.make(row.revert.partID) : undefined,
+                        }
+                      : undefined,
+                    permission: row.permission ?? undefined,
+                    permissionMode: row.permission_mode ?? undefined,
+                    time: {
+                      created: row.time_created,
+                      updated: row.time_updated,
+                      compacting: row.time_compacting ?? undefined,
+                      archived: row.time_archived ?? undefined,
+                    },
+                  }),
+                },
+                {
+                  location: current.session.location,
+                  // The legacy event cannot represent newer row fields such as
+                  // revert.files. Keep the persisted row exact in this transaction.
+                  commit: () =>
+                    db
+                      .update(SessionTable)
+                      .set({ ...row, title })
+                      .where(eq(SessionTable.id, row.id))
+                      .run()
+                      .pipe(Effect.orDie),
+                },
+              )
+              return title
+            }),
+          { behavior: "immediate" },
+        )
+        .pipe(Effect.catchTag("SqlError", Effect.die))
+    })
+
     return Service.of({
       create,
+      syncTitle,
       getCreation: Effect.fn("SessionExternal.getCreation")(function* (runtimeScope, requestID) {
         const row = yield* readCreation(runtimeScope, requestID)
         if (!row) return
@@ -785,4 +913,18 @@ function canonical(value: Payload): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonical(object[key]!)}`)
     .join(",")}}`
+}
+
+/** A deterministic first-line title does not start a second model execution. */
+function promptTitle(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("prompt" in payload)) return
+  const prompt = payload.prompt
+  if (!prompt || typeof prompt !== "object" || !("text" in prompt) || typeof prompt.text !== "string") return
+  const line = prompt.text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+    ?.replace(/\s+/g, " ")
+  if (!line) return
+  return Array.from(line).slice(0, 120).join("")
 }

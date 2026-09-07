@@ -32,12 +32,14 @@ test("keeps Codex settings and text with their draft and preserves a rejected fi
   await choose(page, "prompt-codex-effort", "high")
   await choose(page, "prompt-codex-permission", "Full access")
   await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
-  await openProject(page, otherDirectory)
+  await page.goto(draftHref(draftB))
+  await expect(page).toHaveURL(new URL(draftHref(draftB), page.url()).href)
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("OpenCode")
   await expect(editor).toHaveText("")
   await editor.fill("Keep OpenCode draft B")
 
-  await openProject(page, directory)
+  await page.goto(draftHref(draftA))
+  await expect(page).toHaveURL(new URL(draftHref(draftA), page.url()).href)
   await expect(editor).toHaveText("Keep Codex draft A")
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
   await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
@@ -93,14 +95,27 @@ test("routes the legacy composer through native Codex create without clearing a 
   expect(backend.legacyCreates).toBe(0)
 })
 
-test("disables native submission while the existing Codex runtime is disconnected", async ({ page }) => {
+test("keeps an ordinary existing Codex task free of persistent chrome in the legacy layout", async ({ page }) => {
+  await setup(page, { newLayout: false })
+  await page.goto(sessionHref)
+
+  await expect(page.locator('[data-component="prompt-input-v2"]')).toHaveCount(0)
+  await expect(page.locator('[data-component="prompt-input"]')).toBeVisible()
+  await expect(page.locator('[data-component="codex-session-docks"]')).toHaveCount(0)
+  await expect(page.locator('[data-component="codex-session-controls"]')).toHaveCount(0)
+})
+
+test("disables native submission without adding persistent chrome while the runtime is disconnected", async ({
+  page,
+}) => {
   await setup(page, { runtimeStatus: "disconnected" })
   await page.goto(sessionHref)
   const editor = page.locator('[data-component="prompt-input"]')
   await editor.fill("Do not submit yet")
 
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled()
-  await expect(page.getByText("Disconnected", { exact: true })).toBeVisible()
+  await expect(page.getByText("Disconnected", { exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-component="codex-session-docks"]')).toHaveCount(0)
 })
 
 test("keeps an existing Codex engine immutable and submits the complete desired settings", async ({ page }) => {
@@ -145,16 +160,6 @@ test("keeps an existing Codex engine immutable and submits the complete desired 
 async function choose(page: Page, action: string, option: string) {
   await page.locator(`[data-action="${action}"]`).click()
   await page.getByRole("option", { name: option, exact: true }).click()
-}
-
-async function openProject(page: Page, projectDirectory: string) {
-  await page
-    .locator(`[data-slot="workspace-project"][data-directory="${projectDirectory}"]`)
-    .getByRole("button", { name: "New task", exact: true })
-    .click()
-  await expect(page).toHaveURL(
-    new URL(projectDirectory === directory ? draftHref(draftA) : draftHref(draftB), page.url()).href,
-  )
 }
 
 async function setup(
@@ -222,7 +227,7 @@ async function setup(
       return json(route, snapshot(current))
     if (url.pathname === "/lab/sessions" && route.request().method() === "POST") {
       nativeCreates.push(route.request().postDataJSON() as LabCreateInput)
-      return json(route, { message: "Codex sign-in required", code: "nativeError" }, 409)
+      return json(route, { message: "Native create rejected", code: "nativeError" }, 409)
     }
     if (url.pathname === `/lab/sessions/${sessionID}/settings` && route.request().method() === "POST") {
       const body = route.request().postDataJSON() as Record<string, unknown>
@@ -299,7 +304,7 @@ function engines(available: boolean): LabEnginesOutput {
       available,
       error: available ? undefined : "Codex binary is unavailable",
       version: "test",
-      account: { authenticated: false, requiresAuth: true },
+      account: { authenticated: true, requiresAuth: false },
       capabilities,
       models: [
         { id: "gpt-6-astra", name: "GPT-6-Astra", default: true, efforts: ["low", "medium", "high"] },

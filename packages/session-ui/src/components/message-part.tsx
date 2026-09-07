@@ -36,6 +36,7 @@ import { isMessageStreaming, messageFieldAvailable, toolDisplayState } from "./m
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type UiI18n, useI18n } from "@opencode-ai/ui/context/i18n"
+import { toolPresentationName } from "./tool-presentation"
 import { BasicTool, GenericTool } from "./basic-tool"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
@@ -478,7 +479,7 @@ export function getToolInfo(
   metadata: Record<string, unknown> | undefined = {},
 ): ToolInfo {
   const i18n = useI18n()
-  switch (tool) {
+  switch (toolPresentationName(tool)) {
     case "read":
       return {
         icon: "glasses",
@@ -1518,7 +1519,7 @@ export function registerTool(input: { name: string; render?: ToolComponent }) {
 }
 
 export function getTool(name: string) {
-  return state[name === "apply_patch" ? "patch" : name === "bash" ? "shell" : name]?.render
+  return state[toolPresentationName(name)]?.render
 }
 
 export const ToolRegistry = {
@@ -1579,16 +1580,16 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   // @ts-expect-error
   const partMetadata = () => part().state?.metadata ?? emptyMetadata
   const taskId = createMemo(() => {
-    if (part().tool !== "task") return
-    const value = partMetadata().sessionId
+    if (toolPresentationName(part().tool) !== "task") return
+    const value = partMetadata().sessionId ?? (input().nativeSubagent === true ? input().sessionId : undefined)
     if (typeof value === "string" && value) return value
   })
   const taskHref = createMemo(() => {
-    if (part().tool !== "task") return
+    if (toolPresentationName(part().tool) !== "task") return
     return sessionLink(taskId(), data.sessionHref)
   })
   const taskSubtitle = createMemo(() => {
-    if (part().tool !== "task") return undefined
+    if (toolPresentationName(part().tool) !== "task") return undefined
     return taskToolSubtitle(input(), partMetadata(), taskId())
   })
 
@@ -1598,10 +1599,10 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const inspect = () =>
     !!props.onInspectTool &&
     part().tool !== "question" &&
-    (part().tool !== "task" || (part().state.status === "error" && !taskId()))
-  const preview = () => !!props.onPreviewSession && part().tool === "task" && !!taskId()
+    (toolPresentationName(part().tool) !== "task" || (part().state.status === "error" && !taskId()))
+  const preview = () => !!props.onPreviewSession && toolPresentationName(part().tool) === "task" && !!taskId()
   const handleTriggerClick = (event: MouseEvent) => {
-    if (part().tool === "task") {
+    if (toolPresentationName(part().tool) === "task") {
       console.info(
         "[subagent-navigation]",
         JSON.stringify({
@@ -2048,8 +2049,10 @@ ToolRegistry.register({
     const data = useData()
     const i18n = useI18n()
     const childSessionId = createMemo(() => {
-      const value = props.metadata.sessionId
+      const value =
+        props.metadata.sessionId ?? (props.input.nativeSubagent === true ? props.input.sessionId : undefined)
       if (typeof value === "string" && value) return value
+      if (props.metadata.nativeSubagent === true || props.input.nativeSubagent === true) return
       return taskSession(props.input, data.sessionID, data.store.session, data.store.agent)
     })
     const agent = createMemo(() => taskAgent(props.input.subagent_type, data.store.agent))

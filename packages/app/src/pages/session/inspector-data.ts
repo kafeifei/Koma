@@ -55,10 +55,12 @@ export function inspectorTools(messages: readonly Message[], parts: Record<strin
 }
 
 export function taskSessionID(part: ToolPart): string | undefined {
-  if (part.tool !== "task") return undefined
-  if (!("metadata" in part.state)) return undefined
-  const value = part.state.metadata?.sessionId
-  if (typeof value === "string" && value) return value
+  if (part.tool !== "task" && part.tool !== "codex.subagent") return undefined
+  const metadata = "metadata" in part.state ? part.state.metadata : undefined
+  if (typeof metadata?.sessionId === "string" && metadata.sessionId) return metadata.sessionId
+  if (!("input" in part.state) || !record(part.state.input) || part.state.input.nativeSubagent !== true)
+    return undefined
+  if (typeof part.state.input.sessionId === "string" && part.state.input.sessionId) return part.state.input.sessionId
   return undefined
 }
 
@@ -139,13 +141,23 @@ export function rawToolDetail(
   registered = false,
 ): { type: "input" | "output"; text: string } | undefined {
   if (richToolDetails.has(part.tool)) return undefined
-  if (registered && !fallbackToolDetails.has(part.tool)) return undefined
+  const metadata = "metadata" in part.state ? part.state.metadata : undefined
+  const native = part.tool.startsWith("codex.") || metadata?.nativeSubagent === true
+  const nativeFallback =
+    native &&
+    (part.state.status === "pending" ||
+      (part.state.status === "error" && typeof metadata?.output === "string" && !!metadata.output.trim()))
+  if (registered && !fallbackToolDetails.has(part.tool) && !nativeFallback) return undefined
+  if (typeof metadata?.output === "string" && metadata.output.trim()) return { type: "output", text: metadata.output }
   if (part.state.status === "completed" && part.state.output)
     return { type: "output" as const, text: part.state.output }
   if (part.state.status === "error") return undefined
   if (part.state.status === "pending" && part.state.raw.trim()) return { type: "input", text: part.state.raw }
-  const metadata = "metadata" in part.state ? part.state.metadata : undefined
   const value = Object.keys(metadata ?? {}).length > 0 ? { input: part.state.input, metadata } : part.state.input
   if (Object.keys(value).length > 0) return { type: "input", text: JSON.stringify(value, null, 2) }
   return undefined
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
 }

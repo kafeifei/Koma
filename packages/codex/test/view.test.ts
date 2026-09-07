@@ -3,8 +3,10 @@ import { Schema } from "effect"
 import { SessionExternal } from "@opencode-ai/schema/session-external"
 import { SessionID } from "@opencode-ai/schema/session-id"
 import type { CodexRolloutHistory } from "../src/history.js"
-import { projectItem, type CodexThreadSnapshot } from "../src/projection.js"
+import { toBrowserValue, projectItem, type CodexThreadSnapshot } from "../src/projection.js"
 import { codexViewIdentityKey, projectCodexRolloutView, projectCodexView, unifiedDiffs } from "../src/view.js"
+
+import nativeTools from "./fixture/native-tools.json"
 
 const sessionID = SessionID.descending("ses_codex-view")
 const childSessionID = SessionID.descending("ses_child")
@@ -100,6 +102,88 @@ const snapshot: CodexThreadSnapshot = {
 }
 
 describe("Codex wire view", () => {
+  test("presents recorded native command output and file patches without changing identities", () => {
+    // Captured from native Codex 0.153.4 using the isolated local Responses fixture;
+    // only its temporary workspace prefix has been normalized.
+    const items = nativeTools.map((item) => projectItem(item, snapshot.turns[0]!.ref))
+    const view = projectCodexView({ ...snapshot, turns: [{ ...snapshot.turns[0]!, items }] }, { sessionID })
+    const commands = view.messages
+      .flatMap((message) => (message.type === "assistant" ? message.content : []))
+      .filter((part) => part.type === "tool")
+    expect(commands.map((part) => part.name)).toEqual([
+      "codex.commandExecution",
+      "codex.fileChange",
+      "codex.commandExecution",
+    ])
+    expect("structured" in commands[0]!.state ? commands[0]!.state.structured : undefined).toMatchObject({
+      output: "fixture-read-proof\nvalue=41\nsum=42\n",
+      exitCode: 0,
+    })
+    expect("structured" in commands[1]!.state ? commands[1]!.state.structured : undefined).toMatchObject({
+      files: [
+        {
+          filePath: "/workspace/sample.txt",
+          type: "update",
+          additions: 1,
+          deletions: 1,
+          diff: "@@ -1,2 +1,2 @@\n fixture-read-proof\n-value=41\n+value=42\n",
+        },
+      ],
+    })
+    expect("structured" in commands[2]!.state ? commands[2]!.state.structured : undefined).toMatchObject({
+      commandActions: [{ type: "read" }],
+      output: "fixture-read-proof\nvalue=42\n",
+    })
+    expect(items[2]!.raw).toEqual(toBrowserValue(nativeTools[2]))
+  })
+
+  test("gives native web search its query while retaining opaque results and unknown state", () => {
+    const native = {
+      type: "webSearch",
+      id: "search-1",
+      query: "Codex docs",
+      action: { type: "search", query: "Codex docs" },
+      results: [{ future: "opaque result" }],
+    }
+    const item = projectItem(native, snapshot.turns[0]!.ref)
+    const view = projectCodexView({ ...snapshot, turns: [{ ...snapshot.turns[0]!, items: [item] }] }, { sessionID })
+    const part = view.messages.flatMap((message) => (message.type === "assistant" ? message.content : []))[0]
+    if (part?.type !== "tool" || part.state.status !== "unknown")
+      throw new Error("Expected unknown native web search state")
+    expect(part.name).toBe("codex.webSearch")
+    expect(JSON.parse(part.state.input)).toEqual({ query: "Codex docs", value: native })
+  })
+
+  test("keeps streaming and failed command output available to the shell renderer", () => {
+    for (const status of ["inProgress", "failed"]) {
+      const item = projectItem({ ...nativeTools[0], status }, snapshot.turns[0]!.ref)
+      const view = projectCodexView({ ...snapshot, turns: [{ ...snapshot.turns[0]!, items: [item] }] }, { sessionID })
+      const part = view.messages.flatMap((message) => (message.type === "assistant" ? message.content : []))[0]
+      expect(part?.type === "tool" && "structured" in part.state && part.state.structured).toMatchObject({
+        output: nativeTools[0]!.aggregatedOutput,
+      })
+      expect(part?.type === "tool" && part.state.status).toBe(status === "failed" ? "error" : "running")
+    }
+  })
+
+  test("uses only adopted child Session IDs in native task cards", () => {
+    const child = snapshot.turns[0]!.items[2]!
+    for (const adopted of [false, true]) {
+      const view = projectCodexView(
+        { ...snapshot, turns: [{ ...snapshot.turns[0]!, items: [child] }] },
+        {
+          sessionID,
+          childSessions: adopted ? { "child-native": childSessionID } : {},
+        },
+      )
+      const part = view.messages.flatMap((message) => (message.type === "assistant" ? message.content : []))[0]
+      if (part?.type !== "tool" || part.state.status !== "unknown") throw new Error("Expected native unknown state")
+      const input = JSON.parse(part.state.input)
+      expect(input.nativeSubagent).toBe(true)
+      expect(input.sessionId).toBe(adopted ? childSessionID : undefined)
+    }
+  })
+
   test("keeps native command exit code and duration in the inspectable tool result", () => {
     const view = projectCodexView(
       {
@@ -135,7 +219,12 @@ describe("Codex wire view", () => {
     if (tool.type !== "tool") throw new Error("Expected command tool")
     expect(tool.state.input).toEqual({ command: "exit 3", cwd: "/workspace" })
     if (tool.state.status !== "completed") throw new Error("Expected native completed status")
-    expect(tool.state.structured).toEqual({ nativeStatus: "completed", exitCode: 3, durationMs: 42 })
+    expect(tool.state.structured).toEqual({
+      nativeStatus: "completed",
+      exitCode: 3,
+      durationMs: 42,
+      output: "native output",
+    })
     expect(tool.state.content).toEqual([{ type: "text", text: "native output" }])
   })
 

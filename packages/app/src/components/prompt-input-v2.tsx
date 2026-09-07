@@ -17,7 +17,7 @@ import {
   type CodexPromptController,
   PromptEngineSelect,
 } from "@/components/codex-prompt-controls"
-import { CodexSessionControls } from "@/components/codex-session-controls"
+import { CodexSessionControls, codexSessionInteractionBlocked } from "@/components/codex-session-controls"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import type { PromptInputProps } from "@/components/prompt-input/contracts"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
@@ -70,60 +70,69 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
   const dialog = useDialog()
   const command = useCommand()
   const language = useLanguage()
+  const serverSync = useServerSync()
+  const codexBlocked = createMemo(() => {
+    if (props.controller.engine() !== "codex") return false
+    const sessionID = props.controller.sessionID()
+    if (!sessionID) return false
+    return codexSessionInteractionBlocked(serverSync().external.data.snapshots[sessionID])
+  })
 
   return (
     <div class="flex flex-col gap-3">
-      <PromptInputV2
-        controller={props.controller}
-        disabled={props.controller.engine() === "codex" && props.controller.codex.busy()}
-        borderUnderlay={props.borderUnderlay}
-        class={props.class}
-        variantControlVisible={props.controller.engine() === "opencode" && !props.controller.model.loading}
-        attachKeybind={command.keybindParts("file.attach")}
-        attachShortcut={command.keybind("file.attach")}
-        permissionControl={
-          <Show
-            when={props.controller.engine() === "codex"}
-            fallback={
-              <PromptPermissionSelect
-                controller={props.controller.permission}
-                onClose={props.controller.restoreFocus}
-              />
-            }
-          >
-            <CodexPermissionSelect controller={props.controller.codex} />
-          </Show>
-        }
-        modelControl={
-          <div class="flex min-w-0 items-center gap-1">
-            <PromptEngineSelect controller={props.controller.codex} />
+      <CodexSessionControls sessionID={props.controller.sessionID()} engine={props.controller.engine()} />
+      <Show when={!codexBlocked()}>
+        <PromptInputV2
+          controller={props.controller}
+          disabled={props.controller.engine() === "codex" && props.controller.codex.busy()}
+          borderUnderlay={props.borderUnderlay}
+          class={props.class}
+          variantControlVisible={props.controller.engine() === "opencode" && !props.controller.model.loading}
+          attachKeybind={command.keybindParts("file.attach")}
+          attachShortcut={command.keybind("file.attach")}
+          permissionControl={
             <Show
               when={props.controller.engine() === "codex"}
               fallback={
-                <PromptInputV2ModelControl
-                  loading={props.controller.model.loading}
-                  paid={props.controller.model.paid}
-                  title={language.t("command.model.choose")}
-                  keybind={command.keybindParts("model.choose")}
-                  model={props.controller.model.selection}
-                  providerID={props.controller.model.selection.current()?.provider?.id}
-                  modelName={
-                    props.controller.model.selection.current()?.name ?? language.t("dialog.model.select.title")
-                  }
+                <PromptPermissionSelect
+                  controller={props.controller.permission}
                   onClose={props.controller.restoreFocus}
-                  onUnpaidClick={() =>
-                    dialog.show(() => <DialogSelectModelUnpaidV2 model={props.controller.model.selection} />)
-                  }
                 />
               }
             >
-              <CodexModelSelect controller={props.controller.codex} />
-              <CodexEffortSelect controller={props.controller.codex} />
+              <CodexPermissionSelect controller={props.controller.codex} />
             </Show>
-          </div>
-        }
-      />
-      <CodexSessionControls sessionID={props.controller.sessionID()} engine={props.controller.engine()} />
+          }
+          modelControl={
+            <div class="flex min-w-0 items-center gap-1">
+              <PromptEngineSelect controller={props.controller.codex} />
+              <Show
+                when={props.controller.engine() === "codex"}
+                fallback={
+                  <PromptInputV2ModelControl
+                    loading={props.controller.model.loading}
+                    paid={props.controller.model.paid}
+                    title={language.t("command.model.choose")}
+                    keybind={command.keybindParts("model.choose")}
+                    model={props.controller.model.selection}
+                    providerID={props.controller.model.selection.current()?.provider?.id}
+                    modelName={
+                      props.controller.model.selection.current()?.name ?? language.t("dialog.model.select.title")
+                    }
+                    onClose={props.controller.restoreFocus}
+                    onUnpaidClick={() =>
+                      dialog.show(() => <DialogSelectModelUnpaidV2 model={props.controller.model.selection} />)
+                    }
+                  />
+                }
+              >
+                <CodexModelSelect controller={props.controller.codex} />
+                <CodexEffortSelect controller={props.controller.codex} />
+              </Show>
+            </div>
+          }
+        />
+      </Show>
     </div>
   )
 }

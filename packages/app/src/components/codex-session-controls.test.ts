@@ -1,5 +1,39 @@
 import { describe, expect, test } from "bun:test"
-import { codexFormContent, codexFormFields, reconcileCodexLoginID } from "./codex-session-controls"
+import type { LabSnapshotOutput } from "@opencode-ai/lab-client"
+import {
+  actionableCodexDeliveries,
+  codexFormContent,
+  codexFormFields,
+  codexSessionInteractionBlocked,
+  reconcileCodexLoginID,
+} from "./codex-session-controls"
+
+const snapshot = (runtimeStatus: LabSnapshotOutput["descriptor"]["runtimeStatus"], pending = true) =>
+  ({
+    descriptor: { runtimeStatus },
+    interactions: pending ? [{ state: "pending" }] : [],
+  }) as unknown as LabSnapshotOutput
+
+describe("Codex conditional docks", () => {
+  test("blocks the composer only while the backend is waiting on a pending native interaction", () => {
+    expect(codexSessionInteractionBlocked(snapshot("waitingApproval"))).toBe(true)
+    expect(codexSessionInteractionBlocked(snapshot("waitingInput"))).toBe(true)
+    expect(codexSessionInteractionBlocked(snapshot("active"))).toBe(false)
+    expect(codexSessionInteractionBlocked(snapshot("waitingApproval", false))).toBe(false)
+    expect(codexSessionInteractionBlocked(undefined)).toBe(false)
+  })
+
+  test("hides settled delivery receipts from the queue dock", () => {
+    const deliveries = [
+      { requestID: "pending", state: "pending" },
+      { requestID: "accepted", state: "accepted" },
+      { requestID: "withdrawn", state: "withdrawn" },
+      { requestID: "unknown", state: "unknown" },
+    ] as unknown as LabSnapshotOutput["deliveries"]
+
+    expect(actionableCodexDeliveries(deliveries).map((delivery) => delivery.requestID)).toEqual(["pending", "unknown"])
+  })
+})
 
 describe("Codex account controls", () => {
   test("keeps a just-started login until the account reports a terminal state", () => {

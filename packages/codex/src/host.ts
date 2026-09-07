@@ -109,6 +109,7 @@ type Entry = {
   status: RuntimeStatus
   revision: number
   native?: v2.Thread
+  autoTitle?: string
   plan?: Plan
   view: MutableView
   fallback?: { view: CodexView; turns: Set<string> }
@@ -709,6 +710,7 @@ const layer = Layer.effect(
       )
         return fail("conflict", "Codex returned a different native thread or directory")
       if (!current(connected)) return fail("unavailable", "Codex connection changed while checking the directory")
+      await syncTitle(entry, metadata.thread.name)
       const history = await connected.readThread(threadID, true).catch(async (error) => {
         if (error instanceof CodexRpcError && metadata.thread.path) {
           return {
@@ -1281,6 +1283,10 @@ const layer = Layer.effect(
       }
       if (notification.method === "error" && record(params.error) && typeof params.error.message === "string")
         entry.error = params.error.message
+      if (notification.method === "thread/name/updated" && typeof params.threadName === "string") {
+        if (entry.native) entry.native.name = params.threadName
+        await syncTitle(entry, params.threadName)
+      }
       if (notification.method === "thread/settings/updated" && record(params.threadSettings)) {
         const settings = params.threadSettings as v2.ThreadSettings
         entry.appliedSettings = observedSettings({
@@ -1430,6 +1436,24 @@ const layer = Layer.effect(
           await emit(entry, { refresh: true })
         })
       }).catch(() => undefined)
+    }
+
+    async function syncTitle(entry: Entry, title?: string | null) {
+      const nativeThreadID = entry.record.binding.nativeThreadID
+      if (!nativeThreadID) return
+      const written = await run(
+        sessions.syncTitle({
+          sessionID: entry.record.session.id,
+          runtimeScope,
+          nativeThreadID,
+          title: title ?? undefined,
+          previousTitle: entry.autoTitle,
+        }),
+      )
+      // Only titles actually written by this Host are owned in memory. After a
+      // restart, an existing custom title is preserved without guessed provenance.
+      if (written) entry.autoTitle = written
+      entry.record = await run(sessions.get(entry.record.session.id))
     }
 
     async function freeze(input: Input) {

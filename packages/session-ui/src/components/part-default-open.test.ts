@@ -43,6 +43,8 @@ describe("partDefaultOpen", () => {
 
   test("preserves shell defaults", () => {
     expect(partDefaultOpen(tool("shell", {}), true, false)).toBe(true)
+    expect(partDefaultOpen(tool("codex.commandExecution", {}), true, false)).toBe(true)
+    expect(partDefaultOpen(tool("codex.fileChange", { files: [{ type: "delete" }] }), false, true)).toBe(false)
   })
 })
 

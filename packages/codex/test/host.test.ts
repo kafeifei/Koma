@@ -170,6 +170,21 @@ async function seed(sessions: SessionExternal.Interface, scope: string, target =
 }
 
 describe("CodexHost native process boundaries", () => {
+  test("syncs native read and name notifications through the Session title owner", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { thread: { ...thread(), name: "Native read title" } })
+      await run(host.snapshot(id))
+      expect((await run(sessions.get(id))).session.title).toBe("Native read title")
+      await command(home, [
+        { method: "thread/name/updated", params: { threadId: "native-thread", threadName: "Native event title" } },
+      ])
+      await until(
+        () => run(sessions.get(id)),
+        (value) => value.session.title === "Native event title",
+      )
+    }))
+
   test("reads and resumes the same directory through a real symlink and canonical native cwd", () =>
     harness(async ({ host, sessions, scope, home }) => {
       const alias = path.join(home, "workspace-alias")

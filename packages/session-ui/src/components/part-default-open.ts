@@ -1,5 +1,7 @@
 import type { Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
 
+import { toolPresentationName } from "./tool-presentation"
+
 function deletionOnly(part: ToolPart) {
   if (!("metadata" in part.state)) return false
   const metadata = part.state.metadata
@@ -18,8 +20,9 @@ function deletionOnly(part: ToolPart) {
 
 export function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
-  if (part.tool === "bash" || part.tool === "shell") return shell
-  if (part.tool === "edit" || part.tool === "write" || part.tool === "patch" || part.tool === "apply_patch") {
+  const name = toolPresentationName(part.tool)
+  if (name === "shell") return shell
+  if (name === "edit" || name === "write" || name === "patch") {
     if (!edit) return false
     return !deletionOnly(part)
   }

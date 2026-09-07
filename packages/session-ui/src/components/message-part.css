@@ -376,10 +376,12 @@
   border-radius: 6px;
   background: transparent;
   position: relative;
+  isolation: isolate;
   overflow: hidden;
 
   [data-slot="bash-copy"] {
     position: absolute;
+    z-index: 1;
     top: 4px;
     right: 4px;
     opacity: 0;

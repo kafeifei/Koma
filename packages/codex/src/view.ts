@@ -144,7 +144,7 @@ function liveEntry(
     sourceItemID,
     nativeType: item.nativeType,
     content: item.content,
-    raw: item.content,
+    raw: item.raw ?? item.content,
     time: item.time ?? {},
     streaming: turn.status === "inProgress",
     unmatchedRollout: false,
@@ -337,6 +337,7 @@ function assistantContent(
         undefined,
         input.time,
         {
+          ...(input.content.commandActions ? { commandActions: input.content.commandActions } : {}),
           ...(input.content.exitCode === undefined ? {} : { exitCode: input.content.exitCode }),
           ...(input.content.durationMs === undefined ? {} : { durationMs: input.content.durationMs }),
         },
@@ -353,6 +354,25 @@ function assistantContent(
         input.content.status,
         undefined,
         input.time,
+        {
+          files: input.content.changes.flatMap((value) => {
+            const change = record(value)
+            const kind = record(change.kind)
+            if (typeof change.path !== "string" || typeof change.diff !== "string") return []
+            if (!["add", "delete", "update"].includes(String(kind.type))) return []
+            return [
+              {
+                filePath: change.path,
+                relativePath: change.path,
+                type: typeof kind.move_path === "string" ? "move" : kind.type,
+                ...(typeof kind.move_path === "string" ? { movePath: kind.move_path } : {}),
+                diff: change.diff,
+                additions: additions(change.diff),
+                deletions: deletions(change.diff),
+              },
+            ]
+          }),
+        },
       ),
     ]
   }
@@ -370,17 +390,32 @@ function assistantContent(
     ]
   }
   if (input.content.type === "subagent") {
-    return [
+    const content = input.content
+    const targets = [
+      ...new Set([content.agentThreadID, ...content.receiverThreadIDs].filter((id): id is string => !!id)),
+    ]
+    return (targets.length ? targets : [undefined]).map((nativeThreadID, index) =>
       toolContent(
-        partID(0),
+        partID(index),
         "codex.subagent",
-        input.content,
-        input.content.prompt,
-        input.content.status,
+        {
+          ...content,
+          description: content.prompt ?? content.operation,
+          nativeSubagent: true,
+          ...(nativeThreadID && input.childSessions?.[nativeThreadID]
+            ? { sessionId: input.childSessions[nativeThreadID] }
+            : {}),
+        },
+        content.prompt,
+        content.status,
         undefined,
         input.time,
+        {
+          nativeSubagent: true,
+          ...(nativeThreadID ? { nativeThreadID, sessionId: input.childSessions?.[nativeThreadID] } : {}),
+        },
       ),
-    ]
+    )
   }
   if (input.content.type === "compaction") {
     return [
@@ -396,11 +431,15 @@ function assistantContent(
     ]
   }
   if (input.content.type === "asset") {
+    const value = record(input.content.value)
     return [
       toolContent(
         partID(0),
         `codex.${input.content.assetType}`,
-        { value: input.content.value },
+        {
+          value: input.content.value,
+          ...(input.content.assetType === "webSearch" && typeof value.query === "string" ? { query: value.query } : {}),
+        },
         undefined,
         undefined,
         undefined,
@@ -433,7 +472,7 @@ function toolContent(
 ): SessionExternal.Content {
   const content = output ? [{ type: "text" as const, text: output }] : []
   const structured = Object.fromEntries(
-    Object.entries({ ...details, nativeStatus, nativeError }).filter((entry) => entry[1] !== undefined),
+    Object.entries({ ...details, output, nativeStatus, nativeError }).filter((entry) => entry[1] !== undefined),
   )
   if (["pending", "inProgress", "running"].includes(nativeStatus ?? "")) {
     return { type: "tool", id, name, time, state: { status: "running", input, content, structured } }

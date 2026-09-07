@@ -57,6 +57,8 @@ export function createCodexPromptController(input: {
   const permission = () => settings().permission ?? "native"
   const canSubmit = () => {
     if (engine() !== "codex") return true
+    if (!external().data.engines) return false
+    if (codex()?.account.requiresAuth && !codex()?.account.authenticated) return false
     const sessionID = input.sessionID()
     if (!sessionID) return codex()?.available === true && codex()?.capabilities.prompt === true
     const current = descriptor()
@@ -64,12 +66,16 @@ export function createCodexPromptController(input: {
     return !["disconnected", "systemError", "bindingUnavailable"].includes(current.runtimeStatus)
   }
 
-  onMount(() => {
+  let enginesRequest: Promise<LabEnginesOutput> | undefined
+  const refreshEngines = () => {
     if (external().data.engines) return
-    void external()
+    if (enginesRequest) return enginesRequest
+    enginesRequest = external()
       .refreshEngines()
-      .catch(() => undefined)
-  })
+      .finally(() => (enginesRequest = undefined))
+    return enginesRequest
+  }
+  onMount(() => void refreshEngines()?.catch(() => undefined))
 
   const update = async (patch: { model?: string; effort?: string; permission?: "workspace" | "readOnly" | "full" }) => {
     const sessionID = input.sessionID()
@@ -100,7 +106,7 @@ export function createCodexPromptController(input: {
     session: () => !!input.sessionID(),
     engine: {
       current: engine,
-      mutable: () => !input.sessionID() && (engine() === "codex" || codex() !== undefined),
+      mutable: () => !input.sessionID() && external().data.support !== "unsupported",
       select(value: PromptEngine | undefined) {
         if (!value || value === engine() || input.sessionID()) return
         if (value === "codex" && codex()?.available === false) {
@@ -108,6 +114,7 @@ export function createCodexPromptController(input: {
           return
         }
         input.prompt.engine.set(value)
+        if (value === "codex") void refreshEngines()?.catch(() => undefined)
         input.restoreFocus()
       },
     },

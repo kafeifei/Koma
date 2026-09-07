@@ -48,6 +48,23 @@ Run tests and type checking from this package directory. `probe:app-server`
 creates a fresh ignored `.cache` home/workspace, starts no login or model turn,
 and checks initialize, thread start, metadata read, process restart, and resume.
 
+## Session presentation and titles
+
+Native `commandExecution` and `fileChange` retain their tool names and source
+items; Session UI renders them with the existing shell and patch cards. Command
+output remains available while running and after failure, and native command
+actions remain inspectable without guessing a read/search tool from shell text.
+Child cards link only to Session IDs already adopted by the Host.
+
+New tasks use the first nonempty prompt line, normalized and limited to 120
+Unicode code points, as their initial title without another model turn. Native
+thread names can replace the default title, that exact initial summary, or a
+title this Host process previously wrote. Title updates preserve all other
+Session fields and publish the existing Session update event. An existing
+custom title after a Host restart is preserved: title provenance is not stored,
+so ongoing title synchronization across restarts or other clients is not
+promised. Manual titles different from those known automatic values win.
+
 ## Backend configuration
 
 `OPENCODE_ENABLE_CODEX=1` enables the Lab API's Codex engine. Without it, engine
