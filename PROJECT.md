@@ -86,6 +86,7 @@ Backend 管理它创建的 app-server 进程、投递回执、审批和执行租
 - Lab 的隔离准备会清除代码列出的配置／数据库等环境覆盖项，禁用项目配置加载与自动更新；它不会自动继承官方 OpenCode 的全局配置和认证存储。不要为“方便测试”接管或迁移官方实例的数据、登录状态或后台服务。
 - 这是应用和后端状态隔离，不是文件系统沙箱。用户打开的代码目录仍是真实目录；不能据此宣称所有环境凭据、项目文件、外部工具和网络都已隔离。
 - 本地 Web 入口属于该 Desktop 实例，默认开启，可在设置中关闭；仅监听 `127.0.0.1`，代理到该实例的后端。网关检查 Host，对非页面导航请求检查来源，并在代理层加入后端认证；它没有独立的用户登录层，可访问该 loopback 端口的本地程序仍在可达范围内。不能擅自改成公网／局域网服务或新建第二套 Session 数据源。具体规则见 [web-entry-controller.ts](./packages/desktop/src/main/web-entry-controller.ts) 和 [web-entry.ts](./packages/desktop/src/main/web-entry.ts)。
+- Remote 是显式开启的独立入口：GitHub 设备授权配合 Microsoft Dev Tunnels，默认仅所属账号可访问。Desktop 主进程持有登录、共享和连接状态；它为当前实例的同一后端创建独立 loopback 网关与私有隧道，关闭共享会关闭该网关及已有连接。独立登录不自动开启共享，连接其他设备也不要求共享本机。网站仅处理登录与设备目录，工作台流量直接进入微软隧道；不另建 Session 数据源。配置与验证边界见 [Desktop README](./packages/desktop/README.md) 和 [Remote Web README](./packages/remote-web/README.md)。
 - 源码、`dist-lab` 产物、已安装的 `OpenCode Lab.app`、正在运行的实例和它连接的后端分别核验。即使路径或版本号相同，也不能把一次构建成功当成用户当前实例已经生效。
 - 诊断和验证先保留现场；不擅自删除 Session、清理用户存储、reset／stash 工作区、终止已有进程或重启服务。是否允许安装、启动、重启、提交、推送和发布，以整段会话中已有的具体授权为准。
 

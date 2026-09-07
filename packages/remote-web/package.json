@@ -1,0 +1,30 @@
+{
+  "name": "@opencode-ai/remote-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx ./src/server/dev.ts",
+    "build": "vite build",
+    "typecheck": "tsgo -b",
+    "test": "bun run test:server && bun run test:app",
+    "test:server": "bun test ./src/server",
+    "test:app": "bun test --conditions=solid --preload ./happydom.ts ./src/app.test.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/remote": "workspace:*",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.12.0",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "tsx": "4.20.5",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

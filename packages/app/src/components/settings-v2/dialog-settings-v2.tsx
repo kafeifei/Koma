@@ -1,4 +1,4 @@
-import { Component, createMemo, createSignal, startTransition } from "solid-js"
+import { Component, Show, createMemo, createSignal, startTransition } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/v2/dialog-v2"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -15,6 +15,7 @@ import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { BuildInfo } from "../build-info"
+import { SettingsRemoteV2 } from "./remote"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -66,6 +67,12 @@ export const DialogSettings: Component<{
                       <Icon name="keyboard" />
                       {language.t("settings.tab.shortcuts")}
                     </TabsV2.Trigger>
+                    <Show when={platform.remoteAccess}>
+                      <TabsV2.Trigger value="remote">
+                        <Icon name="window-cursor" />
+                        {language.t("settings.tab.remote")}
+                      </TabsV2.Trigger>
+                    </Show>
                   </div>
                 </div>
 
@@ -104,6 +111,13 @@ export const DialogSettings: Component<{
         <TabsV2.Content value="shortcuts" class="settings-v2-panel">
           <SettingsKeybinds v2 />
         </TabsV2.Content>
+        <Show when={platform.remoteAccess}>
+          {(remoteAccess) => (
+            <TabsV2.Content value="remote" class="settings-v2-panel">
+              <SettingsRemoteV2 remoteAccess={remoteAccess()} />
+            </TabsV2.Content>
+          )}
+        </Show>
         <TabsV2.Content value="servers" class="settings-v2-panel">
           <SettingsServersV2 />
         </TabsV2.Content>

@@ -1,0 +1,225 @@
+.settings-v2-remote-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 28px;
+}
+
+.settings-v2-remote-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-v2-remote-heading p,
+.settings-v2-remote-note,
+.settings-v2-remote-service {
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-muted);
+}
+
+.settings-v2-remote {
+  gap: 28px;
+}
+
+.settings-v2-remote-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-v2-remote-avatar,
+.settings-v2-remote-device-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--v2-icon-icon-base);
+  background: var(--v2-background-bg-layer-02);
+}
+
+.settings-v2-remote-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 530;
+}
+
+.settings-v2-remote-name {
+  width: min(240px, 100%);
+}
+
+.settings-v2-remote-authorization {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+  box-shadow: inset 0 0 0 0.5px var(--v2-border-border-muted);
+}
+
+.settings-v2-remote-authorization-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-v2-remote-authorization h3,
+.settings-v2-remote-authorization label {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 16px;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-remote-authorization p {
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-muted);
+}
+
+.settings-v2-remote-code {
+  width: min(280px, 100%);
+  font-family: var(--font-mono);
+}
+
+.settings-v2-remote-authorization-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-v2-remote-authorization .settings-v2-remote-authorization-waiting {
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-remote-authorization .settings-v2-remote-authorization-attribution {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--v2-text-text-faint);
+}
+
+.settings-v2-remote-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--v2-text-text-muted);
+}
+
+.settings-v2-remote-status > span:first-child {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.settings-v2-remote-status[data-status="online"] {
+  color: var(--v2-state-fg-success);
+}
+
+.settings-v2-remote-status[data-status="connecting"] {
+  color: var(--v2-state-fg-warning);
+}
+
+.settings-v2-remote-link {
+  color: var(--v2-text-text-accent);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  user-select: text;
+}
+
+.settings-v2-remote-link:hover {
+  color: var(--v2-text-text-accent-hover);
+}
+
+.settings-v2-remote-note {
+  margin-top: -4px;
+}
+
+.settings-v2-remote-device {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 16px;
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+}
+
+.settings-v2-remote-device:last-child {
+  border-bottom: 0;
+}
+
+.settings-v2-remote-device-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.settings-v2-remote-device-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-v2-remote-device-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 16px;
+  color: var(--v2-text-text-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-v2-remote-device .settings-v2-remote-status {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.settings-v2-remote-alert,
+.settings-v2-remote-empty {
+  padding: 16px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+}
+
+.settings-v2-remote-alert {
+  color: var(--v2-state-fg-danger);
+  background: var(--v2-background-bg-layer-01);
+  box-shadow: inset 0 0 0 0.5px var(--v2-border-border-muted);
+}
+
+.settings-v2-remote-empty {
+  color: var(--v2-text-text-muted);
+  background: var(--v2-background-bg-layer-01);
+  box-shadow: inset 0 0 0 0.5px var(--v2-border-border-muted);
+}
+
+.settings-v2-remote-service {
+  font-size: 11px;
+}
+
+@media (max-width: 639px) {
+  .settings-v2-remote-header {
+    gap: 16px;
+  }
+
+  .settings-v2-remote-device {
+    flex-wrap: wrap;
+  }
+
+  .settings-v2-remote-device [data-component="button-v2"] {
+    width: 100%;
+  }
+}

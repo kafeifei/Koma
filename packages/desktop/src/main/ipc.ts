@@ -4,6 +4,7 @@ import { basename, join } from "node:path"
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
+import type { RemoteAccessPlatform } from "@opencode-ai/app/remote-access"
 import type { WebEntryPlatform } from "@opencode-ai/app/web-entry"
 import { parseDesktopNativeBundle, type DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 
@@ -34,6 +35,7 @@ const pickerFilters = (ext?: string[]) => {
 const pickedFiles = createPickedFileAuthorizations()
 
 type Deps = {
+  remoteAccess: Omit<RemoteAccessPlatform, "subscribe">
   webEntry: Pick<WebEntryPlatform, "getState" | "setEnabled">
   killSidecar: () => Promise<void> | void
   relaunch: () => void
@@ -57,6 +59,21 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  for (const action of ["getState", "signIn", "cancelSignIn", "signOut", "refresh"] as const) {
+    ipcMain.handle(`remote-access-${action}`, () => deps.remoteAccess[action]())
+  }
+  ipcMain.handle("remote-access-setEnabled", (_event, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid remote preference")
+    return deps.remoteAccess.setEnabled(enabled)
+  })
+  ipcMain.handle("remote-access-rename", (_event, name: unknown) => {
+    if (typeof name !== "string" || !name.trim() || name.trim().length > 40) throw new Error("Invalid remote name")
+    return deps.remoteAccess.rename(name)
+  })
+  ipcMain.handle("remote-access-connect", (_event, id: unknown) => {
+    if (typeof id !== "string" || id.length > 200) throw new Error("Invalid remote device")
+    return deps.remoteAccess.connect(id)
+  })
   ipcMain.handle("web-entry-get-state", () => deps.webEntry.getState())
   ipcMain.handle("web-entry-set-enabled", (_event: IpcMainInvokeEvent, enabled: unknown) => {
     if (typeof enabled !== "boolean") throw new Error("Invalid web entry preference")

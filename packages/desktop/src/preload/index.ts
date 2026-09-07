@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import type { ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
+import type { RemoteAccessState } from "@opencode-ai/app/remote-access"
 import type { WebEntryState } from "@opencode-ai/app/web-entry"
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
@@ -12,6 +13,21 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
 }
 
 const api: ElectronAPI = {
+  remoteAccess: {
+    getState: () => ipcRenderer.invoke("remote-access-getState"),
+    signIn: () => ipcRenderer.invoke("remote-access-signIn"),
+    cancelSignIn: () => ipcRenderer.invoke("remote-access-cancelSignIn"),
+    signOut: () => ipcRenderer.invoke("remote-access-signOut"),
+    setEnabled: (enabled) => ipcRenderer.invoke("remote-access-setEnabled", enabled),
+    rename: (name) => ipcRenderer.invoke("remote-access-rename", name),
+    refresh: () => ipcRenderer.invoke("remote-access-refresh"),
+    connect: (id) => ipcRenderer.invoke("remote-access-connect", id),
+    subscribe: (callback) => {
+      const handler = (_: unknown, state: RemoteAccessState) => callback(state)
+      ipcRenderer.on("remote-access-state", handler)
+      return () => ipcRenderer.removeListener("remote-access-state", handler)
+    },
+  },
   webEntry: {
     getState: () => ipcRenderer.invoke("web-entry-get-state"),
     setEnabled: (enabled) => ipcRenderer.invoke("web-entry-set-enabled", enabled),

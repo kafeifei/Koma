@@ -1,7 +1,8 @@
 import { createReadStream } from "node:fs"
 import { realpath, stat } from "node:fs/promises"
-import { createServer } from "node:http"
+import { Agent, createServer } from "node:http"
 import type { ClientRequest, IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http"
+import type { LookupFunction } from "node:net"
 import type { Duplex } from "node:stream"
 import { extname, resolve, sep } from "node:path"
 
@@ -9,12 +10,18 @@ type Backend = {
   url: string
   username: string | null
   password: string | null
+  origin?: string
+  connect?: () => Promise<Duplex>
 }
 
 type WebEntryOptions = {
   backend: () => Promise<Backend>
   root: string
   preferredPort?: number
+  clientOrigin?: string
+  // Supplied only by a private, authenticated relay host after its endpoint is confirmed.
+  // The relay must preserve both Host and Origin; this is an origin check, not authentication.
+  remoteOrigin?: () => string | undefined
 }
 
 type RunningEntry = {
@@ -23,6 +30,7 @@ type RunningEntry = {
   sockets: Set<Duplex>
   upstreamRequests: Set<ClientRequest>
   upstreamSockets: Set<Duplex>
+  backendAgent: Agent | false
 }
 
 const SECURITY_HEADERS = {
@@ -51,12 +59,23 @@ export function createWebEntry(options: WebEntryOptions) {
       }
       if (backendURL.username || backendURL.password)
         throw new Error("Web entry backend URL must not contain credentials")
+      const backendOrigin = backend.origin === undefined ? undefined : canonicalHTTPSOrigin(backend.origin)
+      if (backend.origin !== undefined && !backendOrigin) throw new Error("Invalid web entry backend origin")
+      if (
+        (backend.connect === undefined) !== (backendOrigin === undefined) ||
+        (backend.connect && backendURL.protocol !== "http:")
+      ) {
+        throw new Error("Web entry relay backend requires an HTTP URL, HTTPS origin, and private connection")
+      }
+      const clientOrigin = options.clientOrigin === undefined ? undefined : canonicalClientOrigin(options.clientOrigin)
+      if (options.clientOrigin !== undefined && !clientOrigin) throw new Error("Invalid web entry client origin")
 
       const root = await realpath(options.root)
       const shell = await safeFile(root, "/web.html")
       if (!shell) throw new Error("Web entry root does not contain web.html")
       const nativeIndex = await safeFile(root, "/index.html")
       const { request } = await import(backendURL.protocol === "https:" ? "node:https" : "node:http")
+      const backendAgent = privateAgent(backend)
       const attempt = async (port: number) => {
         const sockets = new Set<Duplex>()
         const upstreamRequests = new Set<ClientRequest>()
@@ -72,9 +91,12 @@ export function createWebEntry(options: WebEntryOptions) {
             backend,
             backendURL,
             requestBackend: request,
+            backendAgent,
             upstreamRequests,
             upstreamSockets,
             gatewayHost: `127.0.0.1:${portOf(server)}`,
+            remoteOrigin: options.remoteOrigin?.(),
+            clientOrigin,
           }).catch(() => {
             if (response.headersSent) return response.destroy()
             send(response, 500, "Internal Server Error")
@@ -89,11 +111,13 @@ export function createWebEntry(options: WebEntryOptions) {
             request: incoming,
             socket,
             head,
-            gatewayOrigin: `http://127.0.0.1:${portOf(server)}`,
             gatewayHost: `127.0.0.1:${portOf(server)}`,
+            remoteOrigin: options.remoteOrigin?.(),
+            clientOrigin,
             backend,
             backendURL,
             requestBackend: request,
+            backendAgent,
             upstreamRequests,
             upstreamSockets,
           })
@@ -102,7 +126,7 @@ export function createWebEntry(options: WebEntryOptions) {
           socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
         })
         await listen(server, port)
-        return { server, sockets, upstreamRequests, upstreamSockets }
+        return { server, sockets, upstreamRequests, upstreamSockets, backendAgent }
       }
 
       const listener = await attempt(preferredPort).catch(async (error: unknown) => {
@@ -129,6 +153,7 @@ export function createWebEntry(options: WebEntryOptions) {
       current.upstreamRequests.forEach((request) => request.destroy())
       current.upstreamSockets.forEach((socket) => socket.destroy())
       current.sockets.forEach((socket) => socket.destroy())
+      current.backendAgent && current.backendAgent.destroy()
       await close(current.server)
     })().finally(() => {
       stopping = undefined
@@ -148,30 +173,41 @@ async function handleRequest(input: {
   backend: Backend
   backendURL: URL
   requestBackend: typeof import("node:http").request
+  backendAgent: Agent | false
   upstreamRequests: Set<ClientRequest>
   upstreamSockets: Set<Duplex>
   gatewayHost: string
+  remoteOrigin?: string
+  clientOrigin?: string
 }) {
   const target = requestTarget(input.request)
   if (!target) return send(input.response, 400, "Bad Request")
-  const gatewayOrigin = `http://${input.gatewayHost}`
-  if (input.request.headers.host !== input.gatewayHost) return send(input.response, 421, "Misdirected Request")
+  const gatewayOrigin = acceptedOrigin(input.request, input.gatewayHost, input.remoteOrigin)
+  if (!gatewayOrigin) return send(input.response, 421, "Misdirected Request")
+  const clientOrigin = input.request.headers.origin === input.clientOrigin ? input.clientOrigin : undefined
 
-  const navigation = isNavigation(input.request)
-  if (!navigation && !sameOriginRequest(input.request, gatewayOrigin)) return send(input.response, 403, "Forbidden")
-
-  if (input.request.method === "GET" || input.request.method === "HEAD") {
-    if (target.pathname.toLowerCase() === "/index.html") return send(input.response, 404, "Not Found")
-    const file = await safeFile(input.root, target.pathname)
-    if (file && file === input.nativeIndex) return send(input.response, 404, "Not Found")
-    if (file) return serve(input.request, input.response, file)
-    if (target.pathname === "/assets" || target.pathname.startsWith("/assets/") || extname(target.pathname)) {
-      return send(input.response, 404, "Not Found")
-    }
-    if (target.pathname === "/" || navigation) return serve(input.request, input.response, input.shell)
+  if (isPreflight(input.request)) {
+    if (!clientOrigin) return send(input.response, 403, "Forbidden")
+    return preflight(input.request, input.response, clientOrigin)
   }
 
-  proxyRequest(input, target.raw)
+  const navigation = isNavigation(input.request)
+  if (!navigation && !sameOriginRequest(input.request, gatewayOrigin, input.clientOrigin)) {
+    return send(input.response, 403, "Forbidden")
+  }
+
+  if (input.request.method === "GET" || input.request.method === "HEAD") {
+    if (target.pathname.toLowerCase() === "/index.html") return send(input.response, 404, "Not Found", clientOrigin)
+    const file = await safeFile(input.root, target.pathname)
+    if (file && file === input.nativeIndex) return send(input.response, 404, "Not Found", clientOrigin)
+    if (file) return serve(input.request, input.response, file, clientOrigin)
+    if (target.pathname === "/assets" || target.pathname.startsWith("/assets/") || extname(target.pathname)) {
+      return send(input.response, 404, "Not Found", clientOrigin)
+    }
+    if (target.pathname === "/" || navigation) return serve(input.request, input.response, input.shell, clientOrigin)
+  }
+
+  proxyRequest({ ...input, clientOrigin }, target.raw)
 }
 
 function proxyRequest(
@@ -181,8 +217,10 @@ function proxyRequest(
     backend: Backend
     backendURL: URL
     requestBackend: typeof import("node:http").request
+    backendAgent: Agent | false
     upstreamRequests: Set<ClientRequest>
     upstreamSockets: Set<Duplex>
+    clientOrigin?: string
   },
   target: string,
 ) {
@@ -194,14 +232,15 @@ function proxyRequest(
     method: input.request.method,
     path: target,
     headers,
-    agent: false,
+    agent: input.backendAgent,
+    lookup: input.backend.connect ? rejectPublicLookup : undefined,
   })
   trackUpstream(upstream, input.upstreamRequests, input.upstreamSockets)
   upstream.on("response", (response) => {
     const terminate = () => input.response.destroy()
     response.once("aborted", terminate)
     response.once("error", terminate)
-    input.response.writeHead(response.statusCode ?? 502, responseHeaders(response.headers))
+    input.response.writeHead(response.statusCode ?? 502, responseHeaders(response.headers, input.clientOrigin))
     response.pipe(input.response)
     input.response.once("close", () => {
       if (!response.complete) response.destroy()
@@ -209,7 +248,7 @@ function proxyRequest(
   })
   upstream.on("error", () => {
     if (input.response.headersSent) return input.response.destroy()
-    send(input.response, 502, "Bad Gateway")
+    send(input.response, 502, "Bad Gateway", input.clientOrigin)
   })
   input.request.once("aborted", () => upstream.destroy())
   input.response.once("close", () => {
@@ -222,20 +261,19 @@ function proxyUpgrade(input: {
   request: IncomingMessage
   socket: Duplex
   head: Buffer
-  gatewayOrigin: string
   gatewayHost: string
+  remoteOrigin?: string
+  clientOrigin?: string
   backend: Backend
   backendURL: URL
   requestBackend: typeof import("node:http").request
+  backendAgent: Agent | false
   upstreamRequests: Set<ClientRequest>
   upstreamSockets: Set<Duplex>
 }) {
   const target = requestTarget(input.request)
-  if (
-    !target ||
-    input.request.headers.host !== input.gatewayHost ||
-    !sameOriginRequest(input.request, input.gatewayOrigin)
-  ) {
+  const origin = acceptedOrigin(input.request, input.gatewayHost, input.remoteOrigin)
+  if (!target || !origin || !sameOriginRequest(input.request, origin, input.clientOrigin)) {
     return rejectUpgrade(input.socket, target ? 403 : 400)
   }
 
@@ -246,7 +284,8 @@ function proxyUpgrade(input: {
     method: input.request.method,
     path: target.raw,
     headers: backendHeaders(input.request.headers, input.backendURL, input.backend, true),
-    agent: false,
+    agent: input.backendAgent,
+    lookup: input.backend.connect ? rejectPublicLookup : undefined,
   })
   trackUpstream(upstream, input.upstreamRequests, input.upstreamSockets)
   upstream.on("upgrade", (response, socket, head) => {
@@ -295,16 +334,17 @@ function backendHeaders(headers: IncomingHttpHeaders, backendURL: URL, backend: 
     ].forEach((key) => delete result[key])
   }
   delete result["proxy-authorization"]
+  delete result["x-tunnel-authorization"]
   delete result.authorization
   result.host = backendURL.host
-  if (headers.origin) result.origin = backendURL.origin
+  if (headers.origin) result.origin = backend.origin ?? backendURL.origin
   if (backend.password !== null) {
     result.authorization = `Basic ${Buffer.from(`${backend.username ?? ""}:${backend.password}`).toString("base64")}`
   }
   return result
 }
 
-function responseHeaders(headers: IncomingHttpHeaders) {
+function responseHeaders(headers: IncomingHttpHeaders, clientOrigin?: string) {
   const result: Record<string, string | string[]> = {}
   const connectionHeaders = String(headers.connection ?? "")
     .split(",")
@@ -322,6 +362,7 @@ function responseHeaders(headers: IncomingHttpHeaders) {
         "trailer",
         "transfer-encoding",
         "upgrade",
+        "x-tunnel-authorization",
         ...connectionHeaders,
       ].includes(key) ||
       key.startsWith("access-control-")
@@ -329,15 +370,101 @@ function responseHeaders(headers: IncomingHttpHeaders) {
       return
     result[key] = value
   })
-  return { ...result, ...SECURITY_HEADERS }
+  return { ...result, ...SECURITY_HEADERS, ...corsHeaders(clientOrigin) }
 }
 
-function sameOriginRequest(request: IncomingMessage, gatewayOrigin: string) {
+function acceptedOrigin(request: IncomingMessage, gatewayHost: string, remoteOrigin?: string) {
+  if (request.headers.host === gatewayHost) return `http://${gatewayHost}`
+  if (!remoteOrigin || !URL.canParse(remoteOrigin)) return
+  const remote = new URL(remoteOrigin)
+  if (remote.protocol !== "https:" || remote.origin !== remoteOrigin) return
+  if (request.headers.host === remote.host) return remote.origin
+}
+
+function sameOriginRequest(request: IncomingMessage, gatewayOrigin: string, clientOrigin?: string) {
+  if (clientOrigin && request.headers.origin === clientOrigin) return true
   if (request.headers.origin !== undefined && request.headers.origin !== gatewayOrigin) return false
   const site = request.headers["sec-fetch-site"]?.toLowerCase()
   if (site === "cross-site") return false
   if (site === "same-site" && request.headers.origin !== gatewayOrigin) return false
   return true
+}
+
+function isPreflight(request: IncomingMessage) {
+  return request.method === "OPTIONS" && request.headers["access-control-request-method"] !== undefined
+}
+
+function preflight(request: IncomingMessage, response: ServerResponse, origin: string) {
+  const method = request.headers["access-control-request-method"]
+  if (typeof method !== "string" || !["DELETE", "GET", "HEAD", "PATCH", "POST", "PUT"].includes(method)) {
+    return send(response, 400, "Bad Request", origin)
+  }
+  const requested = request.headers["access-control-request-headers"]
+  const headers = (Array.isArray(requested) ? requested.join(",") : (requested ?? ""))
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+  if (headers.some((value) => !/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(value))) {
+    return send(response, 400, "Bad Request", origin)
+  }
+  const allowed = [...new Set(headers.filter((value) => !SENSITIVE_REQUEST_HEADERS.has(value)))]
+  response.writeHead(204, {
+    ...SECURITY_HEADERS,
+    ...corsHeaders(origin),
+    "access-control-allow-methods": method,
+    ...(allowed.length ? { "access-control-allow-headers": allowed.join(", ") } : {}),
+    vary: "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+  })
+  response.end()
+}
+
+const SENSITIVE_REQUEST_HEADERS = new Set([
+  "authorization",
+  "connection",
+  "cookie",
+  "host",
+  "origin",
+  "proxy-authorization",
+  "x-tunnel-authorization",
+])
+
+function corsHeaders(origin?: string) {
+  return origin ? { "access-control-allow-origin": origin, vary: "Origin" } : {}
+}
+
+function privateAgent(backend: Backend): Agent | false {
+  const connect = backend.connect
+  if (!connect) return false
+  const agent = new Agent({ keepAlive: false })
+  agent.createConnection = (_options, connected) => {
+    if (!connected) throw new Error("Private connection requires an asynchronous callback")
+    void connect().then(
+      (socket) => connected(null, socket),
+      (error: unknown) =>
+        connected(error instanceof Error ? error : new Error("Relay connection failed"), undefined as never),
+    )
+    return undefined
+  }
+  return agent
+}
+
+const rejectPublicLookup: LookupFunction = (_hostname, _options, callback) => {
+  // If a runtime ignores the custom Agent, it must still fail before resolving the public relay host.
+  callback(new Error("Private relay connection required"), undefined as never, undefined as never)
+}
+
+function canonicalHTTPSOrigin(value: string) {
+  if (!URL.canParse(value)) return
+  const url = new URL(value)
+  if (url.protocol === "https:" && url.origin === value && !url.username && !url.password) return value
+}
+
+function canonicalClientOrigin(value: string) {
+  if (!URL.canParse(value)) return
+  const url = new URL(value)
+  if (url.username || url.password || url.search || url.hash) return
+  if (url.protocol === "http:" || url.protocol === "https:") return url.origin === value ? value : undefined
+  if (url.href === value && url.host && !url.pathname) return value
 }
 
 function isNavigation(request: IncomingMessage) {
@@ -381,9 +508,10 @@ async function safeFile(root: string, pathname: string) {
   return info?.isFile() ? file : undefined
 }
 
-function serve(request: IncomingMessage, response: ServerResponse, file: string) {
+function serve(request: IncomingMessage, response: ServerResponse, file: string, clientOrigin?: string) {
   response.writeHead(200, {
     ...SECURITY_HEADERS,
+    ...corsHeaders(clientOrigin),
     "content-type": contentType(file),
   })
   if (request.method === "HEAD") return response.end()
@@ -392,9 +520,10 @@ function serve(request: IncomingMessage, response: ServerResponse, file: string)
     .pipe(response)
 }
 
-function send(response: ServerResponse, status: number, body: string) {
+function send(response: ServerResponse, status: number, body: string, clientOrigin?: string) {
   response.writeHead(status, {
     ...SECURITY_HEADERS,
+    ...corsHeaders(clientOrigin),
     "content-type": "text/plain; charset=utf-8",
     "content-length": Buffer.byteLength(body),
   })
@@ -425,7 +554,13 @@ function rawHeaders(headers: string[]) {
   for (let index = 0; index < headers.length; index += 2) {
     const key = headers[index]
     const value = headers[index + 1]
-    if (!key || value === undefined || key.toLowerCase().startsWith("access-control-")) continue
+    if (
+      !key ||
+      value === undefined ||
+      key.toLowerCase().startsWith("access-control-") ||
+      key.toLowerCase() === "x-tunnel-authorization"
+    )
+      continue
     lines.push(`${key}: ${value}`)
   }
   SECURITY_HEADERS["x-frame-options"] && lines.push(`X-Frame-Options: ${SECURITY_HEADERS["x-frame-options"]}`)
