@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { mockOpenCodeServer } from "../utils/mock-server"
 
@@ -265,7 +265,7 @@ test("toggles performance diagnostics from the DEV button", async ({ page }) => 
 test("pins within a project, persists across refresh, and matches the overflow menu", async ({ page }) => {
   const sidebar = page.locator('[data-component="task-sidebar"]')
   await taskRow(sidebar, "ses-task-a").click({ button: "right" })
-  await expect(page.getByRole("menuitem")).toHaveText(["Pin", "Rename", "Archive", "Delete"])
+  await expectMenuItems(page, ["Pin", "Rename", "Archive", "Delete"])
   await page.getByRole("menuitem", { name: "Pin", exact: true }).click()
 
   await expect.poll(() => taskIDs(sidebar)).toEqual(["ses-task-a", "ses-task-b"])
@@ -280,7 +280,63 @@ test("pins within a project, persists across refresh, and matches the overflow m
   const alpha = taskRow(sidebar, "ses-task-a")
   await alpha.hover()
   await alpha.getByRole("button", { name: "More options" }).click()
-  await expect(page.getByRole("menuitem")).toHaveText(["Unpin", "Rename", "Archive", "Delete"])
+  await expectMenuItems(page, ["Unpin", "Rename", "Archive", "Delete"])
+})
+
+test("archives through task menu shortcuts only while a menu is open", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  const beta = taskRow(sidebar, "ses-task-b")
+
+  await beta.hover()
+  const trigger = beta.getByRole("button", { name: "More options", exact: true })
+  await trigger.click()
+  await expectMenuItems(page, ["Pin", "Rename", "Archive", "Delete"])
+  await expect(page.locator(".task-sidebar-menu-shortcut")).toHaveText(["P", "R", "A", "D"])
+  const menu = await activeMenu(page)
+  await menu.dispatchEvent("keydown", { key: "p", repeat: true })
+  await menu.dispatchEvent("keydown", { key: "p", isComposing: true })
+  await page.keyboard.press("x")
+  await menu.dispatchEvent("keydown", { key: "a", ctrlKey: true })
+  await menu.dispatchEvent("keydown", { key: "a", altKey: true })
+  await menu.dispatchEvent("keydown", { key: "a", metaKey: true })
+  await activeMenu(page)
+  await expect(page.getByRole("menuitem", { name: "Pin", exact: true })).toBeVisible()
+  await page.keyboard.press("Shift+R")
+  const rename = page.getByRole("dialog")
+  await expect(rename.getByRole("textbox", { name: "Name" })).toHaveValue("Beta task")
+  await rename.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(rename).toBeHidden()
+
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  await activeMenu(page)
+  await page.keyboard.press("p")
+  await expect(page.locator('[role="menu"][data-expanded]')).toHaveCount(0)
+  await expect.poll(() => taskIDs(sidebar)).toEqual(["ses-task-b", "ses-task-a"])
+
+  const pinned = taskRow(sidebar, "ses-task-b")
+  await pinned.hover()
+  await pinned.getByRole("button", { name: "More options", exact: true }).click()
+  await activeMenu(page)
+  await page.keyboard.press("Shift+A")
+  await expect(pinned).toBeHidden()
+
+  await sidebar.locator('[data-action="workspace-archives"]').click()
+  const archived = taskRow(sidebar, "ses-task-b")
+  await expect(archived).toBeVisible()
+  await archived.click({ button: "right" })
+  await activeMenu(page)
+  await page.keyboard.press("d")
+  const remove = page.getByRole("dialog")
+  await expect(remove).toContainText("Beta task")
+  await remove.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(remove).toBeHidden()
+
+  const composer = page.locator('[data-component="prompt-input-v2"] [data-component="prompt-input"]')
+  await composer.fill("")
+  await composer.pressSequentially("prad")
+  await expect(composer).toHaveText("prad")
+  await expect(page.locator('[role="menu"][data-expanded]')).toHaveCount(0)
+  await expect(page.getByRole("dialog")).toBeHidden()
 })
 
 test("keeps a failed rename value and succeeds on retry", async ({ page }) => {
@@ -413,12 +469,17 @@ test("archives failed worktree cleanup and retries archive", async ({ page }) =>
   const archived = sidebar.locator('[data-session-id="ses-task-b"]')
   await expect(archived).toBeVisible()
   await taskRow(sidebar, "ses-task-b").hover()
-  await taskRow(sidebar, "ses-task-b").getByRole("button", { name: "More options", exact: true }).click()
+  const trigger = taskRow(sidebar, "ses-task-b").getByRole("button", { name: "More options", exact: true })
+  await trigger.click()
+  await activeMenu(page)
   await expect.poll(() => statusCalls).toBeGreaterThan(0)
-  await expect(page.getByRole("menuitem", { name: "Retry Worktree cleanup", exact: true })).toBeVisible()
-  await page.getByRole("menuitem", { name: "Retry Worktree cleanup", exact: true }).click()
+  const retry = page.getByRole("menuitem", { name: "Retry Worktree cleanup", exact: true })
+  await expect(retry).toBeVisible()
+  await expect(retry).toHaveAttribute("aria-keyshortcuts", "C")
+  await page.keyboard.press("c")
   await expect.poll(() => archiveCalls.length).toBe(2)
   await expect(page.getByRole("menuitem", { name: "Retry Worktree cleanup", exact: true })).toBeHidden()
+  await expect(trigger).toBeFocused()
 })
 
 test("archives reclaimed worktree session under its project and restores with project directory", async ({ page }) => {
@@ -535,9 +596,16 @@ test("shows the Sandy worktree checkbox and base branch selector", async ({ page
 test("disables lifecycle mutations when the V2 server reports them unsupported", async ({ page }) => {
   const sidebar = page.locator('[data-component="task-sidebar"]')
   await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  await activeMenu(page)
 
   await expect(page.getByRole("menuitem", { name: "Archive", exact: true })).toBeDisabled()
   await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeDisabled()
+  await page.keyboard.press("Shift+A")
+  await expect(page.getByRole("menuitem", { name: "Archive", exact: true })).toBeVisible()
+  await expect(taskRow(sidebar, "ses-task-b")).toBeVisible()
+  await page.keyboard.press("d")
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeVisible()
+  await expect(page.getByRole("dialog")).toBeHidden()
 })
 
 test("uses bundled lifecycle capabilities and sends the V2 archive mutation", async ({ page }) => {
@@ -572,4 +640,17 @@ function taskIDs(sidebar: Locator) {
   return sidebar
     .locator("[data-session-id]")
     .evaluateAll((items) => items.map((item) => item.getAttribute("data-session-id")))
+}
+
+async function expectMenuItems(page: Page, names: string[]) {
+  const items = page.getByRole("menuitem")
+  await expect(items).toHaveCount(names.length)
+  await Promise.all(names.map((name, index) => expect(items.nth(index)).toHaveAccessibleName(name)))
+}
+
+async function activeMenu(page: Page) {
+  const menu = page.locator('[role="menu"][data-expanded]')
+  await expect(menu).toHaveCount(1)
+  await expect.poll(() => menu.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  return menu
 }
