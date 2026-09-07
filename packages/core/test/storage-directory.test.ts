@@ -51,3 +51,49 @@ test("migrated worktree aliases preserve identity through every old path compone
 test("without migration metadata directory identity is unchanged", () => {
   expect(StorageDirectory.resolve("/some/alias", undefined)).toBe("/some/alias")
 })
+
+test("manifest paths under a symlinked storage parent match physical and missing paths", async () => {
+  const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-directory-parent-")))
+  roots.push(temp)
+  const parent = path.join(temp, "physical")
+  const alias = path.join(temp, "alias")
+  await fs.mkdir(parent)
+  await fs.symlink(parent, alias)
+  const root = path.join(alias, "storage")
+  const recorded = path.join(root, "worktrees", "project", "old")
+  const physical = path.join(parent, "storage", "worktrees", "project", "old")
+  const logical = path.join(temp, "legacy", "old")
+  await fs.mkdir(path.join(recorded, "src"), { recursive: true })
+  await Bun.write(
+    path.join(root, "storage.json"),
+    JSON.stringify({
+      version: 1,
+      source: path.join(temp, "legacy"),
+      status: "complete",
+      database: "opencode.db",
+      worktrees: [{ directory: logical, path: recorded }],
+    }),
+  )
+
+  expect(await fs.realpath(recorded)).not.toBe(recorded)
+  expect(StorageDirectory.resolve(recorded, root)).toBe(logical)
+  expect(StorageDirectory.resolve(physical, root)).toBe(logical)
+  expect(StorageDirectory.resolve(path.join(recorded, "src", "new-file"), root)).toBe(
+    path.join(logical, "src", "new-file"),
+  )
+  expect(StorageDirectory.resolve(path.join(physical, "src", "new-file"), root)).toBe(
+    path.join(logical, "src", "new-file"),
+  )
+
+  const outside = path.join(temp, "outside")
+  await fs.mkdir(outside)
+  await fs.symlink(outside, path.join(recorded, "escape"))
+  expect(StorageDirectory.resolve(path.join(recorded, "escape"), root)).toBe(path.join(recorded, "escape"))
+  expect(StorageDirectory.resolve(path.join(recorded, "escape", "new-file"), root)).toBe(
+    path.join(recorded, "escape", "new-file"),
+  )
+
+  await fs.rm(recorded, { recursive: true })
+  expect(StorageDirectory.resolve(recorded, root)).toBe(logical)
+  expect(StorageDirectory.resolve(physical, root)).toBe(logical)
+})

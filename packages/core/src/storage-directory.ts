@@ -8,14 +8,22 @@ export function resolve(directory: string, root = process.env.OPENCODE_HOME?.tri
   if (!root) return directory
   const worktrees = StoragePaths.metadata(root)?.worktrees
   if (!worktrees?.length) return directory
-  const physical = fs.existsSync(directory) ? fs.realpathSync(directory) : path.resolve(directory)
+  const physical = canonical(directory)
   for (const worktree of worktrees) {
-    const suffix = path.relative(worktree.path, physical)
+    const suffix = path.relative(canonical(worktree.path), physical)
     if (suffix === "" || (suffix !== ".." && !suffix.startsWith(`..${path.sep}`) && !path.isAbsolute(suffix))) {
       return path.join(worktree.directory, suffix)
     }
   }
   return directory
+}
+
+function canonical(directory: string): string {
+  const absolute = path.resolve(directory)
+  if (fs.existsSync(absolute)) return fs.realpathSync(absolute)
+  const parent = path.dirname(absolute)
+  if (parent === absolute) return absolute
+  return path.join(canonical(parent), path.basename(absolute))
 }
 
 export * as StorageDirectory from "./storage-directory"
