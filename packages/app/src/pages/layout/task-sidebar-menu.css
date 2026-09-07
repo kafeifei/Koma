@@ -38,6 +38,12 @@
   background: var(--v2-overlay-simple-overlay-hover);
 }
 
+.task-sidebar-menu-shortcut {
+  margin-left: auto;
+  padding-left: 24px;
+  color: var(--v2-text-text-muted);
+}
+
 @media (pointer: coarse) {
   .task-sidebar-menu-trigger {
     width: 44px;

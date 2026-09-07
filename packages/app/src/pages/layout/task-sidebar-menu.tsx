@@ -72,6 +72,23 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
       }),
     )
 
+  const activateShortcut: JSX.EventHandlerUnion<HTMLDivElement, KeyboardEvent> = (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || event.isComposing) return
+    if (
+      event.target instanceof Element &&
+      event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+    )
+      return
+    const key = event.key.toLowerCase()
+    if (!["p", "r", "a", "c", "d"].includes(key)) return
+    const item = event.currentTarget.querySelector<HTMLElement>(`[data-task-menu-key="${key}"]:not([data-disabled])`)
+    if (!item) return
+    event.preventDefault()
+    event.stopPropagation()
+    // Kobalte commits menu selection on pointerup; click() only updates its selection manager.
+    item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "mouse" }))
+  }
+
   return (
     <ContextMenu onOpenChange={inspect}>
       <ContextMenu.Trigger as={TaskRow} class="task-sidebar-menu">
@@ -87,50 +104,100 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
             …
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content>
-              <DropdownMenu.Item onSelect={props.onPin}>
+            <DropdownMenu.Content data-prevent-autofocus onKeyDown={activateShortcut}>
+              <DropdownMenu.Item data-task-menu-key="p" aria-keyshortcuts="P" onSelect={props.onPin}>
                 <DropdownMenu.ItemLabel>{pinLabel()}</DropdownMenu.ItemLabel>
+                <TaskMenuShortcut>P</TaskMenuShortcut>
               </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={openRename}>
+              <DropdownMenu.Item data-task-menu-key="r" aria-keyshortcuts="R" onSelect={openRename}>
                 <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                <TaskMenuShortcut>R</TaskMenuShortcut>
               </DropdownMenu.Item>
-              <DropdownMenu.Item disabled={archiveDisabled()} onSelect={toggleArchive}>
+              <DropdownMenu.Item
+                data-task-menu-key="a"
+                aria-keyshortcuts="A"
+                disabled={archiveDisabled()}
+                onSelect={toggleArchive}
+              >
                 <DropdownMenu.ItemLabel>{archiveLabel()}</DropdownMenu.ItemLabel>
+                <TaskMenuShortcut>A</TaskMenuShortcut>
               </DropdownMenu.Item>
               <Show when={cleanup.retry}>
-                <DropdownMenu.Item disabled={archiveDisabled()} onSelect={retryCleanup} title={cleanup.message}>
+                <DropdownMenu.Item
+                  data-task-menu-key="c"
+                  aria-keyshortcuts="C"
+                  disabled={archiveDisabled()}
+                  onSelect={retryCleanup}
+                  title={cleanup.message}
+                >
                   <DropdownMenu.ItemLabel>{language.t("workspace.task.cleanup.retry")}</DropdownMenu.ItemLabel>
+                  <TaskMenuShortcut>C</TaskMenuShortcut>
                 </DropdownMenu.Item>
               </Show>
-              <DropdownMenu.Item disabled={!props.canDelete || props.busy || props.running} onSelect={openDelete}>
+              <DropdownMenu.Item
+                data-task-menu-key="d"
+                aria-keyshortcuts="D"
+                disabled={!props.canDelete || props.busy || props.running}
+                onSelect={openDelete}
+              >
                 <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+                <TaskMenuShortcut>D</TaskMenuShortcut>
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content>
-          <ContextMenu.Item onSelect={props.onPin}>
+        <ContextMenu.Content data-prevent-autofocus onKeyDown={activateShortcut}>
+          <ContextMenu.Item data-task-menu-key="p" aria-keyshortcuts="P" onSelect={props.onPin}>
             <ContextMenu.ItemLabel>{pinLabel()}</ContextMenu.ItemLabel>
+            <TaskMenuShortcut>P</TaskMenuShortcut>
           </ContextMenu.Item>
-          <ContextMenu.Item onSelect={openRename}>
+          <ContextMenu.Item data-task-menu-key="r" aria-keyshortcuts="R" onSelect={openRename}>
             <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
+            <TaskMenuShortcut>R</TaskMenuShortcut>
           </ContextMenu.Item>
-          <ContextMenu.Item disabled={archiveDisabled()} onSelect={toggleArchive}>
+          <ContextMenu.Item
+            data-task-menu-key="a"
+            aria-keyshortcuts="A"
+            disabled={archiveDisabled()}
+            onSelect={toggleArchive}
+          >
             <ContextMenu.ItemLabel>{archiveLabel()}</ContextMenu.ItemLabel>
+            <TaskMenuShortcut>A</TaskMenuShortcut>
           </ContextMenu.Item>
           <Show when={cleanup.retry}>
-            <ContextMenu.Item disabled={archiveDisabled()} onSelect={retryCleanup} title={cleanup.message}>
+            <ContextMenu.Item
+              data-task-menu-key="c"
+              aria-keyshortcuts="C"
+              disabled={archiveDisabled()}
+              onSelect={retryCleanup}
+              title={cleanup.message}
+            >
               <ContextMenu.ItemLabel>{language.t("workspace.task.cleanup.retry")}</ContextMenu.ItemLabel>
+              <TaskMenuShortcut>C</TaskMenuShortcut>
             </ContextMenu.Item>
           </Show>
-          <ContextMenu.Item disabled={!props.canDelete || props.busy || props.running} onSelect={openDelete}>
+          <ContextMenu.Item
+            data-task-menu-key="d"
+            aria-keyshortcuts="D"
+            disabled={!props.canDelete || props.busy || props.running}
+            onSelect={openDelete}
+          >
             <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
+            <TaskMenuShortcut>D</TaskMenuShortcut>
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu>
+  )
+}
+
+function TaskMenuShortcut(props: ParentProps) {
+  return (
+    <span class="task-sidebar-menu-shortcut" aria-hidden="true">
+      {props.children}
+    </span>
   )
 }
 
