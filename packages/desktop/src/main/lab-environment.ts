@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs"
+import { StoragePaths } from "@opencode-ai/core/storage-paths"
 import { join } from "node:path"
 
 const bypassVariables = [
@@ -17,19 +17,25 @@ const bypassVariables = [
   "OPENCODE_CODEX_HOME",
 ] as const
 
-export function labBackendEnvironment(userDataPath: string) {
-  const root = join(userDataPath, "backend")
+export function labBackendEnvironment(root: string) {
+  return { OPENCODE_HOME: StoragePaths.resolve(root).root }
+}
+
+// The pinned external V2 CLI predates OPENCODE_HOME. Only that child receives the
+// legacy XDG tree; migration keeps its opencode subdirectories linked to the new layout.
+export function legacyLabBackendEnvironment(root: string) {
+  const paths = StoragePaths.resolve(root)
   return {
-    XDG_DATA_HOME: join(root, "data"),
-    XDG_CONFIG_HOME: join(root, "config"),
-    XDG_CACHE_HOME: join(root, "cache"),
-    XDG_STATE_HOME: join(root, "state"),
+    XDG_DATA_HOME: join(paths.desktop, "backend", "data"),
+    XDG_CONFIG_HOME: join(paths.desktop, "backend", "config"),
+    XDG_CACHE_HOME: join(paths.desktop, "backend", "cache"),
+    XDG_STATE_HOME: join(paths.desktop, "backend", "state"),
+    OPENCODE_DB: StoragePaths.database(root),
   }
 }
 
-export function prepareLabEnvironment(environment: NodeJS.ProcessEnv, userDataPath: string) {
-  const paths = labBackendEnvironment(userDataPath)
-  Object.values(paths).forEach((path) => mkdirSync(path, { recursive: true }))
+export function prepareLabEnvironment(environment: NodeJS.ProcessEnv, root: string) {
+  const paths = labBackendEnvironment(root)
   bypassVariables.forEach((key) => delete environment[key])
   Object.assign(environment, paths, {
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",

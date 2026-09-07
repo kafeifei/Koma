@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test"
-import { rm, stat } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { desktopIdentity, desktopUpdaterEnabled, resolveDesktopChannel } from "./channel"
@@ -16,19 +15,8 @@ test("Lab has an independent desktop identity and no updater", () => {
   expect(desktopUpdaterEnabled(true, channel)).toBe(false)
 })
 
-test("Lab keeps every backend XDG directory under its desktop data root", () => {
-  const userDataPath = join("/Users", "tester", "Library", "Application Support", "OpenCode Lab")
-  const root = join(userDataPath, "backend")
-  expect(labBackendEnvironment(userDataPath)).toEqual({
-    XDG_DATA_HOME: join(root, "data"),
-    XDG_CONFIG_HOME: join(root, "config"),
-    XDG_CACHE_HOME: join(root, "cache"),
-    XDG_STATE_HOME: join(root, "state"),
-  })
-})
-
-test("Lab creates its backend roots and removes state bypasses", async () => {
-  const userDataPath = join(tmpdir(), `opencode-lab-environment-${process.pid}`)
+test("Lab uses an explicit home without changing other tools' XDG directories", () => {
+  const root = join(tmpdir(), "opencode-lab-home")
   const environment: NodeJS.ProcessEnv = {
     OPENCODE_CONFIG: "/formal/config.json",
     OPENCODE_AUTH_CONTENT: "secret",
@@ -36,9 +24,15 @@ test("Lab creates its backend roots and removes state bypasses", async () => {
     OPENCODE_PORT: "4096",
     OPENCODE_CODEX_HOME: "/formal/codex",
     OPENAI_API_KEY: "provider-key",
+    XDG_DATA_HOME: "/user/data",
+    XDG_CONFIG_HOME: "/user/config",
+    XDG_CACHE_HOME: "/user/cache",
+    XDG_STATE_HOME: "/user/state",
   }
-  const paths = prepareLabEnvironment(environment, userDataPath)
+  expect(labBackendEnvironment(root)).toEqual({ OPENCODE_HOME: root })
+  prepareLabEnvironment(environment, root)
 
+  expect(environment.OPENCODE_HOME).toBe(root)
   expect(environment.OPENCODE_CONFIG).toBeUndefined()
   expect(environment.OPENCODE_AUTH_CONTENT).toBeUndefined()
   expect(environment.OPENCODE_DB).toBeUndefined()
@@ -48,10 +42,8 @@ test("Lab creates its backend roots and removes state bypasses", async () => {
   expect(environment.OPENAI_API_KEY).toBe("provider-key")
   expect(environment.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1")
   expect(environment.OPENCODE_DISABLE_AUTOUPDATE).toBe("1")
-  await expect(
-    Promise.all(Object.values(paths).map((path) => stat(path))).then((items) =>
-      items.every((item) => item.isDirectory()),
-    ),
-  ).resolves.toBe(true)
-  await rm(userDataPath, { recursive: true, force: true })
+  expect(environment.XDG_DATA_HOME).toBe("/user/data")
+  expect(environment.XDG_CONFIG_HOME).toBe("/user/config")
+  expect(environment.XDG_CACHE_HOME).toBe("/user/cache")
+  expect(environment.XDG_STATE_HOME).toBe("/user/state")
 })

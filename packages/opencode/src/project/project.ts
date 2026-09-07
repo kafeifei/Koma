@@ -1,3 +1,4 @@
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { and, eq, sql } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
@@ -152,7 +153,9 @@ const layer = Layer.effect(
         if (parent === ancestor) return AbsolutePath.make(absolute)
         ancestor = parent
       }
-      return AbsolutePath.make(path.join(yield* fs.resolve(ancestor), path.relative(ancestor, absolute)))
+      return AbsolutePath.make(
+        StorageDirectory.resolve(path.join(yield* fs.resolve(ancestor), path.relative(ancestor, absolute))),
+      )
     })
 
     const canonicalSandboxes = Effect.fnUntraced(function* (directories: readonly string[], worktree?: string) {

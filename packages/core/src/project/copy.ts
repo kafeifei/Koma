@@ -3,6 +3,7 @@ export * as ProjectCopy from "./copy"
 import { Context, Effect, Layer, Schema } from "effect"
 import path from "path"
 import { AbsolutePath } from "../schema"
+import { StorageDirectory } from "../storage-directory"
 import { FSUtil } from "../fs-util"
 import { Git } from "../git"
 import { makeLocationNode } from "../effect/app-node"
@@ -139,7 +140,7 @@ const layer = Layer.effect(
     })
 
     const canonical = Effect.fnUntraced(function* (input: AbsolutePath) {
-      const resolved = AbsolutePath.make(yield* fs.resolve(input))
+      const resolved = AbsolutePath.make(StorageDirectory.resolve(yield* fs.resolve(input)))
       if (!(yield* fs.isDir(resolved))) return yield* new DirectoryUnavailableError({ directory: input })
       return resolved
     })

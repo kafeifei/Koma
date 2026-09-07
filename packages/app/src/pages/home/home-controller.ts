@@ -5,6 +5,8 @@ import { useServerSync } from "@/context/server-sync"
 import { useTabs } from "@/context/tabs"
 import { toggleHomeProjectSelection } from "@/pages/layout/helpers"
 import { createEffect, createMemo } from "solid-js"
+import { useLanguage } from "@/context/language"
+import { showToast } from "@/utils/toast"
 
 export function createHomeController() {
   const sync = useServerSync()
@@ -12,6 +14,7 @@ export function createHomeController() {
   const server = useServer()
   const global = useGlobal()
   const tabs = useTabs()
+  const language = useLanguage()
   const selection = layout.home.selection
   const focusedServer = createMemo(
     () => global.servers.list().find((conn) => ServerConnection.key(conn) === selection().server) ?? server.current,
@@ -46,11 +49,12 @@ export function createHomeController() {
     layout.home.setSelection(next)
   }
 
-  function openProjectNewSession(conn: ServerConnection.Any, directory: string) {
+  async function openProjectNewSession(conn: ServerConnection.Any, directory: string) {
     const ctx = global.ensureServerCtx(conn)
-    ctx.projects.open(directory)
-    ctx.projects.touch(directory)
-    void tabs.newDraft({ server: ServerConnection.key(conn), directory })
+    const tab = await tabs.newDraft({ server: ServerConnection.key(conn), directory })
+    if (!tab) return
+    ctx.projects.open(tab.directory)
+    ctx.projects.touch(tab.directory)
   }
 
   return {
@@ -86,10 +90,19 @@ export function createHomeController() {
           return
         setSelection(toggleHomeProjectSelection(selection(), key, directory))
       },
-      add: (conn: ServerConnection.Any, directories: string[]) => {
+      add: async (conn: ServerConnection.Any, selected: string[]) => {
+        const ctx = global.ensureServerCtx(conn)
+        const directories = await Promise.all(selected.map((directory) => ctx.sdk.resolveDirectory(directory))).catch(
+          (cause: unknown) => {
+            showToast({
+              title: language.t("common.requestFailed"),
+              description: cause instanceof Error ? cause.message : language.t("common.requestFailed"),
+            })
+          },
+        )
+        if (!directories) return
         const directory = directories[0]
         if (!directory) return
-        const ctx = global.ensureServerCtx(conn)
         directories.forEach((item) => {
           if (ctx.projects.list().some((project) => project.worktree === item)) return
           const location = { directory: item }

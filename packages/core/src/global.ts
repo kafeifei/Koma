@@ -6,22 +6,34 @@ import { Context, Effect, Layer } from "effect"
 import { Flock } from "./util/flock"
 import { Flag } from "./flag/flag"
 import { makeGlobalNode } from "./effect/app-node"
+import { StoragePaths } from "./storage-paths"
 
 const app = "opencode"
-const data = path.join(xdgData!, app)
-const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
-const state = path.join(xdgState!, app)
+const configuredRoot = process.env.OPENCODE_HOME?.trim()
+if (configuredRoot && !path.isAbsolute(configuredRoot)) {
+  throw new Error(`OPENCODE_HOME must be an absolute path: ${configuredRoot}`)
+}
+const storage = configuredRoot ? StoragePaths.resolve(configuredRoot) : undefined
+if (storage) StoragePaths.database(storage.root)
+const data = storage?.data ?? path.join(xdgData!, app)
+const cache = storage?.cache ?? path.join(xdgCache!, app)
+const config = storage?.config ?? path.join(xdgConfig!, app)
+const state = storage?.state ?? path.join(xdgState!, app)
 const tmp = path.join(os.tmpdir(), app)
 
 const paths = {
   get home() {
     return process.env.OPENCODE_TEST_HOME ?? os.homedir()
   },
+  root: storage?.root,
+  desktop: storage?.desktop,
   data,
   bin: path.join(cache, "bin"),
-  log: path.join(data, "log"),
-  repos: path.join(data, "repos"),
+  log: storage?.log ?? path.join(data, "log"),
+  repos: storage?.repos ?? path.join(data, "repos"),
+  worktree: storage?.worktree ?? path.join(data, "worktree"),
+  snapshot: storage?.snapshot ?? path.join(data, "snapshot"),
+  codex: storage?.codex,
   cache,
   config,
   state,
@@ -46,6 +58,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Gl
 
 export interface Interface {
   readonly home: string
+  readonly root?: string
+  readonly desktop?: string
   readonly data: string
   readonly cache: string
   readonly config: string
@@ -54,11 +68,16 @@ export interface Interface {
   readonly bin: string
   readonly log: string
   readonly repos: string
+  readonly worktree?: string
+  readonly snapshot?: string
+  readonly codex?: string
 }
 
 export function make(input: Partial<Interface> = {}): Interface {
   return {
     home: Path.home,
+    root: Path.root,
+    desktop: Path.desktop,
     data: Path.data,
     cache: Path.cache,
     config: Flag.OPENCODE_CONFIG_DIR ?? Path.config,
@@ -67,6 +86,9 @@ export function make(input: Partial<Interface> = {}): Interface {
     bin: Path.bin,
     log: Path.log,
     repos: Path.repos,
+    worktree: Path.worktree,
+    snapshot: Path.snapshot,
+    codex: Path.codex,
     ...input,
   }
 }

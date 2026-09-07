@@ -1,3 +1,4 @@
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { path } from "@opencode-ai/core/effect/app-node-platform"
 import { Global } from "@opencode-ai/core/global"
@@ -228,7 +229,7 @@ const layer: Layer.Layer<
         return yield* new NotGitError({ message: "Worktrees are only supported for git projects" })
       }
 
-      const root = pathSvc.join(Global.Path.data, "worktree", ctx.project.id)
+      const root = pathSvc.join(Global.Path.worktree, ctx.project.id)
       yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
       return yield* candidate({
@@ -393,7 +394,7 @@ const layer: Layer.Layer<
       const abs = pathSvc.resolve(input)
       const real = yield* fs.realPath(abs).pipe(Effect.catch(() => Effect.succeed(abs)))
       const normalized = pathSvc.normalize(real)
-      return process.platform === "win32" ? normalized.toLowerCase() : normalized
+      return StorageDirectory.resolve(process.platform === "win32" ? normalized.toLowerCase() : normalized)
     })
 
     function parseWorktreeList(text: string) {

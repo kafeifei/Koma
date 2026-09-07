@@ -13,6 +13,7 @@ import {
   UnknownError,
 } from "@opencode-ai/protocol/errors"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 
 const DefaultSessionsLimit = 50
 const DefaultSessionHistoryLimit = 50
@@ -83,7 +84,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             id: ctx.payload.id,
             agent: ctx.payload.agent,
             model: ctx.payload.model,
-            location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
+            location: {
+              ...ctx.payload.location,
+              directory: AbsolutePath.make(StorageDirectory.resolve(ctx.payload.location?.directory ?? process.cwd())),
+            },
             permissionMode: ctx.payload.permissionMode,
           })
           yield* lifecycle.claim(created)

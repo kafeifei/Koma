@@ -45,6 +45,7 @@ import { createCodexInteraction } from "./interaction"
 import { codexInput, prepareInput, threadSettings, turnSettings } from "./input"
 import { CodexWorktreeAccess } from "./worktree-access"
 import { CodexAuth } from "./auth"
+import { codexStorage } from "./storage"
 
 export class HostError extends Schema.TaggedErrorClass<HostError>()("CodexHost.Error", {
   code: Schema.Literals(["unavailable", "conflict", "notFound", "invalid", "nativeError"]),
@@ -149,8 +150,13 @@ const layer = Layer.effect(
     const events = yield* EventV2.Service
     const global = yield* Global.Service
     const enabled = process.env.OPENCODE_ENABLE_CODEX === "1"
-    const home = path.resolve(process.env.OPENCODE_CODEX_HOME ?? path.join(global.state, "codex"))
-    const runtimeScope = `codex:${createHash("sha256").update(home).digest("hex")}`
+    const storage = codexStorage({
+      state: global.state,
+      root: process.env.OPENCODE_HOME,
+      home: process.env.OPENCODE_CODEX_HOME,
+    })
+    const home = storage.home
+    const runtimeScope = storage.scope
     const epoch = randomUUID()
     const entries = new Map<SessionSchema.ID, Entry>()
     const nativeSessions = new Map<string, SessionSchema.ID>()

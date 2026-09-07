@@ -31,11 +31,13 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
           stop: worktree,
         })
       : []),
-    ...(yield* afs.up({
-      targets: [".opencode"],
-      start: Global.Path.home,
-      stop: Global.Path.home,
-    })),
+    ...(Global.Path.root
+      ? []
+      : yield* afs.up({
+          targets: [".opencode"],
+          start: Global.Path.home,
+          stop: Global.Path.home,
+        })),
     ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
   ])
 })

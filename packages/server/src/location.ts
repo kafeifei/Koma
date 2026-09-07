@@ -2,6 +2,7 @@ import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { Effect, Layer } from "effect"
 import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
@@ -33,7 +34,7 @@ function ref(request: HttpServerRequest.HttpServerRequest): Location.Ref {
     query.get("location[directory]") ||
     (request.headers["x-opencode-directory"] ? decode(request.headers["x-opencode-directory"]) : process.cwd())
   return Location.Ref.make({
-    directory: AbsolutePath.make(directory),
+    directory: AbsolutePath.make(StorageDirectory.resolve(directory)),
     workspaceID: workspaceID ? WorkspaceV2.ID.make(workspaceID) : undefined,
   })
 }

@@ -1,3 +1,4 @@
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { createHash } from "node:crypto"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -51,6 +52,8 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const git = yield* Git.Service
     const fs = yield* FSUtil.Service
+    const resolveDirectory = (directory: string) =>
+      fs.resolve(directory).pipe(Effect.map((value) => StorageDirectory.resolve(value)))
     const lifecycle = yield* WorktreeLifecycle.Service
     const fail = (message: string) => new MergeFailedError({ message })
     const run = Effect.fnUntraced(function* (cwd: string, args: string[], env?: Record<string, string>) {
@@ -61,8 +64,8 @@ const layer = Layer.effect(
     })
 
     const locate = Effect.fnUntraced(function* (input: { root: string; directory: string }) {
-      const requested = yield* fs.resolve(input.root)
-      const directory = yield* fs.resolve(input.directory)
+      const requested = yield* resolveDirectory(input.root)
+      const directory = yield* resolveDirectory(input.directory)
       const available = (yield* fs.exists(requested))
         ? requested
         : ((yield* lifecycle.getDirectory(requested))?.root ?? requested)
@@ -70,7 +73,7 @@ const layer = Layer.effect(
         .split("\0")
         .filter((item) => item.startsWith("worktree "))
         .map((item) => item.slice(9))
-      const canonical = yield* Effect.forEach(entries, (entry) => fs.resolve(entry))
+      const canonical = yield* Effect.forEach(entries, (entry) => resolveDirectory(entry))
       const root = canonical[0]
       if (!root) return yield* fail("Git did not identify a primary worktree")
       if (directory === root || !canonical.includes(directory))

@@ -204,6 +204,7 @@ type ServerSDKBase = {
   api: CompatibleApi
   currentApi: ServerApi
   lab: LabApi
+  resolveDirectory: (directory: string) => Promise<string>
   event: {
     on: ServerEventEmitter["on"]
     listen: ServerEventEmitter["listen"]
@@ -393,6 +394,10 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     scope,
     protocol,
     protocolKind,
+    async resolveDirectory(directory: string) {
+      if ((await protocol) === "v1") return (await sdk.path.get({ directory }, { throwOnError: true })).data.directory
+      return (await currentApi.location.get({ location: { directory } })).directory
+    },
     url: server.http.url,
     client: sdk,
     api,

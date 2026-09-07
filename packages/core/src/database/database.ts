@@ -9,6 +9,7 @@ import { isAbsolute, join } from "path"
 import { DatabaseMigration } from "./migration"
 import { InstallationChannel } from "../installation/version"
 import { makeGlobalNode } from "../effect/app-node"
+import { StoragePaths } from "../storage-paths"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 type DatabaseShape = Effect.Success<typeof makeDatabase>
@@ -45,6 +46,7 @@ export function path() {
     if (Flag.OPENCODE_DB === ":memory:" || isAbsolute(Flag.OPENCODE_DB)) return Flag.OPENCODE_DB
     return join(Global.Path.data, Flag.OPENCODE_DB)
   }
+  if (Global.Path.root) return StoragePaths.database(Global.Path.root)
   if (
     ["latest", "beta", "prod"].includes(InstallationChannel) ||
     process.env.OPENCODE_DISABLE_CHANNEL_DB === "1" ||

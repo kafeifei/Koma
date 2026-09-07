@@ -6,7 +6,9 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
-import { app, BrowserWindow } from "electron"
+import { app, BrowserWindow, dialog } from "electron"
+import { StoragePaths } from "@opencode-ai/core/storage-paths"
+import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -48,7 +50,7 @@ import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
-import { setNativeTranslations } from "./native-translations"
+import { nativeT, setNativeTranslations } from "./native-translations"
 import { prepareLabEnvironment } from "./lab-environment"
 import { createWebEntryController } from "./web-entry-controller"
 import { initializeRuntimeResources, runtimePath } from "./resources"
@@ -128,6 +130,7 @@ const main = Effect.gen(function* () {
       mkdirSync(join(root, dir), { recursive: true }),
     )
     process.env.OPENCODE_DB = ":memory:"
+    delete process.env.OPENCODE_HOME
     process.env.XDG_DATA_HOME = join(root, "data")
     process.env.XDG_CONFIG_HOME = join(root, "config")
     process.env.XDG_CACHE_HOME = join(root, "cache")
@@ -136,9 +139,46 @@ const main = Effect.gen(function* () {
   })()
   app.setName(app.isPackaged || CHANNEL === "lab" ? APP_NAME : "OpenCode Dev")
   app.setAppUserModelId(appId)
+  const labRoot =
+    CHANNEL === "lab" && !onboardingTestRoot ? (process.env.OPENCODE_HOME ?? join(homedir(), ".opencode")) : undefined
+  if (labRoot) {
+    const prepared = yield* Effect.promise(async () => {
+      try {
+        const root = StoragePaths.resolve(labRoot).root
+        const paths = {
+          root,
+          legacyRoot:
+            root === join(homedir(), ".opencode") ? join(app.getPath("appData"), "OpenCode Lab") : `${root}.legacy`,
+        }
+        const lease = await StorageMigration.lock(root)
+        try {
+          app.setPath("userData", StorageMigration.unifiedHomeLockPath(paths))
+          if (!StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: () => app.requestSingleInstanceLock() })) {
+            return false
+          }
+        } finally {
+          await lease.release()
+        }
+        prepareLabEnvironment(process.env, root)
+        return true
+      } catch (error) {
+        dialog.showErrorBox(
+          nativeT("desktop.recovery.loadFailed"),
+          error instanceof Error ? error.message : String(error),
+        )
+        return false
+      }
+    })
+    if (!prepared) {
+      app.quit()
+      return
+    }
+  }
   const userDataPath = onboardingTestRoot
     ? join(onboardingTestRoot, "desktop")
-    : join(app.getPath("appData"), CHANNEL === "lab" ? APP_NAME : appId)
+    : labRoot
+      ? StoragePaths.resolve(labRoot).desktop
+      : join(app.getPath("appData"), appId)
   app.setPath("userData", userDataPath)
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   if (CHANNEL === "lab" && !onboardingTestRoot) app.setPath("sessionData", join(userDataPath, "session"))
@@ -199,7 +239,7 @@ const main = Effect.gen(function* () {
   app.commandLine.appendSwitch("enable-features", features ? `${jsCallStackFeature},${features}` : jsCallStackFeature)
   if (!app.isPackaged) app.commandLine.appendSwitch("remote-debugging-port", "9222")
 
-  if (!app.requestSingleInstanceLock()) {
+  if (!labRoot && !app.requestSingleInstanceLock()) {
     app.quit()
     return
   }
@@ -221,7 +261,7 @@ const main = Effect.gen(function* () {
   })
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
-  if (CHANNEL === "lab") prepareLabEnvironment(process.env, app.getPath("userData"))
+  if (labRoot) prepareLabEnvironment(process.env, labRoot)
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith(`${APP_PROTOCOL}://`))
