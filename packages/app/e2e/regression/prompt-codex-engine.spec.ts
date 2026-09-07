@@ -7,6 +7,7 @@ const directory = "/tmp/opencode-lab-codex-composer"
 const otherDirectory = "/tmp/opencode-lab-codex-composer-b"
 const projectID = "project-codex-composer"
 const sessionID = "ses_codex_composer"
+const createdSessionID = "ses_codex_created"
 const draftA = `input:${base64Encode(JSON.stringify(["local", directory]))}`
 const draftB = `input:${base64Encode(JSON.stringify(["local", otherDirectory]))}`
 const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
@@ -36,6 +37,8 @@ test("keeps Codex settings and text with their draft and preserves a rejected fi
   await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
   await page.goto(draftHref(draftB))
   await expect(page).toHaveURL(new URL(draftHref(draftB), page.url()).href)
+  await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
+  await choose(page, "prompt-engine", "OpenCode")
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("OpenCode")
   await expect(editor).toHaveText("")
   await editor.fill("Keep OpenCode draft B")
@@ -62,6 +65,58 @@ test("keeps Codex settings and text with their draft and preserves a rejected fi
       settings: { model: "gpt-5.6-luna", effort: "high", permission: "full" },
     },
   })
+})
+
+test("restores Codex settings across refresh, project inputs and a successful first send", async ({ page }) => {
+  const backend = await setup(page, { acceptCreate: true })
+  await page.goto(draftHref(draftA))
+  const editor = page.locator('[data-component="prompt-input"]')
+  await choose(page, "prompt-engine", "Codex")
+  await choose(page, "prompt-codex-model", "GPT-5.6-Luna")
+  await choose(page, "prompt-codex-effort", "high")
+  await choose(page, "prompt-codex-permission", "Full access")
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem("opencode.global.dat:composer-preferences") ?? "{}") as {
+          target?: Record<string, { codex?: { permission?: string } }>
+        }
+        return Object.values(saved.target ?? {}).some((item) => item.codex?.permission === "full")
+      }),
+    )
+    .toBe(true)
+  await page.reload()
+  await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
+  await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
+  await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
+  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+
+  await page.goto(draftHref(draftB))
+  await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
+  await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
+  await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
+  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+  await page.goto(draftHref(draftA))
+  await editor.fill("Create remembered Codex task")
+  await page.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Created Codex task", exact: true })).toBeVisible()
+  expect(backend.nativeCreates).toHaveLength(1)
+  expect(backend.nativeCreates[0]).toMatchObject({
+    engine: "codex",
+    input: {
+      settings: { model: "gpt-5.6-luna", effort: "high", permission: "full" },
+    },
+  })
+
+  await page
+    .locator(`[data-slot="workspace-project"][data-directory="${directory}"]`)
+    .getByRole("button", { name: "New task", exact: true })
+    .click()
+  await expect(page).toHaveURL(new URL(draftHref(draftA), page.url()).href)
+  await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
+  await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
+  await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
+  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
 })
 
 test("leaves the OpenCode composer unchanged when the server does not advertise Codex", async ({ page }) => {
@@ -190,6 +245,7 @@ async function setup(
     newLayout?: boolean
     runtimeStatus?: "idle" | "disconnected"
     sessionEngine?: "codex" | "opencode"
+    acceptCreate?: boolean
   },
 ) {
   const session = {
@@ -222,7 +278,21 @@ async function setup(
       time: { created: 1, updated: 1 },
       sandboxes: [otherDirectory],
     },
-    sessions: [session],
+    sessions: [
+      session,
+      ...(options?.acceptCreate
+        ? [
+            {
+              id: createdSessionID,
+              engine: "codex",
+              projectID,
+              directory,
+              title: "Created Codex task",
+              time: { created: 2, updated: 2 },
+            },
+          ]
+        : []),
+    ],
     provider: {
       all: [{ id: "opencode", name: "OpenCode", models: { model: { id: "model", name: "OpenCode Model" } } }],
       connected: ["opencode"],
@@ -246,12 +316,41 @@ async function setup(
       return json(route, options?.advertiseCodex === false ? [] : engines(options?.codexAvailable ?? true))
     if (url.pathname === "/lab/sessions/describe") {
       const body = route.request().postDataJSON() as { sessionIDs: string[] }
-      return json(route, body.sessionIDs.includes(sessionID) ? [current] : [])
+      return json(
+        route,
+        body.sessionIDs.flatMap((id) => {
+          if (id === sessionID) return [current]
+          if (id === createdSessionID && options?.acceptCreate) return [{ ...current, sessionID: createdSessionID }]
+          return []
+        }),
+      )
     }
     if (url.pathname === `/lab/sessions/${sessionID}` && route.request().method() === "GET")
       return json(route, snapshot(current))
+    if (url.pathname === `/lab/sessions/${createdSessionID}` && route.request().method() === "GET")
+      return json(route, snapshot({ ...current, sessionID: createdSessionID }))
     if (url.pathname === "/lab/sessions" && route.request().method() === "POST") {
-      nativeCreates.push(route.request().postDataJSON() as LabCreateInput)
+      const body = route.request().postDataJSON() as LabCreateInput
+      nativeCreates.push(body)
+      if (options?.acceptCreate) {
+        const created = {
+          ...current,
+          sessionID: createdSessionID,
+          settings: body.input.settings,
+          pendingSettings: undefined,
+        }
+        return json(route, {
+          descriptor: created,
+          delivery: {
+            sessionID: createdSessionID,
+            requestID: body.requestID,
+            state: "accepted",
+            delivery: body.delivery,
+            input: body.input,
+            createdAt: Date.now(),
+          },
+        })
+      }
       return json(route, { message: "Native create rejected", code: "nativeError" }, 409)
     }
     if (url.pathname === `/lab/sessions/${sessionID}/settings` && route.request().method() === "POST") {

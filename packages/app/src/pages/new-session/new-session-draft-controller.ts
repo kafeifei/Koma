@@ -10,8 +10,10 @@ import { createPromptInputController, createPromptProjectControls } from "@/page
 import { createPromptModelSelection } from "@/pages/session/composer/prompt-model-selection"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
+import { createNewSessionComposerPreferences } from "./composer-preferences"
 
 export function createNewSessionDraftController(workspace: {
+  projectRoot: () => string | undefined
   worktree: () => string
   baseBranch: () => string | undefined
   ready: () => boolean
@@ -49,6 +51,13 @@ export function createNewSessionDraftController(workspace: {
     },
     onNewSessionWorktreeReset: workspace.resetWorktree,
     onSubmit: comments.clear,
+  })
+  createNewSessionComposerPreferences({
+    projectRoot: workspace.projectRoot,
+    prompt,
+    model,
+    permission: input.permission,
+    codex: input.codex,
   })
 
   createEffect(() => {

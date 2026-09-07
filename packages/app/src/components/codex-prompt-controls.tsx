@@ -102,6 +102,7 @@ export function createCodexPromptController(input: {
 
   return {
     busy: () => state.busy,
+    catalog: codex,
     canSubmit,
     session: () => !!input.sessionID(),
     engine: {

@@ -99,7 +99,7 @@ export function createNewSessionWorkspaceController() {
       setBaseBranch: (branch: string) => setBranchPreference("selected", projectKey(), branch),
     },
     project: {
-      root: projectRoot,
+      root: () => (sync().ready && sync().project ? projectRoot() : undefined),
       git: () => sync().project?.vcs === "git",
       branches: () => options()?.branches ?? [],
     },

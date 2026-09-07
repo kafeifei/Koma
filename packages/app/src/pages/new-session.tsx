@@ -13,6 +13,7 @@ export default function NewSessionPage() {
   const rightMount = useTitlebarRightMount()
   const workspace = createNewSessionWorkspaceController()
   const draft = createNewSessionDraftController({
+    projectRoot: workspace.project.root,
     worktree: workspace.selection.value,
     baseBranch: workspace.bar.submitBranch,
     ready: workspace.selection.ready,

@@ -45,6 +45,27 @@ test.beforeEach(async ({ page }) => {
     provider: fixture.provider,
     pageMessages: () => ({ items: [] }),
   })
+  await page.route("**/api/project", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "proj-retention",
+          worktree: directory,
+          vcs: "git",
+          name: "InputRetention",
+          time: {},
+          sandboxes: [feature],
+        },
+        { id: "proj-other", worktree: other, vcs: "git", name: "OtherProject", time: {}, sandboxes: [] },
+      ],
+    }),
+  )
+  await page.route("**/api/project/current**", (route) => {
+    const url = new URL(route.request().url())
+    const encoded = route.request().headers()["x-opencode-directory"]
+    const selected = url.searchParams.get("directory") ?? (encoded ? decodeURIComponent(encoded) : directory)
+    return route.fulfill({ json: { id: selected === other ? "proj-other" : "proj-retention", directory: selected } })
+  })
   const catalog: Record<string, unknown> = {
     "/api/provider": [{ id: "openai", name: "OpenAI", package: "@ai-sdk/openai", settings: {} }],
     "/api/model": [
@@ -56,6 +77,22 @@ test.beforeEach(async ({ page }) => {
         capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
         variants: [],
         time: { released: 1 },
+        cost: [{ input: 1, output: 2, cache: { read: 0, write: 0 } }],
+        status: "active",
+        enabled: true,
+        limit: { context: 128000, output: 8192 },
+      },
+      {
+        id: "remembered-model",
+        modelID: "remembered-model",
+        providerID: "openai",
+        name: "Remembered Model",
+        capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
+        variants: [
+          { id: "high", headers: {}, body: {} },
+          { id: "medium", headers: {}, body: {} },
+        ],
+        time: { released: Date.now() },
         cost: [{ input: 1, output: 2, cache: { read: 0, write: 0 } }],
         status: "active",
         enabled: true,
@@ -202,6 +239,63 @@ test("retains the last selected permission through close, refresh and first subm
       }),
     )
     .toHaveLength(2)
+})
+
+test("restores model, variant and permission for new inputs in the same project", async ({ page }) => {
+  await page.route("**/api/project", (route) =>
+    route.fulfill({
+      json: [
+        { id: "proj-retention", worktree: directory, vcs: "git", time: {}, sandboxes: [feature] },
+        { id: "proj-other", worktree: other, vcs: "git", time: {}, sandboxes: [] },
+      ],
+    }),
+  )
+  await page.evaluate(
+    ({ directory }) => {
+      localStorage.setItem(
+        "opencode.global.dat:composer-preferences",
+        JSON.stringify({
+          target: {
+            [`local\u0000${directory}`]: {
+              engine: "opencode",
+              opencode: {
+                model: { providerID: "openai", modelID: "remembered-model", variant: "high" },
+                permission: "full",
+              },
+            },
+          },
+        }),
+      )
+    },
+    { directory },
+  )
+  await page.reload()
+  await openProject(page, directory)
+
+  const model = page.locator('[data-action="prompt-model"]')
+  const permission = page.locator('[data-action="prompt-permission"]')
+  await expect(model).toContainText("Remembered Model")
+  const variant = page.getByRole("button", { name: "Choose model variant" })
+  await expect(variant).toContainText("high")
+  await expect(permission).toContainText("Full Access")
+
+  await page.locator('[data-action="prompt-project"]').click()
+  await page.getByRole("menuitemradio", { name: "feature", exact: true }).click()
+  await expect(page).toHaveURL(new URL(inputHref(feature), page.url()).href)
+  await expect(model).toContainText("Remembered Model")
+  await expect(variant).toContainText("high")
+  await expect(permission).toContainText("Full Access")
+  await page.reload()
+  await expect(model).toContainText("Remembered Model")
+  await expect(variant).toContainText("high")
+  await expect(permission).toContainText("Full Access")
+
+  await openProject(page, other)
+  await expect(model).not.toContainText("Remembered Model")
+  await expect(permission).toContainText("Default permissions")
+  await sidebar(page).locator('[data-session-id="ses-retained"]').click()
+  await expect(model).not.toContainText("Remembered Model")
+  await expect(permission).toContainText("Default permissions")
 })
 
 test("an explicitly selected default never falls back to the directory's full permission mode on reopen", async ({
