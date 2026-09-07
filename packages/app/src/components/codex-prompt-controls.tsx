@@ -158,7 +158,18 @@ const valueClasses = "truncate text-13-regular text-text-base"
 export function PromptEngineSelect(props: { controller: CodexPromptController }) {
   const language = useLanguage()
   return (
-    <Show when={props.controller.engine.mutable()}>
+    <Show
+      when={props.controller.engine.mutable()}
+      fallback={
+        <span
+          data-component="prompt-engine-label"
+          aria-label={language.t("codex.engine.label")}
+          class="max-w-[180px] truncate px-2 text-13-regular text-text-weak"
+        >
+          {props.controller.engine.current() === "codex" ? "Codex" : "OpenCode"}
+        </span>
+      }
+    >
       <Select
         size="normal"
         options={["opencode", "codex"] as PromptEngine[]}
