@@ -20,7 +20,7 @@ import { migrateLegacySessionStateKeys, ServerScope, SessionStateKey } from "@/u
 import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout-helpers"
 import { requireServerKey } from "@/utils/session-route"
 import { type DraftTab, useTabs } from "./tabs"
-import { closeSessionTab, openSessionTab, previewSessionTab, type SessionTabs } from "./layout-tabs"
+import { closeSessionTab, openSessionTab, previewSessionTab, replaceSessionTab, type SessionTabs } from "./layout-tabs"
 
 export { createSessionKeyReader, ensureSessionKey, pruneSessionKeys }
 
@@ -1110,6 +1110,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               session,
               closeSessionTab({ tabs: current, preview: ephemeral.sessionTabPreview[session] }, normalize(tab)),
             )
+          },
+          replace(previous: string, next: string) {
+            const session = key()
+            const current = store.sessionTabs[session]
+            if (!current) return
+            const replacement = replaceSessionTab(
+              { tabs: current, preview: ephemeral.sessionTabPreview[session] },
+              normalize(previous),
+              normalize(next),
+            )
+            if (replacement.tabs === current) return
+            apply(session, replacement)
           },
           move(tab: string, to: number) {
             const session = key()

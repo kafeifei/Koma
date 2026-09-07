@@ -51,6 +51,33 @@ test("reactive count updates preserve measured row sizes", () => {
   })
 })
 
+test("reactive start padding updates the first row and total size", () => {
+  createRoot((dispose) => {
+    const [headerInTitlebar, setHeaderInTitlebar] = createSignal(false)
+    const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
+      count: 2,
+      getScrollElement: () => null,
+      estimateSize: () => 60,
+      initialRect: { width: 800, height: 600 },
+      get paddingStart() {
+        return headerInTitlebar() ? 24 : 0
+      },
+    })
+
+    expect(virtualizer.getVirtualItems()[0]?.start).toBe(0)
+    expect(virtualizer.getTotalSize()).toBe(120)
+    virtualizer.resizeItem(0, 100)
+    expect(virtualizer.getTotalSize()).toBe(160)
+    setHeaderInTitlebar(true)
+    expect(virtualizer.getVirtualItems()[0]?.start).toBe(24)
+    expect(virtualizer.getTotalSize()).toBe(184)
+    setHeaderInTitlebar(false)
+    expect(virtualizer.getVirtualItems()[0]?.start).toBe(0)
+    expect(virtualizer.getTotalSize()).toBe(160)
+    dispose()
+  })
+})
+
 test("initial rect projects rows before a scroll element connects", () => {
   createRoot((dispose) => {
     const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({

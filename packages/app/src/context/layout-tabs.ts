@@ -101,3 +101,16 @@ export function closeSessionTab(current: SessionTabState, tab: string): SessionT
     preview,
   }
 }
+
+export function replaceSessionTab(current: SessionTabState, previous: string, next: string): SessionTabState {
+  if (previous === next || !current.tabs.all.includes(previous)) return current
+
+  const all = [...new Set(current.tabs.all.map((tab) => (tab === previous ? next : tab)))]
+  return {
+    tabs: {
+      all,
+      active: current.tabs.active === previous ? next : current.tabs.active,
+    },
+    preview: current.preview === previous ? next : current.preview,
+  }
+}

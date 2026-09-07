@@ -4,6 +4,7 @@ import { ServerScope } from "@/utils/server-scope"
 let getWorkspaceTerminalCacheKey: typeof import("./terminal").getWorkspaceTerminalCacheKey
 let getLegacyTerminalStorageKeys: (dir: string, legacySessionID?: string) => string[]
 let migrateTerminalState: (value: unknown) => unknown
+let recoveredTerminal: typeof import("./terminal").recoveredTerminal
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
@@ -22,6 +23,7 @@ beforeAll(async () => {
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys
   migrateTerminalState = mod.migrateTerminalState
+  recoveredTerminal = mod.recoveredTerminal
 })
 
 describe("getWorkspaceTerminalCacheKey", () => {
@@ -86,6 +88,35 @@ describe("migrateTerminalState", () => {
         { id: "one", title: "Terminal 1", titleNumber: 1 },
         { id: "two", title: "shell", titleNumber: 7 },
       ],
+    })
+  })
+})
+
+describe("recoveredTerminal", () => {
+  test("keeps the logical title and clears state owned by the replaced PTY", () => {
+    expect(
+      recoveredTerminal(
+        {
+          id: "old",
+          title: "shell",
+          titleNumber: 3,
+          buffer: "output",
+          cursor: 20,
+          scrollY: 4,
+          rows: 24,
+          cols: 80,
+        },
+        { id: "new" },
+      ),
+    ).toEqual({
+      id: "new",
+      title: "shell",
+      titleNumber: 3,
+      buffer: undefined,
+      cursor: undefined,
+      scrollY: undefined,
+      rows: undefined,
+      cols: undefined,
     })
   })
 })

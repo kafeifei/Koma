@@ -14,6 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useServerSDK } from "@/context/server-sdk"
 import { terminalFontFamily, useSettings } from "@/context/settings"
 import type { LocalPTY } from "@/context/terminal"
+import { dispatchTerminalFailure, type TerminalFailureSource } from "@/context/terminal-recovery-owner"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
 import { terminalWriter } from "@/utils/terminal-writer"
 import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
@@ -27,7 +28,7 @@ export interface TerminalProps extends ComponentProps<"div"> {
   onSubmit?: () => void
   onCleanup?: (pty: Partial<LocalPTY> & { id: string }) => void
   onConnect?: () => void
-  onConnectError?: (error: unknown) => void
+  onTerminalGone?: (error: unknown) => void
 }
 
 let shared: Promise<{ mod: typeof import("ghostty-web"); ghostty: Ghostty }> | undefined
@@ -192,7 +193,7 @@ export const Terminal = (props: TerminalProps) => {
     "autoFocus",
     "onAutoFocus",
     "onConnect",
-    "onConnectError",
+    "onTerminalGone",
   ])
   const id = local.pty.id
   const restore = typeof local.pty.buffer === "string" ? local.pty.buffer : ""
@@ -227,6 +228,24 @@ export const Terminal = (props: TerminalProps) => {
   let drop: VoidFunction | undefined
   let reconn: ReturnType<typeof setTimeout> | undefined
   let tries = 0
+  let failureReported = false
+
+  const fail = (source: TerminalFailureSource, error: unknown) => {
+    if (disposed || failureReported) return
+    failureReported = true
+    dispatchTerminalFailure({
+      source,
+      error,
+      report: (cause) => {
+        showToast({
+          variant: "error",
+          title: language.t("terminal.connectionLost.title"),
+          description: cause instanceof Error ? cause.message : language.t("terminal.connectionLost.description"),
+        })
+      },
+      recover: (cause) => local.onTerminalGone?.(cause),
+    })
+  }
 
   const cleanup = () => {
     if (!cleanups.length) return
@@ -526,15 +545,7 @@ export const Terminal = (props: TerminalProps) => {
         startResize()
       }
 
-      const once = { value: false }
       const decoder = new TextDecoder()
-
-      const fail = (err: unknown) => {
-        if (disposed) return
-        if (once.value) return
-        once.value = true
-        local.onConnectError?.(err)
-      }
 
       const gone = async () => {
         if ((await sdk().protocol) === "v1") {
@@ -595,12 +606,12 @@ export const Terminal = (props: TerminalProps) => {
           if (disposed) return
           if (await gone()) {
             if (disposed) return
-            fail(err)
+            fail("missing", err)
             return
           }
           if (disposed) return
           tries += 1
-          open()
+          void open().catch((error) => fail("network", error))
         }, ms)
       }
 
@@ -609,12 +620,12 @@ export const Terminal = (props: TerminalProps) => {
         drop?.()
 
         const ticket = await connectToken().catch((err) => {
-          fail(err)
+          fail("ticket", err)
           return undefined
         })
         const protocol = await sdk().protocol
         // if (protocol === "v2" && !ticket) return
-        if (once.value) return
+        if (failureReported) return
         if (disposed) return
 
         const socket = new WebSocket(
@@ -702,18 +713,10 @@ export const Terminal = (props: TerminalProps) => {
         socket.addEventListener("close", handleClose)
       }
 
-      open()
+      void open().catch((error) => fail("network", error))
     }
 
-    void run().catch((err) => {
-      if (disposed) return
-      showToast({
-        variant: "error",
-        title: language.t("terminal.connectionLost.title"),
-        description: err instanceof Error ? err.message : language.t("terminal.connectionLost.description"),
-      })
-      local.onConnectError?.(err)
-    })
+    void run().catch((err) => fail("initialization", err))
   })
 
   onCleanup(() => {

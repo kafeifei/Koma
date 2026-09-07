@@ -7,6 +7,7 @@ import type { Platform } from "./platform"
 import { useServerSDK } from "./server-sdk"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { defaultTitle, titleNumber } from "./terminal-title"
+import { createTerminalRecoveryOwner } from "./terminal-recovery-owner"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { ScopedKey, ServerScope, type ServerScope as ServerScopeValue } from "@/utils/server-scope"
 
@@ -110,6 +111,19 @@ const trimTerminal = (pty: LocalPTY) => {
     buffer: undefined,
     cursor: undefined,
     scrollY: undefined,
+  }
+}
+
+export function recoveredTerminal(current: LocalPTY, candidate: { id: string; title?: string }) {
+  return {
+    id: candidate.id,
+    title: candidate.title ?? current.title,
+    titleNumber: current.titleNumber,
+    buffer: undefined,
+    cursor: undefined,
+    scrollY: undefined,
+    rows: undefined,
+    cols: undefined,
   }
 }
 
@@ -220,7 +234,52 @@ function createWorkspaceTerminalSession(
     )
   }
 
+  const createPty = async (title: string) => {
+    const data =
+      (await sdk.protocol) === "v1"
+        ? (await sdk.client.pty.create({ title })).data
+        : (await sdk.api.pty.create({ location, title })).data
+    if (!data?.id) return
+    return { id: data.id, title: data.title }
+  }
+
+  const removePty = async (id: string) => {
+    if ((await sdk.protocol) === "v1") {
+      await sdk.client.pty.remove({ ptyID: id })
+      return
+    }
+    await sdk.api.pty.remove({ ptyID: id, location })
+  }
+
+  const recovery = createTerminalRecoveryOwner({
+    exists: (id) => store.all.some((pty) => pty.id === id),
+    create: async (id) => {
+      const current = store.all.find((pty) => pty.id === id)
+      if (!current) return
+      return createPty(current.title)
+    },
+    replace: (id, candidate) => {
+      const index = store.all.findIndex((pty) => pty.id === id)
+      const current = store.all[index]
+      if (!current) return false
+      const active = store.active === id
+
+      batch(() => {
+        setStore("all", index, recoveredTerminal(current, candidate))
+        if (active) setStore("active", candidate.id)
+      })
+      return true
+    },
+    discard: async (id) => {
+      await removePty(id).catch((error: unknown) => {
+        console.error("Failed to discard terminal recovery candidate", error)
+      })
+    },
+  })
+  onCleanup(() => recovery.dispose())
+
   const removeExited = (id: string) => {
+    recovery.cancel(id)
     const all = store.all
     const index = all.findIndex((x) => x.id === id)
     if (index === -1) return
@@ -272,51 +331,12 @@ function createWorkspaceTerminalSession(
     })
   }
 
-  const clone = async (id: string) => {
-    const index = store.all.findIndex((x) => x.id === id)
-    const pty = store.all[index]
-    if (!pty) return
-    const data = await (async () => {
-      if ((await sdk.protocol) === "v1") {
-        return (await sdk.client.pty.create({ title: pty.title })).data
-      }
-      return (
-        await sdk.api.pty.create({
-          location,
-          title: pty.title,
-        })
-      ).data
-    })().catch((error: unknown) => {
-      console.error("Failed to clone terminal", error)
-      return undefined
-    })
-    if (!data?.id) return
-
-    const active = store.active === pty.id
-
-    batch(() => {
-      setStore("all", index, {
-        id: data.id,
-        title: data.title ?? pty.title,
-        titleNumber: pty.titleNumber,
-        buffer: undefined,
-        cursor: undefined,
-        scrollY: undefined,
-        rows: undefined,
-        cols: undefined,
-      })
-      if (active) {
-        setStore("active", data.id)
-      }
-    })
-    return data.id
-  }
-
   return {
     ready,
     all: createMemo(() => store.all),
     active: createMemo(() => store.active),
     clear() {
+      recovery.clear()
       batch(() => {
         setStore("active", undefined)
         setStore("all", [])
@@ -326,13 +346,7 @@ function createWorkspaceTerminalSession(
       const nextNumber = pickNextTerminalNumber()
       const focusRequest = options?.focus ? requestFocus(undefined, true) : undefined
 
-      const doCreate = async () => {
-        if ((await sdk.protocol) === "v1") {
-          return (await sdk.client.pty.create({ title: defaultTitle(nextNumber) })).data
-        }
-        return (await sdk.api.pty.create({ location, title: defaultTitle(nextNumber) })).data
-      }
-      return doCreate()
+      return createPty(defaultTitle(nextNumber))
         .then((data) => {
           const id = data?.id
           if (!id) {
@@ -373,8 +387,14 @@ function createWorkspaceTerminalSession(
         return next
       })
     },
-    async clone(id: string) {
-      return clone(id)
+    recover(id: string) {
+      return recovery.recover(id).catch((error: unknown) => {
+        console.error("Failed to recover terminal", error)
+        return undefined
+      })
+    },
+    connected(id: string) {
+      recovery.connected(id)
     },
     bind() {
       return {
@@ -386,8 +406,14 @@ function createWorkspaceTerminalSession(
         update(pty: Partial<LocalPTY> & { id: string }) {
           update(pty)
         },
-        async clone(id: string) {
-          return clone(id)
+        recover(id: string) {
+          return recovery.recover(id).catch((error: unknown) => {
+            console.error("Failed to recover terminal", error)
+            return undefined
+          })
+        },
+        connected(id: string) {
+          recovery.connected(id)
         },
       }
     },
@@ -420,6 +446,7 @@ function createWorkspaceTerminalSession(
       setStore("active", store.all[prevIndex]?.id)
     },
     async close(id: string) {
+      recovery.cancel(id)
       const index = store.all.findIndex((f) => f.id === id)
       if (index !== -1) {
         batch(() => {
@@ -436,11 +463,7 @@ function createWorkspaceTerminalSession(
         })
       }
 
-      const removePromise =
-        (await sdk.protocol) === "v1"
-          ? sdk.client.pty.remove({ ptyID: id })
-          : sdk.api.pty.remove({ ptyID: id, location })
-      await removePromise.catch((error: unknown) => {
+      await removePty(id).catch((error: unknown) => {
         console.error("Failed to close terminal", error)
       })
     },
@@ -533,7 +556,8 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       update: (pty: Partial<LocalPTY> & { id: string }) => workspace().update(pty),
       trim: (id: string) => workspace().trim(id),
       trimAll: () => workspace().trimAll(),
-      clone: (id: string) => workspace().clone(id),
+      recover: (id: string) => workspace().recover(id),
+      connected: (id: string) => workspace().connected(id),
       bind: () => workspace(),
       open: (id: string) => workspace().open(id),
       requestFocus: (id?: string) => workspace().requestFocus(id),

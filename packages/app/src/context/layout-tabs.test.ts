@@ -4,6 +4,7 @@ import {
   closeSessionTab,
   openSessionTab,
   previewSessionTab,
+  replaceSessionTab,
   type SessionTabState,
 } from "./layout-tabs"
 
@@ -78,5 +79,32 @@ describe("closeSessionTab", () => {
         "file://b.ts",
       ),
     ).toEqual(state(["file://a.ts", "file://c.ts"], "file://a.ts"))
+  })
+})
+
+describe("replaceSessionTab", () => {
+  test("replaces the current tab, active selection and preview together", () => {
+    expect(
+      replaceSessionTab(
+        state(["terminal://old", "file://a.ts"], "terminal://old", "terminal://old"),
+        "terminal://old",
+        "terminal://next",
+      ),
+    ).toEqual(state(["terminal://next", "file://a.ts"], "terminal://next", "terminal://next"))
+  })
+
+  test("ignores a late replacement after the old tab was closed", () => {
+    const current = state(["terminal://kept"], "terminal://kept")
+    expect(replaceSessionTab(current, "terminal://closed", "terminal://next")).toBe(current)
+  })
+
+  test("does not duplicate an existing replacement target", () => {
+    expect(
+      replaceSessionTab(
+        state(["terminal://old", "terminal://next"], "terminal://old"),
+        "terminal://old",
+        "terminal://next",
+      ),
+    ).toEqual(state(["terminal://next"], "terminal://next"))
   })
 })

@@ -59,7 +59,6 @@ export function TerminalPanelV2(
 
   const [store, setStore] = createStore({
     autoCreated: false,
-    recovered: {} as Record<string, boolean>,
     view: typeof window === "undefined" ? 1000 : (window.visualViewport?.height ?? window.innerHeight),
   })
 
@@ -151,22 +150,11 @@ export function TerminalPanelV2(
   const all = terminal.all
   const ids = createMemo(() => all().map((pty) => pty.id))
 
-  const recoverTerminal = (key: string, id: string, ops: ReturnType<typeof terminal.bind>) => {
-    if (store.recovered[key]) return
-    setStore("recovered", key, true)
+  const recoverTerminal = (id: string, ops: ReturnType<typeof terminal.bind>) => {
     const replaced = props.onTerminalReplaced
-    void ops.clone(id).then((next) => {
+    void ops.recover(id).then((next) => {
       if (next && next !== id) replaced?.(id, next)
     })
-  }
-
-  const terminalRecoveryKey = (pty: { id: string; title: string; titleNumber: number }) => {
-    return String(pty.titleNumber || pty.title || pty.id)
-  }
-
-  const markTerminalConnected = (key: string, id: string, trim: (id: string) => void) => {
-    setStore("recovered", key, false)
-    trim(id)
   }
 
   const handleTerminalDragEnd = () => {
@@ -348,9 +336,12 @@ export function TerminalPanelV2(
                               autoFocus={terminal.focusRequested(id)}
                               onAutoFocus={() => terminal.consumeFocus(id)}
                               class="!px-[14px]"
-                              onConnect={() => markTerminalConnected(terminalRecoveryKey(pty()), id, ops.trim)}
+                              onConnect={() => {
+                                ops.connected(id)
+                                ops.trim(id)
+                              }}
                               onCleanup={ops.update}
-                              onConnectError={() => recoverTerminal(terminalRecoveryKey(pty()), id, ops)}
+                              onTerminalGone={() => recoverTerminal(id, ops)}
                             />
                           </div>
                         )}

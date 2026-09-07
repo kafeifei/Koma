@@ -465,6 +465,9 @@ export function MessageTimeline(props: {
       return showInlineHeader() ? 64 : 0
     },
     overscan: 50,
+    get paddingStart() {
+      return headerInTitlebar() ? 24 : 0
+    },
     paddingEnd: 64,
     rangeExtractor: (range) => {
       const id = activeMessageID()

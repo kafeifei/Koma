@@ -30,6 +30,11 @@ describe("side workspace tabs", () => {
     expect(sidePanelTab(REVIEW_TAB)).toEqual({ type: "review" })
   })
 
+  test("does not restore an arbitrary missing active tab", () => {
+    const current = { all: [terminalTab("pty_kept")], active: terminalTab("pty_closed") }
+    expect(normalizeWorkspaceTabs(current)).toBe(current)
+  })
+
   test("restores typed targets without confusing files with inspection targets", () => {
     const part = { sessionID: "ses_parent", messageID: "msg_1", id: "prt_1" }
     expect(sidePanelTab(toolDetailTab(part))).toEqual({

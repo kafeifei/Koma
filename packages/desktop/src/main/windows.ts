@@ -16,9 +16,9 @@ import { nativeT } from "./native-translations"
 import { createWindowRegistry } from "./window-registry"
 import { safeWindowURL } from "./window-state"
 import { resolveExternalURL, resolveLocalFilePath } from "./external-url"
+import { runtimePath } from "./resources"
 
 const root = dirname(fileURLToPath(import.meta.url))
-const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
@@ -197,7 +197,7 @@ export function createMainWindow(id: string = randomUUID()) {
         }
       : {}),
     webPreferences: {
-      preload: join(root, "../preload/index.js"),
+      preload: runtimePath("preload", "index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -290,6 +290,7 @@ function windowDataFile(id: string) {
 
 export function registerRendererProtocol() {
   if (protocol.isProtocolHandled(rendererProtocol)) return
+  const rendererRoot = runtimePath("renderer")
 
   protocol.handle(rendererProtocol, async (request) => {
     const url = new URL(request.url)

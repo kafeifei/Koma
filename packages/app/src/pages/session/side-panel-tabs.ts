@@ -28,6 +28,12 @@ export function sidePanelTab(tab: string | undefined): SidePanelTab | undefined 
 // Upgrade only UI tab identities. The sessions, tool history and PTYs remain owned
 // by their existing stores; a closed Review tab is never added as a default.
 export function normalizeWorkspaceTabs(current: SessionTabs): SessionTabs {
+  const legacy =
+    current.active === "review" ||
+    current.active === "background-tasks" ||
+    current.all.some((tab) => tab === "review" || tab === "background-tasks")
+  if (!legacy) return current
+
   const all = [
     ...new Set(
       current.all.filter((tab) => tab !== "background-tasks").map((tab) => (tab === "review" ? REVIEW_TAB : tab)),
@@ -35,6 +41,6 @@ export function normalizeWorkspaceTabs(current: SessionTabs): SessionTabs {
   ]
   const active =
     current.active === "review" ? REVIEW_TAB : current.active === "background-tasks" ? undefined : current.active
-  if (active && !all.includes(active)) all.push(active)
+  if (active === REVIEW_TAB && !all.includes(active)) all.push(active)
   return { all, active: active ?? all[0] }
 }

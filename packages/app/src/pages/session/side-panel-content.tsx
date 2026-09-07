@@ -139,11 +139,7 @@ export function SidePanelContent(props: { tab: string }) {
                 <TerminalPanelV2
                   terminalID={item().id}
                   onTerminalReplaced={(previous, next) => {
-                    const active = ownerTabs.active()
-                    ownerTabs.setAll(
-                      ownerTabs.all().map((tab) => (tab === terminalTab(previous) ? terminalTab(next) : tab)),
-                    )
-                    if (active === terminalTab(previous)) ownerTabs.setActive(terminalTab(next))
+                    ownerTabs.replace(terminalTab(previous), terminalTab(next))
                   }}
                 />
               </Show>

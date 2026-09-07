@@ -4,7 +4,6 @@ import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, BrowserWindow } from "electron"
@@ -52,6 +51,7 @@ import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
 import { prepareLabEnvironment } from "./lab-environment"
 import { createWebEntryController } from "./web-entry-controller"
+import { initializeRuntimeResources, runtimePath } from "./resources"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -164,9 +164,12 @@ const main = Effect.gen(function* () {
       },
     },
   )
-  const stopSidecars = async () => {
-    wslServers.stopAll()
-    await Promise.all([webEntry?.stop(), killSidecar()])
+  let stopping: Promise<void> | undefined
+  const stopSidecars = () => {
+    return (stopping ??= (async () => {
+      wslServers.stopAll()
+      await Promise.all([webEntry?.stop(), killSidecar()])
+    })())
   }
   const relaunch = () => {
     setAppQuitting()
@@ -201,6 +204,22 @@ const main = Effect.gen(function* () {
     return
   }
 
+  const resources = initializeRuntimeResources()
+  logger.log("runtime resources prepared", { renderer: runtimePath("renderer") })
+  let stopped = false
+  let allowQuit = false
+  let initialized = false
+  // Cleanup is scoped to this process and happens after windows and sidecars stop.
+  // A crash may leave its temp snapshot; another instance must not remove it.
+  app.once("quit", () => {
+    if (!stopped || !initialized) return
+    try {
+      resources.dispose()
+    } catch (error) {
+      logger.warn("failed to remove runtime resource snapshot", error)
+    }
+  })
+
   const shellEnv = preferAppEnv(app.getPath("userData"))
   if (CHANNEL === "lab") prepareLabEnvironment(process.env, app.getPath("userData"))
 
@@ -223,9 +242,27 @@ const main = Effect.gen(function* () {
     emitDeepLinks([url])
   })
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     setAppQuitting()
+    if (allowQuit) return
+    event.preventDefault()
+    // A gateway still waiting for startup must not make Quit wait indefinitely.
+    // On timeout retain the snapshot, since a resource consumer may remain alive.
+    const timeout = setTimeout(() => {
+      logger.warn("runtime shutdown timed out; preserving its resource snapshot")
+      allowQuit = true
+      app.quit()
+    }, 7_000)
     void stopSidecars()
+      .then(() => {
+        stopped = true
+      })
+      .catch((error) => logger.warn("failed to stop runtime; preserving its resource snapshot", error))
+      .finally(() => {
+        clearTimeout(timeout)
+        allowQuit = true
+        app.quit()
+      })
   })
 
   app.on("will-quit", () => {
@@ -270,7 +307,7 @@ const main = Effect.gen(function* () {
   )
   webEntry = createWebEntryController({
     backend: () => Effect.runPromise(Deferred.await(serverReady)),
-    root: fileURLToPath(new URL("../renderer", import.meta.url)),
+    root: runtimePath("renderer"),
     changed: (state) => {
       BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("web-entry-state", state))
       logger.log("web entry changed", state)
@@ -419,7 +456,9 @@ const main = Effect.gen(function* () {
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)
 
   yield* Fiber.await(loadingTask)
+  if (stopping) return
   yield* Effect.promise(() => webEntry.initialize())
+  if (stopping) return
 
   app.on("window-all-closed", () => {
     if (process.platform === "darwin") return
@@ -432,6 +471,7 @@ const main = Effect.gen(function* () {
 
   const windows = restoreMainWindows()
   if (windows.length) createMenu(menuDeps)
+  initialized = true
 })
 
 Effect.runFork(main)
