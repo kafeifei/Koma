@@ -76,4 +76,26 @@ describe("Codex input", () => {
       sandboxPolicy: { type: "dangerFullAccess" },
     })
   })
+
+  test.each(["default", "auto", "workspace"] as const)("%s keeps native rules and one-shot approvals", (permission) => {
+    expect(threadSettings({ permission })).toEqual({
+      model: undefined,
+      sandbox: "workspace-write",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+    })
+    expect(turnSettings({ permission }, "/workspace")).toEqual({
+      model: undefined,
+      effort: undefined,
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/workspace"],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    })
+  })
 })

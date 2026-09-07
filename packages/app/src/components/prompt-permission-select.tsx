@@ -14,6 +14,12 @@ import "./prompt-permission-select.css"
 
 export type PromptPermissionMode = PermissionMode
 
+export type PromptPermissionSelectController = {
+  ready(): boolean
+  current(): PromptPermissionMode | undefined
+  select(mode: PromptPermissionMode): boolean | void | Promise<boolean | void>
+}
+
 export function createPromptPermissionController(sessionID: Accessor<string | undefined>) {
   const permission = usePermission()
   const sdk = useSDK()
@@ -71,13 +77,14 @@ export function createPromptPermissionController(sessionID: Accessor<string | un
 
 export type PromptPermissionController = ReturnType<typeof createPromptPermissionController>
 
-export function PromptPermissionSelect(props: { controller: PromptPermissionController; onClose?: () => void }) {
+export function PromptPermissionSelect(props: { controller: PromptPermissionSelectController; onClose?: () => void }) {
   const language = useLanguage()
   let open = false
   const label = () => {
     if (props.controller.current() === "auto") return language.t("prompt.permission.auto.label")
     if (props.controller.current() === "full") return language.t("prompt.permission.full.label")
-    return language.t("prompt.permission.default.label")
+    if (props.controller.current() === "default") return language.t("prompt.permission.default.label")
+    return language.t("prompt.permission.ariaLabel")
   }
 
   return (
@@ -107,7 +114,7 @@ export function PromptPermissionSelect(props: { controller: PromptPermissionCont
       <MenuV2.Portal>
         <MenuV2.Content class="w-72" data-slot="prompt-permission-menu">
           <MenuV2.RadioGroup
-            value={props.controller.current()}
+            value={props.controller.current() ?? ""}
             onChange={(value) => void props.controller.select(value as PromptPermissionMode)}
           >
             <MenuV2.RadioItem value="default" closeOnSelect class="!h-auto !py-2">

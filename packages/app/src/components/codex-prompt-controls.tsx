@@ -1,16 +1,23 @@
 import type { LabEnginesOutput } from "@opencode-ai/lab-client"
+import type { SessionExternal } from "@opencode-ai/schema/session-external"
 import { Select } from "@opencode-ai/ui/select"
 import type { Accessor } from "solid-js"
-import { onMount, Show } from "solid-js"
+import { createEffect, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { PromptEngine, usePrompt } from "@/context/prompt"
 import { useLanguage } from "@/context/language"
 import { useServerSync } from "@/context/server-sync"
+import type { PromptPermissionMode } from "@/components/prompt-permission-select"
 import { showToast } from "@/utils/toast"
 
 type CodexEngine = LabEnginesOutput[number]
 type CodexModel = CodexEngine["models"][number]
-type CodexSettings = { model?: string; effort?: string; permission?: "workspace" | "readOnly" | "full" }
+type CodexSettings = SessionExternal.Settings
+
+export function sharedCodexPermission(permission: CodexSettings["permission"]): PromptPermissionMode | undefined {
+  if (permission === "workspace") return "default"
+  if (permission === "default" || permission === "auto" || permission === "full") return permission
+}
 
 export function desiredCodexSettings(
   descriptor: { settings: CodexSettings; pendingSettings?: CodexSettings } | undefined,
@@ -29,6 +36,7 @@ export function createCodexPromptController(input: {
   sessionID: Accessor<string | undefined>
   sessionEngine: Accessor<PromptEngine | undefined>
   restoreFocus: () => void
+  initializeDefaultPermission?: boolean
 }) {
   const serverSync = useServerSync()
   const language = useLanguage()
@@ -54,7 +62,7 @@ export function createCodexPromptController(input: {
     )
   }
   const effort = () => settings().effort ?? model()?.defaultEffort
-  const permission = () => settings().permission ?? "native"
+  const permission = () => sharedCodexPermission(settings().permission)
   const canSubmit = () => {
     if (engine() !== "codex") return true
     if (!external().data.engines) return false
@@ -76,16 +84,21 @@ export function createCodexPromptController(input: {
     return enginesRequest
   }
   onMount(() => void refreshEngines()?.catch(() => undefined))
+  createEffect(() => {
+    if (!input.initializeDefaultPermission || input.sessionID() || !input.prompt.ready()) return
+    if (engine() !== "codex" || settings().permission !== undefined) return
+    input.prompt.codex.set({ ...settings(), permission: "default" }, { explicit: false })
+  })
 
-  const update = async (patch: { model?: string; effort?: string; permission?: "workspace" | "readOnly" | "full" }) => {
+  const update = async (patch: CodexSettings) => {
     const sessionID = input.sessionID()
     const next = updateCodexSettings(settings(), patch)
     if (!sessionID) {
       input.prompt.codex.set(next)
       input.restoreFocus()
-      return
+      return true
     }
-    if (state.busy) return
+    if (state.busy) return false
     const previous = input.prompt.codex.current()
     input.prompt.codex.set(next)
     setState("busy", true)
@@ -98,6 +111,7 @@ export function createCodexPromptController(input: {
     if (!updated) input.prompt.codex.set(previous, { explicit: false })
     setState("busy", false)
     input.restoreFocus()
+    return !!updated
   }
 
   return {
@@ -142,10 +156,11 @@ export function createCodexPromptController(input: {
       },
     },
     permission: {
+      ready: () => !state.busy,
       current: permission,
-      select(value: "native" | "workspace" | "readOnly" | "full" | undefined) {
-        if (!value || value === permission()) return
-        void update({ permission: value === "native" ? undefined : value })
+      select(value: PromptPermissionMode) {
+        if (value === permission()) return true
+        return update({ permission: value })
       },
     },
   }
@@ -224,30 +239,6 @@ export function CodexEffortSelect(props: { controller: CodexPromptController }) 
         variant="ghost"
       />
     </Show>
-  )
-}
-
-export function CodexPermissionSelect(props: { controller: CodexPromptController }) {
-  const language = useLanguage()
-  const label = (value: "native" | "workspace" | "readOnly" | "full") => {
-    if (value === "native") return language.t("codex.permission.nativeDefault")
-    if (value === "workspace") return language.t("codex.permission.workspace")
-    if (value === "readOnly") return language.t("codex.permission.readOnly")
-    return language.t("codex.permission.full")
-  }
-  return (
-    <Select
-      size="normal"
-      options={["native", "workspace", "readOnly", "full"] as ("native" | "workspace" | "readOnly" | "full")[]}
-      current={props.controller.permission.current()}
-      disabled={props.controller.busy()}
-      label={label}
-      onSelect={props.controller.permission.select}
-      class={classes}
-      valueClass={valueClasses}
-      triggerProps={{ "data-action": "prompt-codex-permission", "aria-label": language.t("codex.settings.permission") }}
-      variant="ghost"
-    />
   )
 }
 

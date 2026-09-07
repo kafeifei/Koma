@@ -135,7 +135,7 @@ const rpc = async (home: string) =>
     .trim()
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as { id?: string | number; method?: string; error?: unknown })
+    .map((line) => JSON.parse(line) as { id?: string | number; method?: string; error?: unknown; result?: unknown })
 const configure = async (home: string, patch: object) => {
   const file = path.join(home, "fixture.json")
   await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), ...patch }))
@@ -169,7 +169,266 @@ async function seed(sessions: SessionExternal.Interface, scope: string, target =
   return created.session.id
 }
 
+function workspacePolicy(
+  writableRoots = [directory],
+): Pick<v2.ThreadStartResponse, "sandbox" | "approvalPolicy" | "approvalsReviewer"> {
+  return {
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandbox: {
+      type: "workspaceWrite",
+      writableRoots,
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    },
+  }
+}
+
+function approval(id: string, kind: "command" | "file" | "permissions" = "command") {
+  return {
+    id,
+    method:
+      kind === "command"
+        ? "item/commandExecution/requestApproval"
+        : kind === "file"
+          ? "item/fileChange/requestApproval"
+          : "item/permissions/requestApproval",
+    params: {
+      threadId: "native-thread",
+      turnId: "turn-1",
+      itemId: id,
+      ...(kind === "command" ? { availableDecisions: ["acceptForSession", "accept", "decline"] } : {}),
+      ...(kind === "permissions" ? { permissions: { network: { enabled: true } } } : {}),
+    },
+  }
+}
+
 describe("CodexHost native process boundaries", () => {
+  test("auto approves the three native approval kinds before turn/start replies", () =>
+    harness(async ({ host, home }) => {
+      await configure(home, {
+        reflectSettings: true,
+        waitForApprovals: true,
+        turnRequests: [approval("command"), approval("file", "file"), approval("permissions", "permissions")],
+      })
+      const created = await run(
+        host.create({
+          requestID: "auto-first",
+          engine: "codex",
+          location: location(),
+          input: { ...prompt, settings: { permission: "auto" } },
+          delivery: "steer",
+        }),
+      )
+      const id = created.descriptor.sessionID
+      await until(
+        () => run(host.delivery(id, "auto-first")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const calls = await rpc(home)
+      expect(calls.find((call) => call.id === "command")?.result).toEqual({ decision: "accept" })
+      expect(calls.find((call) => call.id === "file")?.result).toEqual({ decision: "accept" })
+      expect(calls.find((call) => call.id === "permissions")?.result).toEqual({
+        permissions: { network: { enabled: true } },
+        scope: "turn",
+      })
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.settings.permission).toBe("auto")
+      expect(snapshot.descriptor.pendingSettings).toBeUndefined()
+    }))
+
+  test("native workspace confirmation enables auto before a readOnly turn/start reply", () =>
+    harness(async ({ host, home, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      const pending = await run(host.settings(id, { permission: "auto" }))
+      expect(pending.settings.permission).toBe("readOnly")
+      expect(pending.pendingSettings?.permission).toBe("auto")
+      await configure(home, { reflectSettings: true, waitForApprovals: true, turnRequests: [approval("changed")] })
+      await run(
+        host.submit(id, {
+          requestID: "change",
+          input: { ...prompt, settings: { permission: "auto" } },
+          delivery: "steer",
+        }),
+      )
+      await until(
+        () => run(host.delivery(id, "change")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).find((call) => call.id === "changed")?.result).toEqual({ decision: "accept" })
+      expect((await run(host.snapshot(id))).descriptor.settings.permission).toBe("auto")
+    }))
+
+  test("switching to auto settles pending approvals, switching back and failed settings stop auto", () =>
+    harness(async ({ host, home, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { nativeSettings: workspacePolicy() })
+      await run(host.snapshot(id))
+      await command(home, [approval("before")])
+      await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.interactions.length === 1,
+      )
+      expect((await rpc(home)).some((call) => call.id === "before")).toBe(false)
+      expect((await run(host.settings(id, { permission: "auto" }))).settings.permission).toBe("auto")
+      await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.id === "before"),
+      )
+      expect((await rpc(home)).find((call) => call.id === "before")?.result).toEqual({ decision: "accept" })
+      expect((await run(host.settings(id, { permission: "default" }))).settings.permission).toBe("default")
+      await command(home, [approval("after", "file")])
+      await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.interactions.some((item) => item.itemRef === "after"),
+      )
+      await expect(run(host.settings(id, { permission: "auto", model: "missing" }))).rejects.toThrow("unavailable")
+      const waiting = await run(host.snapshot(id))
+      expect((await run(sessions.get(id))).binding.settings).toEqual({ permission: "default" })
+      expect(waiting.descriptor.settings.permission).toBe("default")
+      expect(waiting.interactions.find((item) => item.itemRef === "after")?.state).toBe("pending")
+      expect((await rpc(home)).some((call) => call.id === "after")).toBe(false)
+    }))
+
+  test("auto preserves deny-only and rule amendment choices and never answers user input", () =>
+    harness(async ({ host, home, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { nativeSettings: workspacePolicy() })
+      await run(host.snapshot(id))
+      await run(host.settings(id, { permission: "auto" }))
+      await command(home, [
+        { ...approval("deny"), params: { ...approval("deny").params, availableDecisions: ["decline", "cancel"] } },
+        {
+          ...approval("amend"),
+          params: {
+            ...approval("amend").params,
+            availableDecisions: [{ acceptWithExecpolicyAmendment: { execpolicy_amendment: ["git"] } }],
+          },
+        },
+        {
+          id: "question",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "native-thread",
+            turnId: "turn-1",
+            itemId: "question",
+            questions: [
+              { id: "q", header: "Question", question: "Choose", options: null, isOther: true, isSecret: false },
+            ],
+          },
+        },
+        {
+          id: "form",
+          method: "mcpServer/elicitation/request",
+          params: { threadId: "native-thread", mode: "form", requestedSchema: { type: "object", properties: {} } },
+        },
+        {
+          id: "url",
+          method: "mcpServer/elicitation/request",
+          params: { threadId: "native-thread", mode: "url", url: "https://example.invalid" },
+        },
+      ])
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.interactions.length === 5,
+      )
+      expect(snapshot.interactions.every((item) => item.state === "pending")).toBe(true)
+      expect(
+        (await rpc(home)).filter((call) => ["deny", "amend", "question", "form", "url"].includes(String(call.id))),
+      ).toEqual([])
+    }))
+
+  test.each(["readOnly", "network", "reviewer", "extraRoots"] as const)(
+    "restoring %s never enables requested auto or widens native access",
+    (variant) =>
+      harness(async ({ host, home, sessions, scope }) => {
+        const id = await seed(sessions, scope)
+        await run(sessions.setSettings(id, { permission: "auto" }))
+        const policy = workspacePolicy()
+        await configure(home, {
+          nativeSettings:
+            variant === "readOnly"
+              ? { ...policy, sandbox: { type: "readOnly", networkAccess: false } }
+              : variant === "network"
+                ? { ...policy, sandbox: { ...policy.sandbox, networkAccess: true } }
+                : variant === "extraRoots"
+                  ? workspacePolicy([path.join(directory, "extra")])
+                  : { ...policy, approvalsReviewer: "auto_review" },
+        })
+        const snapshot = await run(host.snapshot(id))
+        expect(snapshot.descriptor.settings.permission).toBe(variant === "readOnly" ? "readOnly" : undefined)
+        expect(snapshot.descriptor.pendingSettings?.permission).toBe("auto")
+        await command(home, [approval("old")])
+        await until(
+          () => run(host.snapshot(id)),
+          (snapshot) => snapshot.interactions.length === 1,
+        )
+        expect(
+          (await rpc(home)).some(
+            (call) => call.id === "old" || call.method === "turn/start" || call.method === "thread/start",
+          ),
+        ).toBe(false)
+      }),
+  )
+
+  test("legacy workspace is projected as default without pending migration or native writes", () =>
+    harness(async ({ host, home, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await run(sessions.setSettings(id, { permission: "workspace" }))
+      await configure(home, { nativeSettings: workspacePolicy([]) })
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.settings.permission).toBe("default")
+      expect(snapshot.descriptor.pendingSettings).toBeUndefined()
+      expect((await run(sessions.get(id))).binding.settings).toEqual({ permission: "workspace" })
+    }))
+
+  test("an already resolved request is never automatically accepted", () =>
+    harness(async ({ host, home, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { nativeSettings: workspacePolicy() })
+      await run(host.snapshot(id))
+      await run(host.settings(id, { permission: "auto" }))
+      await command(home, [
+        approval("resolved"),
+        { method: "serverRequest/resolved", params: { threadId: "native-thread", requestId: "resolved" } },
+      ])
+      const calls = await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.id === "resolved"),
+      )
+      expect(calls.find((call) => call.id === "resolved")?.result).toBeUndefined()
+      expect(calls.find((call) => call.id === "resolved")?.error).toBeDefined()
+    }))
+
+  test("reconnection cannot reuse an earlier generation's auto confirmation", () =>
+    harness(async ({ host, home, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { nativeSettings: workspacePolicy() })
+      await run(host.snapshot(id))
+      const before = await run(host.settings(id, { permission: "auto" }))
+      await configure(home, {
+        nativeSettings: { ...workspacePolicy(), sandbox: { type: "readOnly", networkAccess: false } },
+      })
+      await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+      await until(
+        () => run(host.describe([id])),
+        (items) => items[0]?.runtimeStatus === "disconnected",
+      )
+      await command(home, [])
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.epoch).not.toBe(before.epoch)
+      expect(snapshot.descriptor.settings.permission).toBe("readOnly")
+      expect(snapshot.descriptor.pendingSettings?.permission).toBe("auto")
+      await command(home, [approval("new-generation")])
+      await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.interactions.length === 1,
+      )
+      expect((await rpc(home)).some((call) => call.id === "new-generation")).toBe(false)
+    }))
+
   test("syncs native read and name notifications through the Session title owner", () =>
     harness(async ({ host, sessions, scope, home }) => {
       const id = await seed(sessions, scope)

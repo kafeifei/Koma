@@ -12,7 +12,6 @@ import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import {
   CodexEffortSelect,
   CodexModelSelect,
-  CodexPermissionSelect,
   createCodexPromptController,
   type CodexPromptController,
   PromptEngineSelect,
@@ -100,7 +99,10 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
                 />
               }
             >
-              <CodexPermissionSelect controller={props.controller.codex} />
+              <PromptPermissionSelect
+                controller={props.controller.codex.permission}
+                onClose={props.controller.restoreFocus}
+              />
             </Show>
           }
           modelControl={

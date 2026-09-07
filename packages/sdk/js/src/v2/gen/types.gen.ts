@@ -3303,7 +3303,7 @@ export type SessionExternalCapabilities = {
 export type SessionExternalSettings = {
   model?: string
   effort?: string
-  permission?: "workspace" | "readOnly" | "full"
+  permission?: SessionPermissionMode | "workspace" | "readOnly"
 }
 
 export type SessionExternalDescriptor = {

@@ -2976,12 +2976,12 @@ export type LabDescribeOutput = ReadonlyArray<{
   readonly settings: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
   readonly pendingSettings?: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
   readonly error?: string
 }>
@@ -3009,7 +3009,7 @@ export type LabCreateInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3036,7 +3036,7 @@ export type LabCreateInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3063,7 +3063,7 @@ export type LabCreateInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3090,7 +3090,7 @@ export type LabCreateInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3117,7 +3117,7 @@ export type LabCreateInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3154,12 +3154,12 @@ export type LabCreateOutput = {
     readonly settings: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly pendingSettings?: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly error?: string
   }
@@ -3186,7 +3186,7 @@ export type LabCreateOutput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly nativeTurnID?: string
@@ -3228,12 +3228,12 @@ export type LabSnapshotOutput = {
     readonly settings: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly pendingSettings?: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly error?: string
   }
@@ -3407,7 +3407,7 @@ export type LabSnapshotOutput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly nativeTurnID?: string
@@ -3500,7 +3500,7 @@ export type LabSubmitInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3525,7 +3525,7 @@ export type LabSubmitInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3550,7 +3550,7 @@ export type LabSubmitInput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly delivery: "steer" | "queue"
@@ -3587,12 +3587,12 @@ export type LabSubmitOutput = {
     readonly settings: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly pendingSettings?: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly error?: string
   }
@@ -3619,7 +3619,7 @@ export type LabSubmitOutput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly nativeTurnID?: string
@@ -3657,7 +3657,7 @@ export type LabDeliveryOutput = {
     readonly settings: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
   }
   readonly nativeTurnID?: string
@@ -3715,12 +3715,12 @@ export type LabQueueOutput = {
     readonly settings: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly pendingSettings?: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly error?: string
   }
@@ -3894,7 +3894,7 @@ export type LabQueueOutput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly nativeTurnID?: string
@@ -3996,12 +3996,12 @@ export type LabInterruptOutput = {
   readonly settings: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
   readonly pendingSettings?: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
   readonly error?: string
 }
@@ -4065,12 +4065,12 @@ export type LabReplyOutput = {
     readonly settings: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly pendingSettings?: {
       readonly model?: string
       readonly effort?: string
-      readonly permission?: "workspace" | "readOnly" | "full"
+      readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
     readonly error?: string
   }
@@ -4244,7 +4244,7 @@ export type LabReplyOutput = {
       readonly settings: {
         readonly model?: string
         readonly effort?: string
-        readonly permission?: "workspace" | "readOnly" | "full"
+        readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
       }
     }
     readonly nativeTurnID?: string
@@ -4320,17 +4320,17 @@ export type LabSettingsInput = {
   readonly model?: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }["model"]
   readonly effort?: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }["effort"]
   readonly permission?: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }["permission"]
 }
 
@@ -4363,12 +4363,12 @@ export type LabSettingsOutput = {
   readonly settings: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
   readonly pendingSettings?: {
     readonly model?: string
     readonly effort?: string
-    readonly permission?: "workspace" | "readOnly" | "full"
+    readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
   readonly error?: string
 }
