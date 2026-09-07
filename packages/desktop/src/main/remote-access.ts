@@ -3,6 +3,7 @@ import { hostname } from "node:os"
 import { safeStorage } from "electron"
 import type { RemoteAccessState } from "@opencode-ai/app/remote-access"
 import type { createWebEntry } from "./web-entry"
+import type { RemoteControllerFailure } from "./remote-controller"
 import { createRemoteController } from "./remote-controller"
 import { createRemoteCredentials } from "./remote-credentials"
 import { getStore } from "./store"
@@ -12,6 +13,7 @@ export function createRemoteAccess(options: {
   root: string
   clientOrigin: string
   changed(state: RemoteAccessState): void
+  failed?(failure: RemoteControllerFailure): void
 }) {
   const settings = getStore()
   const saved = settings.get("remoteDeviceID")
@@ -33,6 +35,7 @@ export function createRemoteAccess(options: {
         ? url.href
         : null,
     changed: options.changed,
+    failed: options.failed,
     login: async (input) => {
       const { beginGitHubLogin } = await import("@opencode-ai/remote/github")
       return beginGitHubLogin(input)

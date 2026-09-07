@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test"
+import { GitHubAuthError } from "@opencode-ai/remote/github"
 import { createRemoteController } from "./remote-controller"
 import { createRemoteCredentials } from "./remote-credentials"
 
-function fixture(overrides: Partial<Parameters<typeof createRemoteController>[0]> = {}) {
-  const settings = new Map<string, unknown>()
+function fixture(
+  overrides: Partial<Parameters<typeof createRemoteController>[0]> = {},
+  initialSettings: Record<string, unknown> = {},
+) {
+  const settings = new Map<string, unknown>(Object.entries(initialSettings))
   const events: string[] = []
   const device = {
     id: "use1/hello-world",
@@ -167,13 +171,124 @@ describe("remote controller", () => {
         clear: () => {},
       },
       account: async () => {
-        if (++requests === 1) throw new Error("network unavailable")
+        if (++requests === 1) throw new GitHubAuthError("network_error")
         return { id: 10, name: "Tester", username: "tester" }
       },
     })
-    expect((await input.controller.initialize()).error).toBe("authentication")
+    expect((await input.controller.initialize()).error).toBe("connection")
     expect((await input.controller.refresh()).account?.username).toBe("tester")
     expect(requests).toBe(2)
+    await input.controller.stop()
+  })
+
+  test.each(["host", "list"] as const)("classifies initialize %s failures as connection errors", async (phase) => {
+    const failures: unknown[] = []
+    const error = Object.assign(new Error("secret-token"), {
+      response: { status: 422, headers: { authorization: "secret-token" } },
+      config: { token: "secret-token" },
+    })
+    const input = fixture(
+      {
+        credentials: {
+          available: () => true,
+          read: () => ({ accessToken: "stored-token" }),
+          write: () => {},
+          clear: () => {},
+        },
+        failed: (failure) => failures.push(failure),
+        host: async (options) => {
+          if (phase === "host") throw error
+          return {
+            device: {
+              id: "use1/hello-world",
+              name: "Computer",
+              online: true,
+              url: "https://hello.use1.devtunnels.ms/",
+              port: 1234,
+              clusterId: "use1",
+              tunnelId: "hello-world",
+            },
+            stop: async () => {},
+          }
+        },
+        list: async () => {
+          if (phase === "list") throw error
+          return []
+        },
+      },
+      { remoteEnabled: true },
+    )
+
+    const state = await input.controller.initialize()
+    expect(state.account?.username).toBe("tester")
+    expect(state.error).toBe("connection")
+    expect(failures).toEqual([{ operation: "initialize", category: "connection", status: 422 }])
+    expect(JSON.stringify({ state, failures })).not.toContain("secret-token")
+    await input.controller.stop()
+  })
+
+  test("classifies sign-in listing failures without exposing arbitrary error fields", async () => {
+    const failures: unknown[] = []
+    const input = fixture({
+      failed: (failure) => failures.push(failure),
+      list: async () => {
+        throw Object.assign(new Error("secret-token"), {
+          code: "ECONNRESET",
+          headers: { authorization: "secret-token" },
+          token: "secret-token",
+        })
+      },
+    })
+
+    const state = await input.controller.signIn()
+    expect(state.error).toBe("connection")
+    expect(failures).toEqual([{ operation: "signIn", category: "connection", code: "ECONNRESET" }])
+    expect(JSON.stringify({ state, failures })).not.toContain("secret-token")
+    await input.controller.stop()
+  })
+
+  test("hostile diagnostic metadata and a failing reporter cannot break state updates", async () => {
+    const error = {
+      get response() {
+        throw new Error("secret-token")
+      },
+      get code() {
+        throw new Error("secret-token")
+      },
+      message: "secret-token",
+      token: "secret-token",
+    }
+    const input = fixture({
+      login: async () => {
+        throw error
+      },
+      failed: () => {
+        throw new Error("reporter failed")
+      },
+    })
+
+    const state = await input.controller.signIn()
+    expect(state.error).toBe("connection")
+    expect(JSON.stringify(state)).not.toContain("secret-token")
+    await input.controller.stop()
+  })
+
+  test.each([
+    ["reauth_required", "authentication"],
+    ["network_error", "connection"],
+    ["invalid_client", "configuration"],
+  ] as const)("classifies GitHub %s failures as %s", async (code, category) => {
+    const failures: unknown[] = []
+    const input = fixture({
+      login: async () => {
+        throw new GitHubAuthError(code)
+      },
+      failed: (failure) => failures.push(failure),
+    })
+
+    const state = await input.controller.signIn()
+    expect(state.error).toBe(category)
+    expect(failures).toEqual([{ operation: "signIn", category, code }])
     await input.controller.stop()
   })
 

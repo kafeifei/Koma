@@ -1,10 +1,33 @@
 import type { RemoteAccessState } from "@opencode-ai/app/remote-access"
-import type { GitHubCredential, getGitHubAccount, beginGitHubLogin, waitGitHubLogin } from "@opencode-ai/remote/github"
+import {
+  GitHubAuthError,
+  type GitHubCredential,
+  type getGitHubAccount,
+  type beginGitHubLogin,
+  type waitGitHubLogin,
+} from "@opencode-ai/remote/github"
 import type { RemoteTunnelDevice } from "@opencode-ai/remote/tunnels"
 import type { RemoteHostRecord } from "./remote-host"
 
 type Account = Awaited<ReturnType<typeof getGitHubAccount>>
 type Connection = { stop(): Promise<void> }
+type FailureCategory = Exclude<RemoteAccessState["error"], null>
+type FailureOperation =
+  | "initialize"
+  | "poll"
+  | "signIn"
+  | "cancelSignIn"
+  | "signOut"
+  | "enable"
+  | "disable"
+  | "rename"
+  | "refresh"
+export type RemoteControllerFailure = {
+  operation: FailureOperation
+  category: FailureCategory
+  code?: string
+  status?: number
+}
 type Dependencies = {
   credentials: {
     available(): boolean
@@ -17,6 +40,7 @@ type Dependencies = {
   deviceName: string
   website: string | null
   changed(state: RemoteAccessState): void
+  failed?(failure: RemoteControllerFailure): void
   login: typeof beginGitHubLogin
   waitLogin: typeof waitGitHubLogin
   account(token: string): Promise<Account>
@@ -182,7 +206,7 @@ export function createRemoteController(deps: Dependencies) {
   const authenticate = async (generation: number) => {
     check(generation)
     if (account) return
-    if (!deps.credentials.available()) throw new Error("Credential storage unavailable")
+    if (!deps.credentials.available()) throw new RemoteConfigurationError()
     const controller = new AbortController()
     login = controller
     try {
@@ -209,15 +233,19 @@ export function createRemoteController(deps: Dependencies) {
       if (generation === revision) publish({ authorization: null })
     }
   }
-  const run = (action: (generation: number) => Promise<unknown>, error: RemoteAccessState["error"] = "connection") => {
+  const run = (operation: FailureOperation, action: (generation: number) => Promise<unknown>) => {
     const generation = revision
     const result = pending.then(async () => {
       if (disposed || generation !== revision) return state
       try {
         await action(generation)
-      } catch {
+      } catch (error) {
         if (disposed || generation !== revision) return state
-        publish({ error, status: state.enabled ? (host ? state.status : "offline") : "disabled" })
+        const category = failureCategory(error)
+        try {
+          deps.failed?.({ operation, category, ...failureDetails(error) })
+        } catch {}
+        publish({ error: category, status: state.enabled ? (host ? state.status : "offline") : "disabled" })
       }
       return state
     })
@@ -229,32 +257,32 @@ export function createRemoteController(deps: Dependencies) {
     initialize: () => {
       if (disposed) return Promise.resolve(state)
       timer ??= setInterval(() => {
-        void run(async (generation) => {
+        void run("poll", async (generation) => {
           await restoreAccount(generation)
           await ensureHost(generation)
           await list(generation)
         })
       }, 30_000)
       timer.unref?.()
-      return run(async (generation) => {
+      return run("initialize", async (generation) => {
         await restoreAccount(generation)
         if (account) {
           await ensureHost(generation)
           await list(generation)
         } else if (state.enabled) publish({ status: "offline", error: "authentication" })
-      }, "authentication")
+      })
     },
     signIn: () =>
-      run(async (generation) => {
+      run("signIn", async (generation) => {
         await authenticate(generation)
         check(generation)
         await ensureHost(generation)
         await list(generation)
-      }, "authentication"),
+      }),
     cancelSignIn: () => {
       revision++
       login?.abort()
-      return run(async () => {
+      return run("cancelSignIn", async () => {
         publish({ authorization: null, error: null })
       })
     },
@@ -264,7 +292,7 @@ export function createRemoteController(deps: Dependencies) {
       login?.abort()
       hosting?.abort()
       lifetime.abort()
-      return run(async () => {
+      return run("signOut", async () => {
         await halt()
         deps.credentials.clear()
         deps.settings.set("remoteEnabled", false)
@@ -279,7 +307,7 @@ export function createRemoteController(deps: Dependencies) {
         login?.abort()
         hosting?.abort()
       }
-      return run(async (generation) => {
+      return run(enabled ? "enable" : "disable", async (generation) => {
         if (!enabled) {
           deps.settings.set("remoteEnabled", false)
           await haltHost()
@@ -300,7 +328,7 @@ export function createRemoteController(deps: Dependencies) {
       })
     },
     rename: (name: string) =>
-      run(async (generation) => {
+      run("rename", async (generation) => {
         if (!name.trim() || name.trim().length > 40) throw new Error("Invalid device name")
         deps.settings.set("remoteDeviceName", name.trim())
         publish({ deviceName: name.trim() })
@@ -309,7 +337,7 @@ export function createRemoteController(deps: Dependencies) {
         await list(generation)
       }),
     refresh: () =>
-      run(async (generation) => {
+      run("refresh", async (generation) => {
         await restoreAccount(generation)
         if (!account) {
           if (state.enabled) publish({ status: "offline", error: "authentication" })
@@ -361,5 +389,56 @@ export function createRemoteController(deps: Dependencies) {
       await halt()
       await pending
     },
+  }
+}
+
+class RemoteConfigurationError extends Error {}
+
+function failureCategory(error: unknown): FailureCategory {
+  if (error instanceof RemoteConfigurationError) return "configuration"
+  if (!(error instanceof GitHubAuthError)) return "connection"
+  if (error.code === "invalid_client" || error.code === "device_flow_disabled") return "configuration"
+  if (
+    error.code === "network_error" ||
+    error.code === "rate_limited" ||
+    error.code === "invalid_response" ||
+    error.code === "request_failed"
+  )
+    return "connection"
+  return "authentication"
+}
+
+const NETWORK_CODES = new Set([
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+])
+
+function failureDetails(error: unknown): Pick<RemoteControllerFailure, "code" | "status"> {
+  if (error instanceof GitHubAuthError) return { code: error.code }
+  if (!error || typeof error !== "object") return {}
+  const response = property(error, "response")
+  const status =
+    property(error, "status") ??
+    property(error, "statusCode") ??
+    (response && typeof response === "object" ? property(response, "status") : undefined)
+  if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599) return { status }
+  const code = property(error, "code")
+  return typeof code === "string" && NETWORK_CODES.has(code) ? { code } : {}
+}
+
+function property(value: object, key: string) {
+  try {
+    return Reflect.get(value, key)
+  } catch {
+    return undefined
   }
 }

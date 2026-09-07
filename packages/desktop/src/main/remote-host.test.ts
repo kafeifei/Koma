@@ -8,6 +8,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ConnectionStatus } from "@microsoft/dev-tunnels-connections"
 import type { ConnectionStatusChangedEventArgs, TunnelRelayTunnelHost } from "@microsoft/dev-tunnels-connections"
+import { TunnelConstraints } from "@microsoft/dev-tunnels-contracts"
 import type { Tunnel, TunnelAccessControlEntry } from "@microsoft/dev-tunnels-contracts"
 import { ManagementApiVersions, TunnelManagementHttpClient } from "@microsoft/dev-tunnels-management"
 import { REMOTE_LABEL, REMOTE_PORT_LABEL } from "@opencode-ai/remote/tunnels"
@@ -18,6 +19,16 @@ const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
   for (const dispose of cleanup.reverse()) await dispose().catch(() => undefined)
   cleanup.length = 0
+})
+
+test("registers a UUID device using service-valid discovery and creation labels", async () => {
+  const fixture = await setup()
+  const hosted = await startRemoteHost(fixture.options, { createRelay: () => fixture.relay })
+  cleanup.push(hosted.stop)
+  const labels = fixture.requests[0]!.query.get("labels")!.split(",")
+  expect(labels).toEqual(fixture.state.current!.labels!)
+  expect(labels).toContain("opencode-device-1b29210ff87e4bed96125d91a298eb44")
+  expect(fixture.state.connected).toBe(1)
 })
 
 test.each(["abort", "stop", "disconnect"] as const)(
@@ -210,6 +221,9 @@ async function setup() {
         config,
       })
       if (url.pathname === "/tunnels") {
+        for (const label of (url.searchParams.get("labels") ?? "").split(",")) {
+          if (label.length > TunnelConstraints.labelMaxLength) throw new Error("Service label exceeds 50 characters")
+        }
         if (state.abortOnList) abort.abort()
         return response({ value: [{ value: state.current ? [state.current] : [] }] })
       }
@@ -227,6 +241,9 @@ async function setup() {
         return response(state.current)
       }
       const body = config.data ? (JSON.parse(config.data) as Tunnel) : {}
+      for (const label of body.labels ?? []) {
+        if (label.length > TunnelConstraints.labelMaxLength) throw new Error("Service label exceeds 50 characters")
+      }
       if (url.pathname.includes("/ports/")) {
         const port = Number(url.pathname.split("/").at(-1))
         state.current!.ports = state.current!.ports!.filter((item) => item.portNumber !== port)
@@ -276,7 +293,7 @@ async function setup() {
   const options: Parameters<typeof startRemoteHost>[0] = {
     management,
     root,
-    deviceID: "device-123",
+    deviceID: "1b29210f-f87e-4bed-9612-5d91a298eb44",
     accountID: 42,
     name: "Test Mac",
     signal: abort.signal,
@@ -302,7 +319,7 @@ function previousTunnel(port = 54321): Tunnel {
   return {
     clusterId: "usw2",
     tunnelId: "lab-old-device",
-    labels: [REMOTE_LABEL, "opencode-device-device-123"],
+    labels: [REMOTE_LABEL, "opencode-device-1b29210ff87e4bed96125d91a298eb44"],
     accessControl: {
       entries: [{ type: "Users", provider: "github", subjects: ["42"], scopes: ["manage", "host", "connect"] }],
     },

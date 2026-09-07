@@ -365,6 +365,7 @@ const main = Effect.gen(function* () {
     changed: (state) => {
       BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("remote-access-state", state))
     },
+    failed: (failure) => logger.error("remote access failed", failure),
   })
   app.setAsDefaultProtocolClient(APP_PROTOCOL)
   registerRendererProtocol()

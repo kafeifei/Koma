@@ -99,7 +99,8 @@ export async function startRemoteHost(options: RemoteHostOptions, dependencies: 
     const entry = await gateway.start()
     startup.signal.throwIfAborted()
     const port = Number(new URL(entry.url).port)
-    const label = `opencode-device-${options.deviceID}`
+    // UUID separators would make this label 52 characters; the service allows 50.
+    const label = `opencode-device-${options.deviceID.replaceAll("-", "")}`
     // Always recover from the owner-scoped directory. A saved ID or a product
     // label alone does not establish that the current account owns the tunnel.
     const candidates = await options.management.listTunnels(
