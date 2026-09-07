@@ -10,6 +10,7 @@ import { makeGlobalNode } from "./effect/app-node"
 import { Hash } from "./util/hash"
 import { ProjectDirectories } from "./project/directories"
 import { ProjectSchema } from "./project/schema"
+import { StorageDirectory } from "./storage-directory"
 
 export const ID = ProjectSchema.ID
 export type ID = ProjectSchema.ID
@@ -116,7 +117,7 @@ const layer = Layer.effect(
       return {
         previous,
         id: id ?? ID.global,
-        directory: repo.worktree,
+        directory: AbsolutePath.make(StorageDirectory.resolve(repo.worktree)),
         vcs: { type: "git" as const, store: repo.commonDirectory },
       }
     })

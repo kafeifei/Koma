@@ -1,3 +1,4 @@
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -110,13 +111,15 @@ const layer = Layer.effect(
     const { db } = yield* Database.Service
     const git = yield* Git.Service
     const fs = yield* FSUtil.Service
+    const resolveDirectory = (directory: string) =>
+      fs.resolve(directory).pipe(Effect.map((value) => StorageDirectory.resolve(value)))
     const lifecycle = yield* WorktreeLifecycle.Service
     const archive = yield* WorktreeArchive.Service
 
     const failed = (message: string) => new ManagerFailedError({ message })
 
     const resolveProject = Effect.fnUntraced(function* (input: ListInput) {
-      const root = yield* fs.resolve(input.root)
+      const root = yield* resolveDirectory(input.root)
       if (yield* fs.exists(root).pipe(Effect.mapError((error) => failed(error.message)))) return { ...input, root }
       const owner = yield* lifecycle.getDirectory(root).pipe(Effect.mapError((error) => failed(error.message)))
       if (!owner) return yield* failed("The project directory is missing and has no managed recovery record")
@@ -150,7 +153,7 @@ const layer = Layer.effect(
               .find((line) => line.startsWith("branch refs/heads/"))
               ?.slice("branch refs/heads/".length)
             return {
-              directory: yield* fs.resolve(directory),
+              directory: yield* resolveDirectory(directory),
               branch,
               primary: index === 0,
             }
@@ -174,7 +177,7 @@ const layer = Layer.effect(
       return yield* Effect.forEach(
         rows,
         (row) =>
-          fs.resolve(row.directory).pipe(
+          resolveDirectory(row.directory).pipe(
             Effect.map((directory) => ({
               directory,
               session: { id: row.id, directory, title: row.title, archived: row.archived !== null } satisfies Session,
@@ -281,7 +284,7 @@ const layer = Layer.effect(
     })
 
     const details = Effect.fn("WorktreeManager.details")(function* (input: DetailsInput) {
-      const directory = yield* fs.resolve(input.directory)
+      const directory = yield* resolveDirectory(input.directory)
       const entry = (yield* list(input)).find((item) => item.directory === directory)
       if (!entry) return yield* failed("worktree directory is not registered by Git or this project lifecycle")
       if (entry.missing) return { entry }
@@ -303,7 +306,7 @@ const layer = Layer.effect(
     const adopt = Effect.fn("WorktreeManager.adopt")(function* (input: AdoptInput) {
       const project = yield* resolveProject(input)
       const root = project.root
-      const directory = yield* fs.resolve(input.directory)
+      const directory = yield* resolveDirectory(input.directory)
       const entry = (yield* list(project)).find((item) => item.directory === directory)
       if (!entry?.registered) return yield* failed("only a Git-registered linked worktree can be adopted")
       if (entry.primary) return yield* failed("the primary worktree cannot be adopted")

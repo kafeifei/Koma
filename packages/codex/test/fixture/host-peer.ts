@@ -20,6 +20,10 @@ type Config = {
   resumeEvents?: Array<{ method: string; params: unknown }>
   afterReadThread?: v2.Thread
   readEvents?: Array<{ method: string; params: unknown }>
+  nativeSettings?: Pick<v2.ThreadStartResponse, "sandbox" | "approvalPolicy" | "approvalsReviewer">
+  reflectSettings?: boolean
+  turnRequests?: Array<{ id: string; method: string; params: Record<string, unknown> }>
+  waitForApprovals?: boolean
 }
 const read = () => JSON.parse(readFileSync(configPath, "utf8")) as Config
 const save = (value: Config) => writeFileSync(configPath, JSON.stringify(value))
@@ -32,7 +36,9 @@ const settings = (thread: v2.Thread) => ({
   approvalsReviewer: "user",
   sandbox: { type: "readOnly", networkAccess: false },
   cwd: thread.cwd,
+  ...read().nativeSettings,
 })
+const waiting = new Map<string | number, () => void>()
 let command = ""
 setInterval(() => {
   const file = path.join(home, "command.json")
@@ -47,7 +53,14 @@ setInterval(() => {
 createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line) => {
   const message = JSON.parse(line) as { id?: string | number; method?: string; params?: Record<string, unknown> }
   appendFileSync(path.join(home, "rpc.jsonl"), `${line}\n`)
-  if (!message.method || message.method === "initialized") return
+  if (!message.method) {
+    if (message.id !== undefined) {
+      waiting.get(message.id)?.()
+      waiting.delete(message.id)
+    }
+    return
+  }
+  if (message.method === "initialized") return
   const reply = (result: unknown) => send({ id: message.id, result })
   if (message.method === "initialize")
     return reply({ userAgent: "host-fixture", codexHome: home, platformFamily: "unix", platformOs: "fixture" })
@@ -96,6 +109,23 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     config.thread = config.threads[message.params.threadId]!
   if (message.method === "thread/start") {
     config.thread.cwd = String(message.params?.cwd)
+    if (config.reflectSettings && message.params?.sandbox)
+      config.nativeSettings = {
+        approvalPolicy: message.params.approvalPolicy as v2.AskForApproval,
+        approvalsReviewer: message.params.approvalsReviewer as v2.ApprovalsReviewer,
+        sandbox:
+          message.params.sandbox === "danger-full-access"
+            ? { type: "dangerFullAccess" }
+            : message.params.sandbox === "read-only"
+              ? { type: "readOnly", networkAccess: false }
+              : {
+                  type: "workspaceWrite",
+                  writableRoots: [],
+                  networkAccess: false,
+                  excludeTmpdirEnvVar: false,
+                  excludeSlashTmp: false,
+                },
+      }
     save(config)
     return reply(settings(config.thread))
   }
@@ -142,9 +172,44 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     }
     config.thread.turns.push(turn)
     config.thread.status = { type: "active", activeFlags: [] }
+    if (config.reflectSettings && message.params?.sandboxPolicy) {
+      const sandbox = message.params.sandboxPolicy as v2.SandboxPolicy
+      config.nativeSettings = {
+        approvalPolicy: message.params.approvalPolicy as v2.AskForApproval,
+        approvalsReviewer: message.params.approvalsReviewer as v2.ApprovalsReviewer,
+        sandbox:
+          sandbox.type === "workspaceWrite"
+            ? {
+                ...sandbox,
+                writableRoots: sandbox.writableRoots.filter((root) => root !== config.thread.cwd),
+              }
+            : sandbox,
+      }
+    }
     save(config)
     if (config.disconnectTurn) process.exit(17)
     send({ method: "turn/started", params: { threadId: config.thread.id, turn } })
+    if (config.reflectSettings)
+      send({
+        method: "thread/settings/updated",
+        params: {
+          threadId: config.thread.id,
+          threadSettings: { ...settings(config.thread), sandboxPolicy: settings(config.thread).sandbox, effort: "low" },
+        },
+      })
+    const pending = new Set(config.turnRequests?.map((request) => request.id))
+    config.turnRequests?.forEach((request) => {
+      if (config.waitForApprovals)
+        waiting.set(request.id, () => {
+          pending.delete(request.id)
+          if (!pending.size) reply({ turn })
+        })
+      send({
+        ...request,
+        params: { threadId: config.thread.id, turnId: turn.id, itemId: request.id, ...request.params },
+      })
+    })
+    if (config.waitForApprovals && pending.size) return
     return reply({ turn })
   }
   if (message.method === "turn/steer") return reply({ turnId: config.thread.turns.at(-1)?.id })

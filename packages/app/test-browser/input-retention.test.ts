@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test"
-import { directoryInputID, prefillDirectoryInput, removeLegacyDrafts } from "@/context/input-retention"
+import {
+  directoryInputID,
+  prefillDirectoryInput,
+  removeLegacyDrafts,
+  resolveInputDirectory,
+} from "@/context/input-retention"
 import type { Platform } from "@/context/platform"
 import type { ServerConnection } from "@/context/server"
 import type { Tab } from "@/context/tabs"
@@ -15,6 +20,47 @@ test("directory inputs use existing server scopes and normalized actual paths", 
   expect(local).not.toBe(directoryInputID(ServerScope.local, "C:/project"))
   expect(local).not.toBe(directoryInputID("remote" as ServerScope, "C:/project/feature"))
   expect(directoryInputID(ServerScope.local, "/")).not.toBe(directoryInputID(ServerScope.local, ""))
+})
+
+test("known directory input remains available offline with its permission metadata", async () => {
+  const tab: Tab = {
+    type: "draft",
+    server: "sidecar" as ServerConnection.Key,
+    directory: "/old/worktree",
+    draftID: directoryInputID(ServerScope.local, "/old/worktree"),
+    permissionMode: "full",
+  }
+  expect(
+    await resolveInputDirectory({
+      directory: tab.directory,
+      scope: ServerScope.local,
+      tabs: [tab],
+      resolve: async () => {
+        throw new Error("offline")
+      },
+    }),
+  ).toBe(tab.directory)
+  expect(tab.permissionMode).toBe("full")
+})
+
+test("unknown physical directory resolves before choosing the retained input key", async () => {
+  const directory = await resolveInputDirectory({
+    directory: "/new/worktrees/old",
+    scope: ServerScope.local,
+    tabs: [],
+    resolve: async () => "/old/worktree",
+  })
+  expect(directoryInputID(ServerScope.local, directory)).toBe(directoryInputID(ServerScope.local, "/old/worktree"))
+  await expect(
+    resolveInputDirectory({
+      directory: "/unknown",
+      scope: ServerScope.local,
+      tabs: [],
+      resolve: async () => {
+        throw new Error("offline")
+      },
+    }),
+  ).rejects.toThrow("offline")
 })
 
 test("legacy cleanup deletes only UUID documents through the scoped store API", async () => {

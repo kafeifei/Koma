@@ -9,6 +9,7 @@ import { Prompt } from "./prompt"
 import { optional } from "./schema"
 import { SessionID } from "./session-id"
 import { SessionMessage } from "./session-message"
+import { PermissionMode } from "./session-permission-mode"
 
 export const RuntimeStatus = Schema.Literals([
   "resolving",
@@ -37,7 +38,8 @@ export interface Capabilities extends Schema.Schema.Type<typeof Capabilities> {}
 export const Settings = Schema.Struct({
   model: Schema.String.pipe(optional),
   effort: Schema.String.pipe(optional),
-  permission: Schema.Literals(["workspace", "readOnly", "full"]).pipe(optional),
+  // Retain legacy Codex policies until the user explicitly chooses a shared mode.
+  permission: Schema.Union([PermissionMode, Schema.Literals(["workspace", "readOnly"])]).pipe(optional),
 }).annotate({ identifier: "SessionExternal.Settings" })
 export interface Settings extends Schema.Schema.Type<typeof Settings> {}
 

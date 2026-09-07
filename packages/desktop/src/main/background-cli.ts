@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
 import { backgroundStateCandidates } from "./background-state"
+import { legacyLabBackendEnvironment } from "./lab-environment"
 
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
@@ -20,7 +21,8 @@ export async function startBackgroundCli(
   shellStateHome?: string,
   options: { isolated?: boolean } = {},
 ) {
-  const stateHome = process.env.XDG_STATE_HOME
+  const unified = process.env.OPENCODE_HOME ? legacyLabBackendEnvironment(process.env.OPENCODE_HOME) : undefined
+  const stateHome = unified?.XDG_STATE_HOME ?? process.env.XDG_STATE_HOME
   const bundled = app.isPackaged
     ? join(process.resourcesPath, executableName())
     : join(root, "../../resources", executableName())
@@ -28,7 +30,9 @@ export async function startBackgroundCli(
   const version = await run(bundled, ["--version"], logger)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
 
-  const candidates = backgroundStateCandidates(shellStateHome, app.getPath("appData"), options.isolated)
+  const candidates = unified
+    ? [unified.XDG_STATE_HOME]
+    : backgroundStateCandidates(shellStateHome, app.getPath("appData"), options.isolated)
   if (options.isolated && candidates.length === 0) throw new Error("Isolated CLI state directory is unavailable")
   const discovered = await Promise.all(
     candidates.map(async (candidate) => ({
@@ -88,8 +92,9 @@ async function run(
 ) {
   logger.log("v2 CLI command started", { binary, args })
   const env = { ...process.env }
-  if (options.stateHome === undefined) delete env.XDG_STATE_HOME
-  else env.XDG_STATE_HOME = options.stateHome
+  if (env.OPENCODE_HOME) Object.assign(env, legacyLabBackendEnvironment(env.OPENCODE_HOME))
+  if (options.stateHome !== undefined) env.XDG_STATE_HOME = options.stateHome
+  if (options.stateHome === undefined && !env.OPENCODE_HOME) delete env.XDG_STATE_HOME
   return execFileAsync(binary, args, { env, windowsHide: true }).then(
     (result) => {
       const stdout = result.stdout.trim()

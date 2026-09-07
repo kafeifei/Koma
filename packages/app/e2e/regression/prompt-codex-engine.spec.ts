@@ -30,11 +30,17 @@ test("keeps Codex settings and text with their draft and preserves a rejected fi
   const editor = page.locator('[data-component="prompt-input"]')
   await editor.fill("Keep Codex draft A")
   await choose(page, "prompt-engine", "Codex")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Native default")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Default permissions")
+  await page.reload()
+  await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Default permissions")
+  await choosePermission(page, "Auto-approve")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Auto-approve")
   await choose(page, "prompt-codex-model", "GPT-5.6-Luna")
   await choose(page, "prompt-codex-effort", "high")
-  await choose(page, "prompt-codex-permission", "Full access")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+  await choosePermission(page, "Full Access")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
+  await expectSavedCodexPermission(page, "full")
   await page.goto(draftHref(draftB))
   await expect(page).toHaveURL(new URL(draftHref(draftB), page.url()).href)
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
@@ -49,7 +55,7 @@ test("keeps Codex settings and text with their draft and preserves a rejected fi
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
   await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
   await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
 
   await page.getByRole("button", { name: "Send", exact: true }).click()
   await expect(editor).toHaveText("Keep Codex draft A")
@@ -74,7 +80,7 @@ test("restores Codex settings across refresh, project inputs and a successful fi
   await choose(page, "prompt-engine", "Codex")
   await choose(page, "prompt-codex-model", "GPT-5.6-Luna")
   await choose(page, "prompt-codex-effort", "high")
-  await choose(page, "prompt-codex-permission", "Full access")
+  await choosePermission(page, "Full Access")
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -89,13 +95,13 @@ test("restores Codex settings across refresh, project inputs and a successful fi
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
   await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
   await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
 
   await page.goto(draftHref(draftB))
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
   await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
   await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
   await page.goto(draftHref(draftA))
   await editor.fill("Create remembered Codex task")
   await page.getByRole("button", { name: "Send", exact: true }).click()
@@ -116,7 +122,7 @@ test("restores Codex settings across refresh, project inputs and a successful fi
   await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
   await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-5.6-Luna")
   await expect(page.locator('[data-action="prompt-codex-effort"]')).toContainText("high")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toContainText("Full access")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
 })
 
 test("leaves the OpenCode composer unchanged when the server does not advertise Codex", async ({ page }) => {
@@ -147,12 +153,50 @@ test("routes the legacy composer through native Codex create without clearing a 
   const editor = page.locator('[data-component="prompt-input"]')
   await editor.fill("Legacy native draft")
   await choose(page, "prompt-engine", "Codex")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Default permissions")
+  await page.reload()
+  await expect(page.locator('[data-action="prompt-engine"]')).toContainText("Codex")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Default permissions")
+  await choosePermission(page, "Auto-approve")
+  await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Auto-approve")
+  await choosePermission(page, "Full Access")
   await page.getByRole("button", { name: "Send", exact: true }).click()
 
   await expect(editor).toHaveText("Legacy native draft")
   expect(backend.nativeCreates).toHaveLength(1)
+  expect(backend.nativeCreates[0]).toMatchObject({ input: { settings: { permission: "full" } } })
   expect(backend.legacyCreates).toBe(0)
 })
+
+for (const newLayout of [true, false]) {
+  test(`existing Codex task uses the shared permission picker in the ${newLayout ? "new" : "legacy"} layout`, async ({
+    page,
+  }) => {
+    const backend = await setup(page, { newLayout })
+    await page.goto(sessionHref)
+    const control = page.locator('[data-action="prompt-permission"]')
+    await expect(control).toHaveText(/Permissions/)
+    await control.click()
+    const choices = page.getByRole("menuitemradio")
+    await expect(choices).toHaveCount(3)
+    await expect(page.getByRole("menuitemradio", { name: /^Default permissions/ })).not.toBeChecked()
+    await expect(page.getByRole("menuitemradio", { name: /^Auto-approve/ })).not.toBeChecked()
+    await expect(page.getByRole("menuitemradio", { name: /^Full Access/ })).not.toBeChecked()
+    await page.getByRole("menuitemradio", { name: /^Default permissions/ }).click()
+    await expect(control).toBeEnabled()
+    await expect(control).toContainText("Default permissions")
+    await choosePermission(page, "Auto-approve")
+    await expect(control).toBeEnabled()
+    await expect(control).toContainText("Auto-approve")
+    await choosePermission(page, "Full Access")
+    await expect(control).toBeEnabled()
+    await expect(control).toContainText("Full Access")
+    expect(backend.settings.map((item) => item.permission)).toEqual(["default", "auto", "full"])
+
+    await page.reload()
+    await expect(control).toContainText("Full Access")
+  })
+}
 
 for (const scenario of [
   { engine: "codex", newLayout: true, label: "Codex" },
@@ -201,12 +245,12 @@ test("keeps an existing Codex engine immutable and submits the complete desired 
 
   await choose(page, "prompt-codex-model", "GPT-5.6-Luna")
   await expect(page.locator('[data-action="prompt-codex-effort"]')).toBeDisabled()
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toBeDisabled()
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toBeEnabled()
+  await expect(page.locator('[data-action="prompt-permission"]')).toBeDisabled()
+  await expect(page.locator('[data-action="prompt-permission"]')).toBeEnabled()
   await choose(page, "prompt-codex-effort", "high")
-  await choose(page, "prompt-codex-permission", "Full access")
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toBeDisabled()
-  await expect(page.locator('[data-action="prompt-codex-permission"]')).toBeEnabled()
+  await choosePermission(page, "Full Access")
+  await expect(page.locator('[data-action="prompt-permission"]')).toBeDisabled()
+  await expect(page.locator('[data-action="prompt-permission"]')).toBeEnabled()
 
   expect(backend.settings).toEqual([
     { sessionID, model: "gpt-5.6-luna", effort: "medium", permission: "readOnly" },
@@ -235,6 +279,24 @@ test("keeps an existing Codex engine immutable and submits the complete desired 
 async function choose(page: Page, action: string, option: string) {
   await page.locator(`[data-action="${action}"]`).click()
   await page.getByRole("option", { name: option, exact: true }).click()
+}
+
+async function choosePermission(page: Page, option: "Default permissions" | "Auto-approve" | "Full Access") {
+  await page.locator('[data-action="prompt-permission"]').click()
+  await page.getByRole("menuitemradio", { name: new RegExp(`^${option}`) }).click()
+}
+
+async function expectSavedCodexPermission(page: Page, permission: string) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem("opencode.global.dat:composer-preferences") ?? "{}") as {
+          target?: Record<string, { codex?: { permission?: string } }>
+        }
+        return Object.values(saved.target ?? {}).find((item) => item.codex?.permission)?.codex?.permission
+      }),
+    )
+    .toBe(permission)
 }
 
 async function setup(

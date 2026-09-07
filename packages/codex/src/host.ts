@@ -45,6 +45,7 @@ import { createCodexInteraction } from "./interaction"
 import { codexInput, prepareInput, threadSettings, turnSettings } from "./input"
 import { CodexWorktreeAccess } from "./worktree-access"
 import { CodexAuth } from "./auth"
+import { codexStorage } from "./storage"
 
 export class HostError extends Schema.TaggedErrorClass<HostError>()("CodexHost.Error", {
   code: Schema.Literals(["unavailable", "conflict", "notFound", "invalid", "nativeError"]),
@@ -90,7 +91,10 @@ const supported: Capabilities = {
   permissions: true,
 }
 const decodeInput = Schema.decodeUnknownSync(Input)
-const decodeSettings = Schema.decodeUnknownSync(Settings)
+const decodeSettings = (value: unknown): Settings => {
+  const settings = Schema.decodeUnknownSync(Settings)(value)
+  return settings.permission === "workspace" ? { ...settings, permission: "default" } : settings
+}
 const json = (value: unknown) => Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(JSON.stringify(value))
 
 type PendingInteraction = {
@@ -122,6 +126,10 @@ type Entry = {
   refreshPending: boolean
   idleConfirmed: boolean
   appliedSettings: Settings
+  // Execution/history reads may complete after a settings write. Keep the
+  // confirmed durable intent in the interaction lane instead of those snapshots.
+  desiredSettings: Settings
+  settingsSequence: number
   activeTools: Map<string, { turnID: string; generation: number }>
   executionObserved: boolean
   activeTurnID?: string
@@ -149,8 +157,13 @@ const layer = Layer.effect(
     const events = yield* EventV2.Service
     const global = yield* Global.Service
     const enabled = process.env.OPENCODE_ENABLE_CODEX === "1"
-    const home = path.resolve(process.env.OPENCODE_CODEX_HOME ?? path.join(global.state, "codex"))
-    const runtimeScope = `codex:${createHash("sha256").update(home).digest("hex")}`
+    const storage = codexStorage({
+      state: global.state,
+      root: process.env.OPENCODE_HOME,
+      home: process.env.OPENCODE_CODEX_HOME,
+    })
+    const home = storage.home
+    const runtimeScope = storage.scope
     const epoch = randomUUID()
     const entries = new Map<SessionSchema.ID, Entry>()
     const nativeSessions = new Map<string, SessionSchema.ID>()
@@ -211,10 +224,21 @@ const layer = Layer.effect(
             ? { ...supported, prompt: false, steer: false, queue: "unavailable" }
             : supported,
       queuePaused: entry.record.binding.queuePaused,
-      settings: entry.appliedSettings,
-      pendingSettings: pendingSettings(entry),
+      settings: effectiveSettings(entry),
+      pendingSettings: pendingSettings(entry, effectiveSettings(entry)),
       error: entry.error,
     })
+
+    function effectiveSettings(entry: Entry): Settings {
+      return entry.appliedSettings.permission === "default" &&
+        entry.desiredSettings.permission === "auto" &&
+        entry.resumed &&
+        state.runtime &&
+        current(state.runtime) &&
+        entry.generation === state.runtime.generation
+        ? { ...entry.appliedSettings, permission: "auto" }
+        : entry.appliedSettings
+    }
 
     async function emit(entry: Entry, patch: Partial<Schema.Schema.Type<typeof Changed.data>> = {}) {
       entry.revision++
@@ -270,6 +294,8 @@ const layer = Layer.effect(
         activeTools: new Map(),
         executionObserved: !record.binding.executionPending,
         appliedSettings: {},
+        desiredSettings: decodeSettings(record.binding.settings),
+        settingsSequence: 0,
         resumed: false,
         lease: false,
         operations: Promise.resolve(),
@@ -352,6 +378,7 @@ const layer = Layer.effect(
       entry.idleConfirmed = false
       entry.activeTurnID = undefined
       entry.appliedSettings = {}
+      entry.settingsSequence = 0
       entry.plan = undefined
       entry.dirty = true
       expireInteractions(entry, () => true, "Codex connection changed")
@@ -699,8 +726,9 @@ const layer = Layer.effect(
         )
           return fail("conflict", "Codex resumed a different native thread or directory")
         if (!current(connected)) return fail("unavailable", "Codex connection changed while checking the directory")
-        entry.appliedSettings = observedSettings(response)
+        if (entry.settingsSequence <= observedAt) entry.appliedSettings = observedSettings(response)
         entry.resumed = true
+        scheduleAutomaticApprovals(entry)
       }
       const metadata = await connected.readThread(threadID, false)
       if (!current(connected)) return fail("unavailable", "Codex connection changed while reading")
@@ -832,6 +860,7 @@ const layer = Layer.effect(
       if (entry.record.binding.state !== "pending")
         return fail("conflict", "Native thread creation is unresolved; it will not be repeated")
       const token = generation(connected)
+      const observedAt = receiveSequence
       const options = {
         ...threadSettings(decodeSettings(entry.record.binding.settings)),
         cwd: entry.record.session.location.directory,
@@ -862,7 +891,8 @@ const layer = Layer.effect(
         for (const notification of buffered.get(started.thread.id) ?? []) observeTool(entry, notification)
         entry.native = started.thread
         entry.resumed = true
-        entry.appliedSettings = observedSettings(started)
+        if (entry.settingsSequence <= observedAt) entry.appliedSettings = observedSettings(started)
+        scheduleAutomaticApprovals(entry)
         entry.status = executionStatus(entry, nativeStatus(started.thread.status))
         entry.idleConfirmed = entry.status === "idle"
         updateView(entry)
@@ -1135,6 +1165,7 @@ const layer = Layer.effect(
       const id = nativeSessions.get(threadID)
       const entry = id ? entries.get(id) : undefined
       if (entry) {
+        observeSettings(entry, received)
         if (
           notification.method === "turn/started" ||
           toolStarted ||
@@ -1163,6 +1194,7 @@ const layer = Layer.effect(
       const connected = state.runtime
       if (!connected || notification.generation !== connected.generation) return
       attach(entry, connected)
+      observeSettings(entry, notification)
       const params = record(notification.params) ? notification.params : {}
       if (notification.method === "turn/plan/updated") {
         const plan = {
@@ -1287,14 +1319,6 @@ const layer = Layer.effect(
         if (entry.native) entry.native.name = params.threadName
         await syncTitle(entry, params.threadName)
       }
-      if (notification.method === "thread/settings/updated" && record(params.threadSettings)) {
-        const settings = params.threadSettings as v2.ThreadSettings
-        entry.appliedSettings = observedSettings({
-          ...settings,
-          sandbox: settings.sandboxPolicy,
-          reasoningEffort: settings.effort,
-        })
-      }
       if (notification.method === "thread/status/changed" && record(params.status)) {
         if (entry.native) entry.native.status = params.status as v2.ThreadStatus
         if (params.status.type === "idle") entry.activeTurnID = undefined
@@ -1411,9 +1435,92 @@ const layer = Layer.effect(
         await emit(entry, { refresh: true }).catch((error) => {
           expireInteractions(entry, (pending) => pending.view.id === id, errorMessage(error))
         })
+        await approveAutomatically(entry)
         return { response }
       })
       return registered.response ?? { error: registered.error! }
+    }
+
+    function observeSettings(entry: Entry, notification: Received) {
+      if (
+        notification.method !== "thread/settings/updated" ||
+        notification.generation !== entry.generation ||
+        notification.sequence <= entry.settingsSequence ||
+        !record(notification.params) ||
+        !record(notification.params.threadSettings)
+      )
+        return
+      const settings = notification.params.threadSettings as v2.ThreadSettings
+      entry.appliedSettings = observedSettings({
+        ...settings,
+        sandbox: settings.sandboxPolicy,
+        reasoningEffort: settings.effort,
+      })
+      entry.settingsSequence = notification.sequence
+      // Confirmation can precede an approval and the turn/start response.
+      // Never wait for the execution lane before answering that approval.
+      scheduleAutomaticApprovals(entry)
+    }
+
+    function scheduleAutomaticApprovals(entry: Entry) {
+      void serializeInteraction(entry, () => approveAutomatically(entry)).catch((error) => {
+        entry.error = errorMessage(error)
+        void emit(entry, { refresh: true }).catch(() => undefined)
+      })
+    }
+
+    async function approveAutomatically(entry: Entry) {
+      if (effectiveSettings(entry).permission !== "auto") return
+      for (const pending of entry.pending.values()) {
+        if (pending.view.state !== "pending" || !["command", "file", "permissions"].includes(pending.view.kind))
+          continue
+        const choice = pending.view.choices.find((choice) => choice.kind === "allow")
+        if (!choice) continue
+        await replyPending(
+          entry,
+          pending.view.id,
+          { revision: pending.view.revision, choiceID: choice.id },
+          true,
+        ).catch((error) => {
+          // Keep a failed automatic attempt pending for the existing UI.
+          entry.error = errorMessage(error)
+        })
+      }
+    }
+
+    // Both callers hold the interaction lane, including settings changes.
+    // Auto only accepts a native one-shot choice; it never creates rule grants.
+    async function replyPending(entry: Entry, id: string, input: Reply, automatic = false) {
+      entry.record = await run(sessions.get(entry.record.session.id))
+      entry.desiredSettings = decodeSettings(entry.record.binding.settings)
+      const connected = state.runtime
+      const pending = entry.pending.get(id)
+      const valid = () =>
+        connected &&
+        current(connected) &&
+        pending &&
+        pending.generation === connected.generation &&
+        entry.generation === connected.generation &&
+        pending.view.state === "pending" &&
+        pending.view.revision === input.revision &&
+        !resolvedRequests.has(id) &&
+        entry.pending.get(id) === pending &&
+        (!automatic || effectiveSettings(entry).permission === "auto")
+      if (automatic && (!valid() || unconfirmedExecution(entry))) return
+      if (unconfirmedExecution(entry))
+        return fail("conflict", "Previous native execution has not been confirmed finished")
+      if (!valid()) return fail("conflict", "Native interaction is no longer pending")
+      const response = pending!.reply(input)
+      await acquire(entry)
+      if (automatic && !valid()) return
+      if (!valid()) return fail("conflict", "Native interaction is no longer pending")
+      entry.record.binding = await run(sessions.setExecutionPending(entry.record.session.id, true))
+      if (automatic && !valid()) return
+      if (!valid()) return fail("conflict", "Native interaction is no longer pending")
+      entry.executionObserved = true
+      pending!.view = { ...pending!.view, state: "replying" }
+      pending!.resolve(response)
+      await emit(entry, { refresh: true })
     }
 
     function dispatch(entry: Entry, requestID: string, retry = false) {
@@ -1694,38 +1801,7 @@ const layer = Layer.effect(
         result(async () => {
           const entry = await getEntry(sessionID)
           return serializeInteraction(entry, async () => {
-            const connected = state.runtime
-            if (unconfirmedExecution(entry))
-              return fail("conflict", "Previous native execution has not been confirmed finished")
-            const pending = entry.pending.get(interactionID)
-            if (
-              !connected ||
-              !pending ||
-              pending.generation !== connected.generation ||
-              pending.view.state !== "pending" ||
-              pending.view.revision !== input.revision ||
-              resolvedRequests.has(interactionID)
-            )
-              return fail("conflict", "Native interaction is no longer pending")
-            const response = pending.reply(input)
-            await acquire(entry)
-            if (
-              !current(connected) ||
-              resolvedRequests.has(interactionID) ||
-              entry.pending.get(interactionID) !== pending
-            )
-              return fail("conflict", "Native interaction is no longer pending")
-            entry.record.binding = await run(sessions.setExecutionPending(entry.record.session.id, true))
-            if (
-              !current(connected) ||
-              resolvedRequests.has(interactionID) ||
-              entry.pending.get(interactionID) !== pending
-            )
-              return fail("conflict", "Native interaction is no longer pending")
-            entry.executionObserved = true
-            pending.view = { ...pending.view, state: "replying" }
-            pending.resolve(response)
-            await emit(entry, { refresh: true })
+            await replyPending(entry, interactionID, input)
             return snapshot(entry)
           })
         }),
@@ -1733,9 +1809,11 @@ const layer = Layer.effect(
         result(async () => {
           await validateSettings(input)
           const entry = await getEntry(sessionID)
-          return serialize(entry, async () => {
+          return serializeInteraction(entry, async () => {
             entry.record = await run(sessions.get(sessionID))
             entry.record.binding = await run(sessions.setSettings(sessionID, json(input)))
+            entry.desiredSettings = decodeSettings(entry.record.binding.settings)
+            await approveAutomatically(entry)
             await emit(entry)
             return descriptor(entry)
           })
@@ -1843,10 +1921,10 @@ function executionStatus(entry: Entry, status: RuntimeStatus, interrupted = fals
     : "active"
 }
 
-function pendingSettings(entry: Entry): Settings | undefined {
-  const desired = decodeSettings(entry.record.binding.settings)
+function pendingSettings(entry: Entry, applied: Settings): Settings | undefined {
+  const desired = entry.desiredSettings
   return (Object.keys(desired) as Array<keyof Settings>).some(
-    (key) => desired[key] !== undefined && desired[key] !== entry.appliedSettings[key],
+    (key) => desired[key] !== undefined && desired[key] !== applied[key],
   )
     ? desired
     : undefined
@@ -1891,12 +1969,14 @@ function observedSettings(
           ? "readOnly"
           : sandbox.type === "workspaceWrite" &&
               sandbox.networkAccess === false &&
-              sandbox.writableRoots.length === 1 &&
-              sandbox.writableRoots[0] === value.cwd &&
+              // Native workspaceWrite already includes cwd. Version 0.153.4
+              // normalizes that implicit root to an empty writableRoots list.
+              (sandbox.writableRoots.length === 0 ||
+                (sandbox.writableRoots.length === 1 && sandbox.writableRoots[0] === value.cwd)) &&
               sandbox.excludeTmpdirEnvVar === false &&
               sandbox.excludeSlashTmp === false &&
               value.approvalPolicy === "on-request"
-            ? "workspace"
+            ? "default"
             : undefined
   return { model: value.model, effort: value.reasoningEffort ?? undefined, permission }
 }

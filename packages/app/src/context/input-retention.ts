@@ -10,6 +10,17 @@ export function directoryInputID(scope: ServerScope, directory: string) {
   return `input:${base64Encode(JSON.stringify([scope, pathKey(directory)]))}`
 }
 
+export async function resolveInputDirectory(input: {
+  directory: string
+  scope: ServerScope
+  tabs: readonly Tab[]
+  resolve: (directory: string) => Promise<string>
+}) {
+  const id = directoryInputID(input.scope, input.directory)
+  if (input.tabs.some((tab) => tab.type === "draft" && tab.draftID === id)) return input.directory
+  return input.resolve(input.directory)
+}
+
 export function isDirectoryInput(id: string) {
   return id.startsWith("input:")
 }

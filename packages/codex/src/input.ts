@@ -51,6 +51,8 @@ export function threadSettings(
         : settings.permission === "readOnly"
           ? "read-only"
           : "workspace-write",
+    // Default and auto share native enforcement. The Host answers auto's
+    // one-shot approvals; native auto_review would add risk-based denials.
     approvalPolicy: settings.permission === "full" ? "never" : "on-request",
     approvalsReviewer: "user",
   }

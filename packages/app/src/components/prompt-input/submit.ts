@@ -591,7 +591,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const remembered = target.externalRequest.current()
       const delivery =
         remembered?.fingerprint === fingerprint ? (remembered.delivery ?? requestedDelivery) : requestedDelivery
-      const desiredSettings = externalDesiredSettings ?? codexPreferences
+      const desiredSettings =
+        externalDesiredSettings ??
+        (isNewSession && codexPreferences.permission === undefined
+          ? { ...codexPreferences, permission: "default" as const }
+          : codexPreferences)
       const settings =
         remembered?.fingerprint === fingerprint ? (remembered.settings ?? desiredSettings) : desiredSettings
       const request =

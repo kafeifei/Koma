@@ -68,7 +68,7 @@ const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Service | C
         const state = {
           directory: ctx.directory,
           worktree: ctx.worktree,
-          gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, Hash.fast(ctx.worktree)),
+          gitdir: path.join(Global.Path.snapshot, ctx.project.id, Hash.fast(ctx.worktree)),
           vcs: ctx.project.vcs,
         }
 

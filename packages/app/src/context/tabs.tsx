@@ -13,6 +13,7 @@ import {
   isLegacyDraft,
   prefillDirectoryInput,
   removeLegacyDrafts,
+  resolveInputDirectory,
 } from "./input-retention"
 import { SessionTabsRemovedDetail } from "@/components/titlebar-session-events"
 import { sessionHref } from "@/utils/session-route"
@@ -20,6 +21,9 @@ import { createTabMemory } from "./tab-memory"
 import { nextTabAfterClose, pushClosedTab, removeClosedTabs, takeClosedTab, type ClosedTab } from "./closed-tabs"
 import { createDraftPromptSession, type PromptModel } from "./prompt-state"
 import { migrateTabs } from "./tab-migration"
+import { useGlobal } from "./global"
+import { useLanguage } from "./language"
+import { showToast } from "@/utils/toast"
 
 export type SessionTab = {
   type: "session"
@@ -65,6 +69,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
   gate: false,
   init: () => {
     const server = useServer()
+    const global = useGlobal()
+    const language = useLanguage()
     const platform = usePlatform()
     const fallback = server.key
     const [store, setStore, _, ready] = persisted(
@@ -235,9 +241,25 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         options?: { worktree?: "main" },
       ) {
         await ready.promise
-        const draftID = directoryInputID(server.scope(draft.server), draft.directory)
+        const conn = global.servers.list().find((conn) => ServerConnection.key(conn) === draft.server)
+        const directory = await resolveInputDirectory({
+          directory: draft.directory,
+          scope: server.scope(draft.server),
+          tabs: store,
+          resolve: async (directory) => {
+            if (!conn) return directory
+            return global.ensureServerCtx(conn).sdk.resolveDirectory(directory)
+          },
+        }).catch((cause: unknown) => {
+          showToast({
+            title: language.t("common.requestFailed"),
+            description: cause instanceof Error ? cause.message : language.t("common.requestFailed"),
+          })
+        })
+        if (directory === undefined) return
+        const draftID = directoryInputID(server.scope(draft.server), directory)
         const existing = store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === draftID)
-        const tab = existing ?? { type: "draft" as const, draftID, ...draft, directory: pathKey(draft.directory) }
+        const tab = existing ?? { type: "draft" as const, draftID, ...draft, directory: pathKey(directory) }
         const input = memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { model }))
         await prefillDirectoryInput(input, prompt)
         await startTransition(() => {

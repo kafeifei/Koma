@@ -59,6 +59,19 @@ export function normalizeOpenCodePreference(model: PromptModel, variants: string
   } satisfies PromptModel
 }
 
+export function initializeCodexPreference(
+  current: CodexPromptSettings | undefined,
+  saved: CodexPromptSettings | undefined,
+) {
+  const restored = current
+    ? current.permission === undefined && saved?.permission !== undefined
+      ? { ...current, permission: saved.permission }
+      : current
+    : saved
+  if (restored?.permission !== undefined) return restored
+  return { ...restored, permission: "default" as const }
+}
+
 export function createNewSessionComposerPreferences(input: {
   projectRoot: () => string | undefined
   prompt: ReturnType<typeof usePrompt>
@@ -144,10 +157,11 @@ export function createNewSessionComposerPreferences(input: {
     }
 
     const restoreEngine = !value.engine && !value.model && !value.codex
+    const initializedCodex = initializeCodexPreference(value.codex, current?.codex)
     batch(() => {
       if (restoreEngine && current?.engine) input.prompt.engine.set(current.engine)
       if (!value.model && current?.opencode?.model) input.prompt.model.set({ ...current.opencode.model })
-      if (!value.codex && current?.codex) input.prompt.codex.set({ ...current.codex }, { explicit: false })
+      if (!same(value.codex, initializedCodex)) input.prompt.codex.set(initializedCodex, { explicit: false })
       if (!draft()?.permissionMode && current?.opencode?.permission)
         void input.permission.select(current.opencode.permission)
     })
@@ -231,7 +245,11 @@ function codexSettings(value: Record<string, unknown>): CodexPromptSettings {
   return {
     ...(typeof value.model === "string" ? { model: value.model } : {}),
     ...(typeof value.effort === "string" ? { effort: value.effort } : {}),
-    ...(value.permission === "workspace" || value.permission === "readOnly" || value.permission === "full"
+    ...(value.permission === "default" ||
+    value.permission === "auto" ||
+    value.permission === "workspace" ||
+    value.permission === "readOnly" ||
+    value.permission === "full"
       ? { permission: value.permission }
       : {}),
   }

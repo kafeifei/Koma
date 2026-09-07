@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createStore } from "solid-js/store"
-import type { ImageAttachmentPart, Prompt, PromptStore } from "@/context/prompt"
+import type { CodexPromptSettings, ImageAttachmentPart, Prompt, PromptStore } from "@/context/prompt"
 import type { ModelSelection } from "@/context/local"
 import type { ExternalPromptRequest } from "@/context/prompt"
 
@@ -45,7 +45,7 @@ let externalEngine: "opencode" | "codex" = "opencode"
 let externalDeliveryState: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn" = "accepted"
 let externalRequest: ExternalPromptRequest | undefined
 let resetCount = 0
-let codexSettings: { model?: string; effort?: string; permission?: "workspace" | "readOnly" | "full" } = {}
+let codexSettings: CodexPromptSettings = {}
 let codexRevision = 0
 let codexPendingSettings: typeof codexSettings | undefined
 let todoClears = 0
@@ -1011,6 +1011,16 @@ describe("Codex prompt submission", () => {
     expect(storedSessions["/repo/main"]?.[0]).toMatchObject({ id: "native-session" })
   })
 
+  test("sends an explicit default permission for a new Codex session", async () => {
+    externalEngine = "codex"
+
+    await create().handleSubmit(new Event("submit"))
+
+    expect(externalCreates).toEqual([
+      expect.objectContaining({ input: expect.objectContaining({ settings: { permission: "default" } }) }),
+    ])
+  })
+
   test("checks out the selected branch before creating a native session", async () => {
     externalEngine = "codex"
 
@@ -1135,7 +1145,7 @@ describe("Codex prompt submission", () => {
     }).handleSubmit(new Event("submit"))
 
     await Bun.sleep(0)
-    codexSettings.model = "gpt-6"
+    codexSettings = { ...codexSettings, model: "gpt-6" }
     gate.resolve()
     await pending
 

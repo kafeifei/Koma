@@ -77,7 +77,6 @@ import { createPromptPermissionController, PromptPermissionSelect } from "./prom
 import {
   CodexEffortSelect,
   CodexModelSelect,
-  CodexPermissionSelect,
   createCodexPromptController,
   PromptEngineSelect,
 } from "./codex-prompt-controls"
@@ -543,6 +542,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     sessionID: () => props.controls.session.id,
     sessionEngine: engine,
     restoreFocus,
+    initializeDefaultPermission: true,
   })
 
   createEffect(() => {
@@ -1627,7 +1627,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     when={engine() === "codex"}
                     fallback={<PromptPermissionSelect controller={permissionControl} onClose={restoreFocus} />}
                   >
-                    <CodexPermissionSelect controller={codex} />
+                    <PromptPermissionSelect controller={codex.permission} onClose={restoreFocus} />
                   </Show>
                   <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                     <IconButton

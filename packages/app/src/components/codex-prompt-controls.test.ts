@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { desiredCodexSettings, updateCodexSettings } from "./codex-prompt-controls"
+import { desiredCodexSettings, sharedCodexPermission, updateCodexSettings } from "./codex-prompt-controls"
 
 describe("Codex prompt settings", () => {
   test("preserves applied and pending fields across consecutive setting changes", () => {
@@ -22,5 +22,14 @@ describe("Codex prompt settings", () => {
         { model: "draft-model" },
       ),
     ).toEqual({ model: "retired-model", effort: "high" })
+  })
+
+  test("maps only shared Codex permission modes into the common picker", () => {
+    expect(sharedCodexPermission("workspace")).toBe("default")
+    expect(sharedCodexPermission("default")).toBe("default")
+    expect(sharedCodexPermission("auto")).toBe("auto")
+    expect(sharedCodexPermission("full")).toBe("full")
+    expect(sharedCodexPermission("readOnly")).toBeUndefined()
+    expect(sharedCodexPermission(undefined)).toBeUndefined()
   })
 })

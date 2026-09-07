@@ -74,7 +74,7 @@
 
 | 操作                                                                | 内容与成功含义                                                                                                                 |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /lab/engines`                                                  | 引擎可用性、有效模型／effort、原生权限选项、经过版本核验的能力                                                                 |
+| `GET /lab/engines`                                                  | 引擎可用性、有效模型／effort、经过版本核验的能力                                                                               |
 | `GET /lab/engines/codex/account` 与 `POST /lab/engines/codex/login` | 读取原生账户状态；用户主动发起登录时返回原生登录标识与授权入口，完成状态由原生事件／账户重读确认                               |
 | `POST /lab/engines/codex/login/cancel`                              | 取消该 runtime scope 的指定登录尝试，不注销其他客户端                                                                          |
 | `POST /lab/sessions/describe`                                       | 对当前列表的 Session ID 批量返回 engine、外部状态和能力；只读操作，不创建／恢复原生执行                                        |
@@ -85,7 +85,7 @@
 | `POST /lab/sessions/:id/queue`                                      | 对后端确认的队列项执行恢复／撤回，携带操作 ID 与队列 revision；先核对当前原生状态，不把 sending/unknown 当作尚未提交而重复执行 |
 | `POST /lab/sessions/:id/interrupt`                                  | 指向已确认的原生 turn；请求成功后等待终态                                                                                      |
 | `POST /lab/sessions/:id/interactions/:id/reply`                     | 精确交互身份及用户选择；重查连接代际、请求、thread 和 turn                                                                     |
-| `POST /lab/sessions/:id/settings`                                   | 保存 Codex 专属下轮设置意图，返回有效值／生效边界；不修改 OpenCode permissionMode                                              |
+| `POST /lab/sessions/:id/settings`                                   | 保存设置意图；模型／沙箱待原生确认，默认沙箱下即时切换自动批准；返回有效值，不修改 OpenCode permissionMode                     |
 | 现有认证事件流的 Lab 事件扩展                                       | 同一连接交付外部状态、投影和交互变化；不再新增并行 `/lab/events`；公开事件 schema 和实际解码客户端同步升级                     |
 
 API 定义走本仓 Protocol/HttpApi 和生成流程。Lab 扩展生成到独立客户端入口并由 App 显式消费；现有 vendored client 保持原用途。Session 公共摘要增加 engine 时，必须更新两种服务 DTO、相应生成客户端及 App 实际依赖，或者以 Lab 批量描述补齐旧客户端读取；首期选后者降低迁移范围，前端不能把“描述尚未返回”当成 OpenCode。后端 guard 不依赖前端是否正确识别。
@@ -149,11 +149,13 @@ SQLite 与原生 RPC 不能组成一个事务。若 thread/start 或 turn/start 
 
 审批／交互主身份为 runtime scope + generation + RPC request ID，thread/turn/item 是按请求 kind 校验的关联字段，不统一要求三者都有。特别是 MCP elicitation 没有 itemId，turnId 可空；无 turn 的合法请求仍可显示与回复。不同 Web/桌面窗口同时回复时，第一个有效选择获受理，其他窗口得到已处理状态；旧连接请求不能在重连后复用。处理命令、文件、权限子集请求、结构化问题与 MCP elicitation；不支持的请求明确返回原生允许的取消／拒绝或协议错误，并展示原因，不静默挂起，不自动批准。
 
-权限选项由 Codex 后端提供，保留 approval policy 与 sandbox 的实际组合。不能把 OpenCode 的 default/auto/full 名称一对一硬映射，也不把原 OpenCode 的已选 Full Access 无声继承到 Codex。有效值、待生效意图和当前执行配置分开呈现。原生策略决定是否需要审批，UI 不监听工具事件替用户批准。
+权限设置复用现有 `PromptPermissionSelect` 的“默认权限／自动批准／完全访问”，由 Codex 后端适配，移除单独的原生权限菜单。`default` 使用工作区写入沙箱、`on-request` 和人工审批；`auto` 使用相同的原生配置，由 Host 对原生明确提供单次允许选项的命令、文件和权限请求自动回复。它不改原生禁止规则，不选择会话级授权或修改规则，不代答问题或 MCP 表单；缺少单次允许选项时仍保留人工处理。`full` 使用 `danger-full-access` 和 `never`。不将 Codex 的风险自动审查改名为本产品的自动批准。
+
+新 Codex 输入缺少权限选择时显式提交 `default`，不继承 OpenCode 的完全访问选择。旧 `workspace` 与 `default` 等价；旧 `readOnly` 和无法识别的原生组合保留原配置，公共菜单显示“权限”且无选中项，直到用户明确切换。有效值仍来自原生确认及 Host 的持久策略：只有本代原生确认标准工作区配置后，持久的 `auto` 才可自动批准。已在该配置下的 `default`／`auto` 切换即时改变 Host 审批策略，切回 `default` 后不再自动回复。UI 只提交意图，不监听工具事件驱动审批。
 
 交互展示契约是有限的 UI 数据，不是新权限引擎：`id/kind/sessionID/revision`、按 kind 可选的 `turnRef/itemRef`、`prompt`、`choices[{id, label, description, scope}]`、选择方式（单选／多选／表单）、允许的补充输入，以及 resolved/expired 状态。权限子集请求提供明确的网络／路径范围；MCP 表单保留所需字段与校验。后端将原生决定编码为 opaque choice ID，UI 原样回传 ID 与用户填写值，后端校验范围后还原原生回复；不能由按钮名称推断决定。OpenCode 继续生成原有 once/always/reject 控制项。
 
-权限设置控件展示当前原生有效配置与单独的“下轮生效”意图；运行中不能把后者画成当前权限已改变。操作文案经已有 i18n 层生成，原生说明作为数据展示。控件需支持选项数据、有效状态和回复 callback，不只是替换一个点击函数。
+权限设置继续区分当前有效配置与尚待原生确认的意图；改变沙箱时不能把待生效值当成实际执行权限。公共控件和 i18n 文案保持复用，后端返回有效状态，Codex 控制器只适配取值和提交接口。
 
 ## 6. 投影与一致性
 
@@ -253,7 +255,7 @@ app-server 崩溃时，冻结受影响的投递与队列，清除失效交互，
 
 1. 同请求重试、相同 ID 不同内容冲突、原生接受后断线、thread 创建后回执丢失。
 2. 历史读取与 delta／完整 item 交错、页面刷新、SSE 游标失效；不能按相同文本去重两个真实用户输入；未知时间下同 turn 多次 steer 与分页插入顺序一致。
-3. steer 与 turn 完成竞态，停止时队列不自动续跑；修改模型／权限不偷偷改变正在执行的 turn。
+3. steer 与 turn 完成竞态，停止时队列不自动续跑；修改模型／沙箱不偷偷改变正在执行的 turn；Host 自动批准策略仅按已确认的原生配置和用户持久选择生效。
 4. 审批发出后刷新、两窗口回复、原生撤销、连接换代、未知请求类型，以及无 turn/item 的合法 MCP 请求。
 5. 同目录两任务、不同 worktree、父子 thread、相同原生 ID 不同 scope 的隔离。
 6. 用量缺失／累计、文件失败／拒绝、原生 diff 与 Git diff 不同、历史无法提供全部思考内容。

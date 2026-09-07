@@ -4,11 +4,13 @@ import { installSseTransport } from "../utils/sse-transport"
 import { mockOpenCodeServer } from "../utils/mock-server"
 
 const directory = "C:/OpenCode/PromptPermissionRegression"
+const otherDirectory = "C:/OpenCode/PromptPermissionRegressionOther"
 const projectID = "proj_prompt_permission"
 const sessionA = "ses_permission_a"
 const sessionB = "ses_permission_b"
-const draftA = "draft_permission_a"
-const draftB = "draft_permission_b"
+const draftA = `input:${base64Encode(JSON.stringify(["local", directory]))}`
+const draftB = `input:${base64Encode(JSON.stringify(["local", otherDirectory]))}`
+const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
 const href = (id: string) => `/${base64Encode(directory)}/session/${id}`
 const draftHref = (id: string) => `/new-session?draftId=${id}`
 
@@ -64,7 +66,7 @@ for (const newLayout of [true, false]) {
       },
       { id: "permission-b", sessionID: sessionB, permission: "bash", patterns: ["git diff"], always: [], metadata: {} },
     ]
-    const transport = await installSseTransport(page, { server: "http://127.0.0.1:4096" })
+    const transport = await installSseTransport(page, { server })
     const backend = await setup(page, { newLayout, permissions: () => pending, extraSession: child })
     await page.goto(href(sessionA))
     await expect(page.getByRole("button", { name: "Allow once", exact: true })).toBeVisible()
@@ -134,7 +136,7 @@ test("an older server cannot silently claim Full Access after ignoring the setti
 })
 
 test("another client's confirmed mode update is reflected without local execution", async ({ page }) => {
-  const transport = await installSseTransport(page, { server: "http://127.0.0.1:4096" })
+  const transport = await installSseTransport(page, { server })
   const backend = await setup(page, { newLayout: true })
   await page.goto(href(sessionA))
   const control = page.locator('[data-action="prompt-permission"]')
@@ -156,7 +158,7 @@ test("another client's confirmed mode update is reflected without local executio
 
 test("the current protocol persists Full Access through the backend mode endpoint", async ({ page }) => {
   const backend = await setup(page, { newLayout: true, protocol: "v2" })
-  await page.goto(`/server/${base64Encode("http://127.0.0.1:4096")}/session/${sessionA}`)
+  await page.goto(`/server/${base64Encode(server)}/session/${sessionA}`)
   const control = page.locator('[data-action="prompt-permission"]')
   await expect(control).toBeEnabled()
   await expect(control).toContainText("Default permissions")
@@ -169,7 +171,7 @@ test("the current protocol persists Full Access through the backend mode endpoin
   await expect(control).toContainText("Full Access")
 })
 
-test("new draft permission choices stay with the draft and do not change existing sessions", async ({ page }) => {
+test("new project inputs remember permission choices without changing existing sessions", async ({ page }) => {
   await setup(page, { newLayout: true })
   await page.goto(draftHref(draftA))
   const control = page.locator('[data-action="prompt-permission"]')
@@ -180,7 +182,7 @@ test("new draft permission choices stay with the draft and do not change existin
 
   await page.goto(draftHref(draftB))
   await expect(control).toBeEnabled()
-  await expect(control).toContainText("Default permissions")
+  await expect(control).toContainText("Auto-approve")
   await page.goto(href(sessionA))
   await expect(control).toBeEnabled()
   await expect(control).toContainText("Default permissions")
@@ -273,7 +275,14 @@ async function setup(
   await mockOpenCodeServer(page, {
     protocol: input.protocol,
     directory,
-    project: { id: projectID, worktree: directory, vcs: "git", name: "permission-regression", time: {}, sandboxes: [] },
+    project: {
+      id: projectID,
+      worktree: directory,
+      vcs: "git",
+      name: "permission-regression",
+      time: {},
+      sandboxes: [otherDirectory],
+    },
     sessions,
     provider: {
       all: [
@@ -315,10 +324,10 @@ async function setup(
     return route.fulfill({ json: true })
   })
   await page.addInitScript(
-    ({ newLayout, directory, draftA, draftB }) => {
-      localStorage.setItem("opencode.settings.dat:defaultServerUrl", "http://127.0.0.1:4096")
+    ({ newLayout, directory, otherDirectory, draftA, draftB, server }) => {
+      localStorage.setItem("opencode.settings.dat:defaultServerUrl", server)
       localStorage.setItem("app-version.v1", JSON.stringify({ version: "1.18.29" }))
-      localStorage.setItem("opencode.global.dat:server", JSON.stringify({ list: ["http://127.0.0.1:4096"] }))
+      localStorage.setItem("opencode.global.dat:server", JSON.stringify({ list: [server] }))
       localStorage.setItem(
         "settings.v3",
         JSON.stringify({ general: { newLayoutDesigns: newLayout, newInterfaceNoticeDismissed: true } }),
@@ -327,13 +336,13 @@ async function setup(
         localStorage.setItem(
           "opencode.window.browser.dat:tabs",
           JSON.stringify([
-            { type: "draft", draftID: draftA, server: "http://127.0.0.1:4096", directory },
-            { type: "draft", draftID: draftB, server: "http://127.0.0.1:4096", directory },
+            { type: "draft", draftID: draftA, server, directory },
+            { type: "draft", draftID: draftB, server, directory: otherDirectory },
           ]),
         )
       }
     },
-    { newLayout: input.newLayout, directory, draftA, draftB },
+    { newLayout: input.newLayout, directory, otherDirectory, draftA, draftB, server },
   )
   return { updates, replies, sessions }
 }

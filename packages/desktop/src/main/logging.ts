@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { ZipWriter, BlobWriter, BlobReader } from "@zip.js/zip.js"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
+import { StoragePaths } from "@opencode-ai/core/storage-paths"
 
 const MAX_LOG_AGE_DAYS = 7
 const TAIL_LINES = 1000
@@ -99,7 +100,9 @@ export function tail(): string {
 }
 
 function initRunDirectory() {
-  root = join(app.getPath("userData"), "logs")
+  root = process.env.OPENCODE_HOME
+    ? join(StoragePaths.resolve(process.env.OPENCODE_HOME).root, "logs", "desktop")
+    : join(app.getPath("userData"), "logs")
   run = join(root, stamp())
   mkdirSync(run, { recursive: true })
 }
@@ -152,6 +155,7 @@ function manifest() {
 
 function serverLogRoots() {
   const xdgData = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share")
+  if (process.env.OPENCODE_HOME) return [StoragePaths.resolve(process.env.OPENCODE_HOME).log]
   return [...new Set([join(xdgData, "opencode", "log"), join(app.getPath("userData"), "opencode", "log")])]
 }
 

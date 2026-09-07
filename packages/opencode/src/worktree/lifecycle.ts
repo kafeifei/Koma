@@ -1,3 +1,4 @@
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { createHash } from "node:crypto"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
@@ -110,6 +111,8 @@ const layer = Layer.effect(
     const storage = yield* Storage.Service
     const git = yield* Git.Service
     const fs = yield* FSUtil.Service
+    const resolveDirectory = (directory: string) =>
+      fs.resolve(directory).pipe(Effect.map((value) => StorageDirectory.resolve(value)))
     const archive = yield* WorktreeArchive.Service
     const disposal = yield* InstanceDisposal.Service
     const externalOwnership = yield* SessionExternalOwnership.Service
@@ -156,14 +159,14 @@ const layer = Layer.effect(
     })
 
     const list: Interface["list"] = Effect.fn("WorktreeLifecycle.list")(function* (input) {
-      const root = input?.root ? yield* fs.resolve(input.root) : undefined
+      const root = input?.root ? yield* resolveDirectory(input.root) : undefined
       return (yield* Effect.forEach(yield* records(), refreshRoot)).filter(
         (owner) => (!input?.projectID || owner.projectID === input.projectID) && (!root || owner.root === root),
       )
     })
 
     const leaseDirectory = Effect.fn("WorktreeLifecycle.leaseDirectory")(function* (input: string) {
-      const directory = yield* fs.resolve(input)
+      const directory = yield* resolveDirectory(input)
       const owners = yield* records()
       return (
         owners
@@ -193,7 +196,7 @@ const layer = Layer.effect(
     })
 
     const getDirectory = Effect.fn("WorktreeLifecycle.getDirectory")(function* (directory: string) {
-      const owner = yield* readDirectory(yield* fs.resolve(directory))
+      const owner = yield* readDirectory(yield* resolveDirectory(directory))
       return owner ? yield* refreshRoot(owner) : undefined
     })
 
@@ -253,7 +256,7 @@ const layer = Layer.effect(
         .all()
         .pipe(Effect.orDie)
       for (const session of external) {
-        if (!overlaps(directory, yield* fs.resolve(session.directory))) continue
+        if (!overlaps(directory, yield* resolveDirectory(session.directory))) continue
         if (!(yield* externalOwnership.isIdle(session.id))) return true
       }
       return occupied(directory)
@@ -270,7 +273,7 @@ const layer = Layer.effect(
         .pipe(Effect.orDie)
       const rows = (yield* Effect.forEach(
         candidates,
-        (row) => fs.resolve(row.directory).pipe(Effect.map((directory) => ({ ...row, directory }))),
+        (row) => resolveDirectory(row.directory).pipe(Effect.map((directory) => ({ ...row, directory }))),
         { concurrency: "unbounded" },
       )).filter((row) => contains(owner.directory, row.directory))
       const parents = new Map(candidates.map((row) => [row.id, row.parentID] as const))
@@ -308,7 +311,7 @@ const layer = Layer.effect(
         .find((line) => line.startsWith("worktree "))
         ?.slice(9)
       if (!root) return owner
-      const canonical = yield* fs.resolve(root)
+      const canonical = yield* resolveDirectory(root)
       if (canonical === owner.root || canonical === owner.directory) return owner
       const entries = result.text().split("\0\0")
       const checkout = yield* Effect.forEach(entries, (entry) =>
@@ -319,7 +322,7 @@ const layer = Layer.effect(
             ?.slice(9)
           return (
             directory &&
-            (yield* fs.resolve(directory)) === owner.directory &&
+            (yield* resolveDirectory(directory)) === owner.directory &&
             entry.split("\0").includes(`branch refs/heads/${owner.branch}`)
           )
         }),
@@ -356,7 +359,7 @@ const layer = Layer.effect(
             const worktree = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length)
             if (!worktree) return
             return {
-              directory: yield* fs.resolve(worktree),
+              directory: yield* resolveDirectory(worktree),
               branch: lines.find((line) => line.startsWith("branch "))?.slice("branch refs/heads/".length),
             }
           }),
@@ -419,8 +422,8 @@ const layer = Layer.effect(
     })
 
     const register = Effect.fn("WorktreeLifecycle.register")(function* (input: RegisterInput) {
-      const directory = yield* fs.resolve(input.directory)
-      const suppliedRoot = yield* fs.resolve(input.root)
+      const directory = yield* resolveDirectory(input.directory)
+      const suppliedRoot = yield* resolveDirectory(input.root)
       const listing = yield* git.run(["worktree", "list", "--porcelain", "-z"], { cwd: suppliedRoot })
       if (listing.exitCode !== 0 || listing.truncated)
         return yield* fail("git", "cannot resolve the primary Git worktree", { directory })
@@ -430,7 +433,7 @@ const layer = Layer.effect(
           const found = lines.find((line) => line.startsWith("worktree "))?.slice(9)
           return found
             ? {
-                directory: yield* fs.resolve(found),
+                directory: yield* resolveDirectory(found),
                 branch: lines.find((line) => line.startsWith("branch refs/heads/"))?.slice(18),
               }
             : undefined
@@ -465,7 +468,7 @@ const layer = Layer.effect(
                 .where(eq(SessionTable.id, SessionID.make(input.sessionID)))
                 .get()
                 .pipe(Effect.orDie)
-              if (!session || session.parentID || (yield* fs.resolve(session.directory)) !== directory) {
+              if (!session || session.parentID || (yield* resolveDirectory(session.directory)) !== directory) {
                 return yield* fail("conflict", "worktree owner must be an existing root session in this directory", {
                   directory,
                   sessionID: input.sessionID,
@@ -514,7 +517,7 @@ const layer = Layer.effect(
     })
 
     const claim = Effect.fn("WorktreeLifecycle.claim")(function* (input: ClaimInput) {
-      const directory = yield* fs.resolve(input.directory)
+      const directory = yield* resolveDirectory(input.directory)
       return yield* mutate(
         directory,
         Effect.gen(function* () {
@@ -528,7 +531,7 @@ const layer = Layer.effect(
             .where(and(eq(SessionTable.id, SessionID.make(input.sessionID)), isNull(SessionTable.parent_id)))
             .get()
             .pipe(Effect.orDie)
-          if (!session || (yield* fs.resolve(session.directory)) !== directory) return false
+          if (!session || (yield* resolveDirectory(session.directory)) !== directory) return false
           yield* write({ ...owner, sessionID: input.sessionID, phase: "resident", lastError: undefined })
           return true
         }),
@@ -755,7 +758,9 @@ const layer = Layer.effect(
     })
 
     const release = Effect.fn("WorktreeLifecycle.release")(function* (input: ClaimInput) {
-      const directory = yield* leaseDirectory(input.directory).pipe(Effect.catch(() => fs.resolve(input.directory)))
+      const directory = yield* leaseDirectory(input.directory).pipe(
+        Effect.catch(() => resolveDirectory(input.directory)),
+      )
       const retry = yield* mutate(
         directory,
         Effect.gen(function* () {
@@ -778,7 +783,7 @@ const layer = Layer.effect(
     })
 
     const forgetUnclaimed = Effect.fn("WorktreeLifecycle.forgetUnclaimed")(function* (input: string) {
-      const directory = yield* fs.resolve(input)
+      const directory = yield* resolveDirectory(input)
       yield* mutate(
         directory,
         Effect.gen(function* () {
@@ -792,7 +797,7 @@ const layer = Layer.effect(
             .from(SessionTable)
             .all()
             .pipe(Effect.orDie)
-          const directories = yield* Effect.forEach(rows, (row) => fs.resolve(row.directory))
+          const directories = yield* Effect.forEach(rows, (row) => resolveDirectory(row.directory))
           if (directories.some((candidate) => contains(directory, candidate)))
             return yield* fail("shared", "worktree still belongs to a session", owner)
           yield* remove(owner)
@@ -827,7 +832,7 @@ const layer = Layer.effect(
     const withExclusive: Interface["withExclusive"] = (input, effect) =>
       Effect.acquireUseRelease(
         Effect.gen(function* () {
-          const directory = yield* fs.resolve(input.directory)
+          const directory = yield* resolveDirectory(input.directory)
           return yield* mutate(
             directory,
             Effect.gen(function* () {
@@ -851,7 +856,7 @@ const layer = Layer.effect(
               .from(SessionTable)
               .all()
               .pipe(Effect.orDie)
-            const session = (yield* Effect.forEach(rows, (row) => fs.resolve(row.directory), {
+            const session = (yield* Effect.forEach(rows, (row) => resolveDirectory(row.directory), {
               concurrency: "unbounded",
             })).some((candidate) => contains(directory, candidate))
             if (!session) return yield* effect
