@@ -93,6 +93,27 @@ describe("unified home migration", () => {
     expect(existsSync(options.root)).toBe(false)
     contents.forEach((path) => expect(readFileSync(join(options.legacyRoot, path), "utf8")).toBe(path))
   })
+  test("running legacy background service blocks migration until its registration is stale", async () => {
+    const options = fixture()
+    const registration = join(options.legacyRoot, "backend/state/opencode/service.json")
+    file(join(options.legacyRoot, "backend/data/opencode/opencode-lab.db"), "database")
+    const child = Bun.spawn(["sleep", "30"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" })
+    file(registration, JSON.stringify({ pid: child.pid, url: "http://127.0.0.1:1" }))
+
+    try {
+      expect(() => migrate(options)).toThrow("background service is still running")
+      expect(existsSync(options.root)).toBe(false)
+      expect(readFileSync(join(options.legacyRoot, "backend/data/opencode/opencode-lab.db"), "utf8")).toBe("database")
+    } finally {
+      child.kill()
+      await child.exited
+    }
+
+    expect(migrate(options)?.status).toBe("complete")
+    expect(readFileSync(join(options.root, "state/service.json"), "utf8")).toBe(
+      JSON.stringify({ pid: child.pid, url: "http://127.0.0.1:1" }),
+    )
+  })
   test("moves directories, preserves old absolute paths, tools and CLI bin; repeats idempotently", () => {
     const { options, contents } = populated()
     file(join(options.root, "bin/opencode"), "cli")
