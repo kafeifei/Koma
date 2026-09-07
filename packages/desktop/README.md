@@ -58,7 +58,9 @@ environment, with its database selected from the same manifest.
 On macOS, the updated desktop migrates the former
 `~/Library/Application Support/OpenCode Lab` profile on first launch. It obtains
 the legacy Electron single-instance lock before moving anything, so the old app
-must have exited. The CLI refuses to perform that migration. Renames keep SQLite
+must have exited. A registered V2 background service must also have stopped;
+a live process or an unreadable service registration blocks migration. The CLI
+refuses to perform that migration. Renames keep SQLite
 files, WAL sidecars and directory inodes together; a durable manifest makes an
 interrupted migration resumable. Independent destination data or a different
 filesystem blocks migration instead of overwriting or partially copying it.

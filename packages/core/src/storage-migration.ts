@@ -70,6 +70,7 @@ export function prepareUnifiedHome(
   const legacyRoot = resolve(options.legacyRoot)
   if (root === legacyRoot || inside(root, legacyRoot) || inside(legacyRoot, root)) fail("overlapping roots", root)
   const previous = readManifest(root, legacyRoot)
+  if (previous?.status !== "complete") requireStoppedLegacyService(root, legacyRoot)
   const manifest = previous ?? plan(root, legacyRoot)
   if (previous?.source === null && entry(legacyRoot)) fail("legacy data appeared after home initialization", legacyRoot)
   if (previous && !entry(join(root, "storage.json"))) {
@@ -136,6 +137,54 @@ export function prepareUnifiedHome(
     database: manifest.database,
     codexScope: manifest.codexScope,
     status: "complete" as const,
+  }
+}
+
+function requireStoppedLegacyService(root: string, legacyRoot: string) {
+  const registrations = [
+    join(legacyRoot, "backend/state/opencode/service.json"),
+    join(root, "desktop/backend/state/opencode/service.json"),
+    join(root, "state/service.json"),
+  ]
+  for (const file of registrations) {
+    const current = entry(file)
+    if (!current) continue
+    if (!current.isFile() || current.isSymbolicLink()) fail("invalid background service registration", file)
+    const value = readRegistration(file)
+    if (processExists(value.pid, file)) fail("background service is still running", file)
+  }
+}
+
+function readRegistration(file: string) {
+  const value = parseRegistration(file)
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("pid" in value) ||
+    typeof value.pid !== "number" ||
+    !Number.isSafeInteger(value.pid) ||
+    value.pid <= 0
+  ) {
+    fail("invalid background service registration", file)
+  }
+  return { pid: value.pid }
+}
+
+function parseRegistration(file: string): unknown {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"))
+  } catch {
+    return fail("invalid background service registration", file)
+  }
+}
+
+function processExists(pid: number, file: string) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false
+    return fail("could not verify background service process", file)
   }
 }
 
