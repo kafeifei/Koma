@@ -384,6 +384,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const mode = input.mode()
     const codexPreferences = { ...target.codex.current() }
     const codexPreferenceRevision = target.codex.revision()
+    const projectDirectory = sourceSDK.directory
+    const worktreeSelection = input.newSessionWorktree?.() || "main"
+    const branchSelection = input.newSessionBaseBranch?.()
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
       if (input.working()) void abort()
@@ -477,9 +480,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.addToHistory(currentPrompt, mode)
     input.resetHistoryNavigation()
 
-    const projectDirectory = sourceSDK.directory
     const permissionMode = isNewSession ? input.permissionMode() : undefined
-    const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
     let client = sourceSDK.client
@@ -490,7 +491,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         const createdWorktree = await client.worktree
           .create({
             directory: projectDirectory,
-            worktreeCreateInput: { baseBranch: input.newSessionBaseBranch?.(), wait: true },
+            worktreeCreateInput: { baseBranch: branchSelection, wait: true },
           })
           .then((x) => x.data)
           .catch((err) => {
@@ -511,6 +512,27 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         // The wait response is authoritative even if the global ready event preceded this request's subscription.
         WorktreeState.ready(sourceSDK.scope, createdWorktree.directory)
         sessionDirectory = createdWorktree.directory
+      }
+
+      if (worktreeSelection === "main" && branchSelection) {
+        const checkedOut = await client.worktree
+          .checkout({ directory: sessionDirectory, worktreeCheckoutInput: { branch: branchSelection } })
+          .then((result) => result.data)
+          .catch((err) => {
+            showToast({
+              title: language.t("prompt.toast.sessionCreateFailed.title"),
+              description: errorMessage(err),
+            })
+            return undefined
+          })
+        if (checkedOut?.branch !== branchSelection) {
+          if (checkedOut)
+            showToast({
+              title: language.t("prompt.toast.sessionCreateFailed.title"),
+              description: language.t("common.requestFailed"),
+            })
+          return
+        }
       }
 
       if (worktreeSelection !== "main" && worktreeSelection !== "create") {

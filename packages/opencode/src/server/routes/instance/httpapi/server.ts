@@ -56,6 +56,7 @@ import { Storage } from "@/storage/storage"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
 import { Worktree } from "@/worktree"
+import { WorktreeBranch } from "@/worktree/branch"
 import { WorktreeMerge } from "@/worktree/merge"
 import { WorktreeManager } from "@/worktree/manager"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -268,6 +269,7 @@ const app = LayerNode.group([
   Vcs.node,
   Workspace.node,
   Worktree.node,
+  WorktreeBranch.node,
   WorktreeMerge.node,
   WorktreeManager.node,
   WorktreeLifecycle.node,

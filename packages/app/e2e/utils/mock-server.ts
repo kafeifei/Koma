@@ -99,6 +99,30 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (path === "/api/health" && config.protocol === "v2")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
+    if (path === "/lab/engines") return json(route, [])
+    if (path === "/lab/sessions/describe") {
+      const body = route.request().postDataJSON() as { sessionIDs: string[] }
+      return json(
+        route,
+        body.sessionIDs.map((sessionID) => ({
+          sessionID,
+          engine: "opencode",
+          epoch: "mock",
+          revision: 0,
+          runtimeStatus: "idle",
+          capabilities: {
+            prompt: true,
+            steer: false,
+            queue: "unavailable",
+            compact: false,
+            images: true,
+            permissions: true,
+          },
+          queuePaused: false,
+          settings: {},
+        })),
+      )
+    }
     if (path === "/experimental/session/search") {
       const input = {
         query: url.searchParams.get("query") ?? "",

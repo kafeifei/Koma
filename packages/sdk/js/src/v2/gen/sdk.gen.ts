@@ -442,6 +442,9 @@ import type {
   VcsStatusResponses,
   WorktreeAdoptErrors,
   WorktreeAdoptResponses,
+  WorktreeCheckoutErrors,
+  WorktreeCheckoutInput,
+  WorktreeCheckoutResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -1812,6 +1815,43 @@ export class Worktree extends HeyApiClient {
       url: "/experimental/worktree/options",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Checkout local branch
+   *
+   * Switch the selected checkout to an existing local branch while preserving working tree changes.
+   */
+  public checkout<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      worktreeCheckoutInput?: WorktreeCheckoutInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "worktreeCheckoutInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorktreeCheckoutResponses, WorktreeCheckoutErrors, ThrowOnError>({
+      url: "/experimental/worktree/checkout",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 

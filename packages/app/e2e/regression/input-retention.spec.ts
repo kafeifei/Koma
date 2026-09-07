@@ -305,16 +305,15 @@ test("project selection and existing worktrees open independent inputs", async (
   await expect(page).toHaveURL(featureURL)
   await expect(editor(page)).toHaveText("Feature input")
   await expect(page.locator('[data-action="prompt-project"]')).toContainText("feature")
-  await expect(page.locator('[data-action="prompt-base-branch"]')).toHaveCount(0)
-  await expect(page.locator('[data-action="prompt-current-branch"]')).toContainText("feature")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
   await worktreeControl.click()
   await expect(page).toHaveURL(featureURL)
   await expect(editor(page)).toHaveText("Feature input")
-  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("feature")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
   await worktreeControl.click()
-  await expect(page.locator('[data-action="prompt-current-branch"]')).toContainText("feature")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
   await worktreeControl.click()
-  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("feature")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
   await expect(page).toHaveURL(featureURL)
   await expect(editor(page)).toHaveText("Feature input")
   await page.locator('[data-action="prompt-base-branch"]').click()
@@ -324,10 +323,11 @@ test("project selection and existing worktrees open independent inputs", async (
   await page.locator(`[role="menuitemradio"][data-directory="${directory}"]`).click()
   await expect(page).toHaveURL(rootURL)
   await expect(editor(page)).toHaveText("Root input")
-  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
   await page.reload()
   await expect(worktree).toBeChecked()
   await expect(editor(page)).toHaveText("Root input")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
   await openProject(page, directory)
   await expect(editor(page)).toHaveText("Root input")
   await page.locator('[data-action="prompt-base-branch"]').click()
@@ -344,54 +344,67 @@ test("project selection and existing worktrees open independent inputs", async (
   await expect(page.getByRole("heading", { name: "Existing conversation", exact: true })).toBeVisible()
 })
 
-for (const recovery of ["retry", "local"] as const) {
-  test(`worktree options failure preserves input and supports ${recovery} recovery`, async ({ page }) => {
-    await page.route("**/experimental/worktree/options**", (route) =>
-      route.fulfill({ status: 500, json: { message: "Synthetic options failure" } }),
-    )
-    await openProject(page, directory)
-    await editor(page).fill("Preserve input through options failure")
-    const href = page.url()
-    const send = page.getByRole("button", { name: "Send", exact: true })
-    const creates: string[] = []
-    page.on("request", (request) => {
-      const path = new URL(request.url()).pathname
-      if (request.method() === "POST" && ["/api/session", "/experimental/worktree"].includes(path)) creates.push(path)
-    })
-    await send.click()
-    await expect(page.getByText("Choose where to run this task before sending", { exact: true })).toBeVisible()
-    expect(creates).toEqual([])
-    await expect(editor(page)).toHaveText("Preserve input through options failure")
-    await expect(page).toHaveURL(href)
-    await page.locator('[data-action="prompt-base-branch"]').click()
-    await expect(page.getByRole("alert")).toHaveText("Could not load worktree options")
-    if (recovery === "retry") {
-      await page.route("**/experimental/worktree/options**", (route) =>
-        route.fulfill({ json: { hasHead: true, currentBranch: "main", defaultBranch: "main", branches: ["main"] } }),
-      )
-      await page.getByRole("menuitem", { name: "Retry", exact: true }).click()
-      await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
-      await page.keyboard.press("Escape")
-      await expect(page.getByRole("checkbox", { name: "Worktree", exact: true })).toBeChecked()
-    } else {
-      await page.getByRole("menuitem", { name: "Use local folder", exact: true }).click()
-      await expect(page.getByRole("checkbox", { name: "Worktree", exact: true })).not.toBeChecked()
-      await expect(page.locator('[data-action="prompt-base-branch"]')).toHaveCount(0)
-    }
-    await expect(send).toBeEnabled()
-    await expect(editor(page)).toHaveText("Preserve input through options failure")
-    await expect(page).toHaveURL(href)
+test("worktree options failure preserves input and supports retry without changing either choice", async ({ page }) => {
+  await page.route("**/experimental/worktree/options**", (route) =>
+    route.fulfill({ status: 500, json: { message: "Synthetic options failure" } }),
+  )
+  await openProject(page, directory)
+  await editor(page).fill("Preserve input through options failure")
+  const href = page.url()
+  const send = page.getByRole("button", { name: "Send", exact: true })
+  const creates: string[] = []
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === "POST" && ["/api/session", "/experimental/worktree"].includes(path)) creates.push(path)
   })
-}
+  await send.click()
+  await expect(page.getByText("Choose where to run this task before sending", { exact: true })).toBeVisible()
+  expect(creates).toEqual([])
+  await expect(editor(page)).toHaveText("Preserve input through options failure")
+  await expect(page).toHaveURL(href)
+  await page.locator('[data-action="prompt-base-branch"]').click()
+  await expect(page.getByRole("alert")).toHaveText("Could not load worktree options")
+  const worktree = page.getByRole("checkbox", { name: "Worktree", exact: true })
+  await page.keyboard.press("Escape")
+  await page.locator('[data-action="prompt-worktree"]').click()
+  await expect(worktree).not.toBeChecked()
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toBeVisible()
+  await page.locator('[data-action="prompt-base-branch"]').click()
+  await page.route("**/experimental/worktree/options**", (route) =>
+    route.fulfill({ json: { hasHead: true, currentBranch: "main", defaultBranch: "main", branches: ["main"] } }),
+  )
+  await page.getByRole("menuitem", { name: "Retry", exact: true }).click()
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
+  await expect(worktree).not.toBeChecked()
+  await expect(send).toBeEnabled()
+  await expect(editor(page)).toHaveText("Preserve input through options failure")
+  await expect(page).toHaveURL(href)
+})
 
 test("repository without a commit disables worktree creation and allows local input", async ({ page }) => {
   await openProject(page, directory)
   const worktree = page.getByRole("checkbox", { name: "Worktree", exact: true })
   await expect(worktree).not.toBeChecked()
   await expect(worktree).toBeDisabled()
-  await expect(page.locator('[data-action="prompt-base-branch"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toBeVisible()
   await editor(page).fill("Continue in repository without commits")
-  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled()
+  const created = currentSession(
+    { id: "ses-unborn", title: "Unborn task", directory, permissionMode: "default" },
+    directory,
+  )
+  const checkoutRequests: string[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/experimental/worktree/checkout") checkoutRequests.push(request.url())
+  })
+  await page.route("**/api/session", (route) =>
+    route.request().method() === "POST" ? route.fulfill({ json: { data: created } }) : route.fallback(),
+  )
+  await page.route("**/api/session/ses-unborn", (route) => route.fulfill({ json: { data: created } }))
+  await page.route("**/api/session/ses-unborn/prompt", (route) => route.fulfill({ status: 204 }))
+  const sent = page.waitForRequest("**/api/session/ses-unborn/prompt")
+  await editor(page).press("Enter")
+  await sent
+  expect(checkoutRequests).toEqual([])
 })
 
 test("first send creates an isolated worktree from the selected local branch", async ({ page }) => {
@@ -433,6 +446,69 @@ test("first send creates an isolated worktree from the selected local branch", a
 
   expect(worktreeBody).toEqual({ baseBranch: "release", wait: true })
   expect(sessionBody).toMatchObject({ location: { directory: createdDirectory } })
+})
+
+test("first send checks out the selected branch before creating a local task", async ({ page }) => {
+  await page.route("**/experimental/worktree/options**", (route) =>
+    route.fulfill({
+      json: { hasHead: true, currentBranch: "main", defaultBranch: "main", branches: ["main", "release"] },
+    }),
+  )
+  await openProject(page, directory)
+  await page.locator('[data-action="prompt-worktree"]').click()
+  await page.locator('[data-action="prompt-base-branch"]').click()
+  await page.getByRole("menuitem", { name: "release", exact: true }).click()
+  await editor(page).fill("Run locally from release")
+
+  let checkoutBody: Record<string, unknown> | undefined
+  await page.route("**/experimental/worktree/checkout**", (route) => {
+    checkoutBody = route.request().postDataJSON()
+    return route.fulfill({ json: { branch: "release" } })
+  })
+  const created = currentSession(
+    { id: "ses-local-branch", title: "Local branch task", directory, permissionMode: "default" },
+    directory,
+  )
+  let sessionBody: Record<string, unknown> | undefined
+  await page.route("**/api/session", (route) => {
+    if (route.request().method() !== "POST") return route.fallback()
+    sessionBody = route.request().postDataJSON()
+    return route.fulfill({ json: { data: created } })
+  })
+  await page.route("**/api/session/ses-local-branch", (route) => route.fulfill({ json: { data: created } }))
+  await page.route("**/api/session/ses-local-branch/prompt", (route) => route.fulfill({ status: 204 }))
+  const sent = page.waitForRequest("**/api/session/ses-local-branch/prompt")
+  await editor(page).press("Enter")
+  await sent
+
+  expect(checkoutBody).toEqual({ branch: "release" })
+  expect(sessionBody).toMatchObject({ location: { directory } })
+})
+
+test("branch checkout failure preserves the input and both manual choices", async ({ page }) => {
+  await page.route("**/experimental/worktree/options**", (route) =>
+    route.fulfill({
+      json: { hasHead: true, currentBranch: "main", defaultBranch: "main", branches: ["main", "release"] },
+    }),
+  )
+  await openProject(page, directory)
+  const href = page.url()
+  const worktree = page.getByRole("checkbox", { name: "Worktree", exact: true })
+  await page.locator('[data-action="prompt-worktree"]').click()
+  await page.locator('[data-action="prompt-base-branch"]').click()
+  await page.getByRole("menuitem", { name: "release", exact: true }).click()
+  await editor(page).fill("Keep this failed checkout")
+  await page.route("**/experimental/worktree/checkout**", (route) =>
+    route.fulfill({ status: 400, json: { message: "Synthetic checkout conflict" } }),
+  )
+  const failed = page.waitForResponse("**/experimental/worktree/checkout**")
+  await editor(page).press("Enter")
+  await failed
+
+  await expect(page).toHaveURL(href)
+  await expect(editor(page)).toHaveText("Keep this failed checkout")
+  await expect(worktree).not.toBeChecked()
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
 })
 
 for (const change of ["switch", "edit"] as const) {

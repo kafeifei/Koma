@@ -11,6 +11,7 @@ import type { SessionID } from "@/session/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Worktree } from "@/worktree"
+import { WorktreeBranch } from "@/worktree/branch"
 import { WorktreeMerge } from "@/worktree/merge"
 import { WorktreeManager } from "@/worktree/manager"
 import { Effect, Option } from "effect"
@@ -26,7 +27,14 @@ import {
 } from "../groups/experimental"
 
 function mapWorktreeError<A, R>(
-  self: Effect.Effect<A, Worktree.Error | WorktreeMerge.MergeFailedError | WorktreeManager.ManagerFailedError, R>,
+  self: Effect.Effect<
+    A,
+    | Worktree.Error
+    | WorktreeBranch.CheckoutFailedError
+    | WorktreeMerge.MergeFailedError
+    | WorktreeManager.ManagerFailedError,
+    R
+  >,
 ) {
   return self.pipe(
     Effect.mapError((error) => new WorktreeApiError({ name: error._tag, data: { message: error.message } })),
@@ -42,6 +50,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const project = yield* Project.Service
     const registry = yield* ToolRegistry.Service
     const worktreeSvc = yield* Worktree.Service
+    const worktreeBranch = yield* WorktreeBranch.Service
     const worktreeMerge = yield* WorktreeMerge.Service
     const worktreeManager = yield* WorktreeManager.Service
     const sessions = yield* Session.Service
@@ -207,6 +216,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("toolIDs", toolIDs)
       .handle("worktree", worktree)
       .handle("worktreeOptions", () => mapWorktreeError(worktreeSvc.options()))
+      .handle("worktreeCheckout", (ctx) => mapWorktreeError(worktreeBranch.checkout(ctx.payload)))
       .handle("worktreeStatus", (ctx) => mapWorktreeError(worktreeSvc.lifecycleStatus(ctx.params.sessionID)))
       .handle("worktreeMergePreview", (ctx) =>
         Effect.gen(function* () {

@@ -9,14 +9,12 @@ import { useLanguage } from "@/context/language"
 export function PromptWorkspaceSelector(props: {
   isolated: boolean
   branch?: string
-  currentBranch?: string
   baseBranch?: string
   branches?: string[]
   worktreeDisabled?: boolean
   optionsLoading?: boolean
   optionsFailed?: boolean
   onRetry?: () => void
-  onUseLocal?: () => void
   onIsolationChange: (value: boolean) => void
   onBaseBranchChange?: (value: string) => void
   onDone: () => void
@@ -30,52 +28,47 @@ export function PromptWorkspaceSelector(props: {
   return (
     <>
       <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
-      <Show when={props.isolated} fallback={<PromptGitStatus branch={props.currentBranch ?? props.branch} />}>
-        <MenuV2 placement="bottom" gutter={4} onOpenChange={(open) => !open && props.onDone()}>
-          <MenuV2.Trigger
-            data-action="prompt-base-branch"
-            class="flex h-7 min-w-0 max-w-[220px] items-center gap-1.5 rounded-sm px-2 hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none data-[expanded]:bg-v2-overlay-simple-overlay-pressed data-[expanded]:text-v2-text-text-muted"
-          >
-            <IconV2 name="branch" class="shrink-0 text-v2-icon-icon-muted" />
-            <span class="min-w-0 truncate">{branchLabel()}</span>
-            <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
-          </MenuV2.Trigger>
-          <MenuV2.Portal>
-            <MenuV2.Content class="max-h-80 w-[220px] overflow-y-auto">
-              <MenuV2.Group>
-                <MenuV2.GroupLabel>{language.t("session.new.worktree.baseBranch")}</MenuV2.GroupLabel>
-                <Show when={props.optionsLoading}>
-                  <div class="px-2 py-1 text-v2-text-text-faint" role="status">
-                    {language.t("common.loading")}
-                  </div>
-                </Show>
-                <Show when={props.optionsFailed}>
-                  <div class="px-2 py-1 text-v2-text-text-danger" role="alert">
-                    {language.t("session.new.worktree.optionsFailed")}
-                  </div>
-                  <MenuV2.Item onSelect={() => props.onRetry?.()}>
-                    <span class="min-w-0 flex-1 truncate">{language.t("workspace.retry")}</span>
+      <MenuV2 placement="bottom" gutter={4} onOpenChange={(open) => !open && props.onDone()}>
+        <MenuV2.Trigger
+          data-action="prompt-base-branch"
+          class="flex h-7 min-w-0 max-w-[220px] items-center gap-1.5 rounded-sm px-2 hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none data-[expanded]:bg-v2-overlay-simple-overlay-pressed data-[expanded]:text-v2-text-text-muted"
+        >
+          <IconV2 name="branch" class="shrink-0 text-v2-icon-icon-muted" />
+          <span class="min-w-0 truncate">{branchLabel()}</span>
+          <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+        </MenuV2.Trigger>
+        <MenuV2.Portal>
+          <MenuV2.Content class="max-h-80 w-[220px] overflow-y-auto">
+            <MenuV2.Group>
+              <MenuV2.GroupLabel>{language.t("session.new.worktree.baseBranch")}</MenuV2.GroupLabel>
+              <Show when={props.optionsLoading}>
+                <div class="px-2 py-1 text-v2-text-text-faint" role="status">
+                  {language.t("common.loading")}
+                </div>
+              </Show>
+              <Show when={props.optionsFailed}>
+                <div class="px-2 py-1 text-v2-text-text-danger" role="alert">
+                  {language.t("session.new.worktree.optionsFailed")}
+                </div>
+                <MenuV2.Item onSelect={() => props.onRetry?.()}>
+                  <span class="min-w-0 flex-1 truncate">{language.t("workspace.retry")}</span>
+                </MenuV2.Item>
+              </Show>
+              <For each={props.branches ?? []}>
+                {(branch) => (
+                  <MenuV2.Item closeOnSelect onSelect={() => props.onBaseBranchChange?.(branch)}>
+                    <IconV2 name="branch" />
+                    <span class="min-w-0 flex-1 truncate">{branch}</span>
+                    <Show when={props.baseBranch === branch}>
+                      <Icon name="check" size="small" class="shrink-0" />
+                    </Show>
                   </MenuV2.Item>
-                  <MenuV2.Item onSelect={() => props.onUseLocal?.()}>
-                    <span class="min-w-0 flex-1 truncate">{language.t("session.new.worktree.useLocal")}</span>
-                  </MenuV2.Item>
-                </Show>
-                <For each={props.branches ?? []}>
-                  {(branch) => (
-                    <MenuV2.Item closeOnSelect onSelect={() => props.onBaseBranchChange?.(branch)}>
-                      <IconV2 name="branch" />
-                      <span class="min-w-0 flex-1 truncate">{branch}</span>
-                      <Show when={props.baseBranch === branch}>
-                        <Icon name="check" size="small" class="shrink-0" />
-                      </Show>
-                    </MenuV2.Item>
-                  )}
-                </For>
-              </MenuV2.Group>
-            </MenuV2.Content>
-          </MenuV2.Portal>
-        </MenuV2>
-      </Show>
+                )}
+              </For>
+            </MenuV2.Group>
+          </MenuV2.Content>
+        </MenuV2.Portal>
+      </MenuV2>
       <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
       <CheckboxV2
         data-action="prompt-worktree"

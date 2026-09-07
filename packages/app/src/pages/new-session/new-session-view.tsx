@@ -60,14 +60,12 @@ export function NewSessionView(props: {
                     <PromptWorkspaceSelector
                       isolated={props.workspace.selection.isolated()}
                       branch={props.workspace.bar.branch()}
-                      currentBranch={props.workspace.bar.currentBranch()}
                       baseBranch={props.workspace.bar.baseBranch()}
                       branches={props.workspace.project.branches()}
                       worktreeDisabled={props.workspace.selection.disabled()}
                       optionsLoading={props.workspace.selection.loading()}
                       optionsFailed={props.workspace.selection.failed()}
                       onRetry={props.workspace.selection.retry}
-                      onUseLocal={props.workspace.selection.useLocal}
                       onIsolationChange={props.workspace.selection.setIsolated}
                       onBaseBranchChange={props.workspace.selection.setBaseBranch}
                       onDone={props.input.restoreFocus}

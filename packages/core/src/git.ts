@@ -82,6 +82,7 @@ export interface Interface {
   readonly history: {
     readonly head: (repository: Repository) => Effect.Effect<string | undefined>
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined>
+    readonly hasLocalBranch: (repository: Repository, branch: string) => Effect.Effect<boolean>
     readonly defaultRemoteBranch: (repository: Repository, remote?: string) => Effect.Effect<string | undefined>
     readonly rootCommits: (repository: Repository) => Effect.Effect<readonly string[]>
   }
@@ -230,6 +231,11 @@ const layer = Layer.effect(
       return result.text.trim() || undefined
     })
 
+    const hasLocalBranch = Effect.fn("Git.history.hasLocalBranch")(function* (repository: Repository, branch: string) {
+      const result = yield* run(repository.worktree, proc)(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])
+      return result.exitCode === 0
+    })
+
     const remoteHead = Effect.fn("Git.history.defaultRemoteBranch")(function* (
       repository: Repository,
       remoteName = "origin",
@@ -305,7 +311,7 @@ const layer = Layer.effect(
       const remoteName = input.remote ?? "origin"
       yield* operation("checkout", repository.worktree, [
         "checkout",
-        ...(input.reset === false ? [input.branch] : ["-B", input.branch, `${remoteName}/${input.branch}`]),
+        ...(input.reset === false ? [input.branch, "--"] : ["-B", input.branch, `${remoteName}/${input.branch}`]),
       ])
     })
 
@@ -925,7 +931,7 @@ const layer = Layer.effect(
     return Service.of({
       repo: { discover, clone, create },
       remote: { get: remote },
-      history: { head, branch, defaultRemoteBranch: remoteHead, rootCommits: roots },
+      history: { head, branch, hasLocalBranch, defaultRemoteBranch: remoteHead, rootCommits: roots },
       sync: { fetchRemotes: fetch, fetchBranch, checkoutRemoteBranch: checkout, resetHard: reset },
       change: { capture, apply, discard },
       worktree: { create: worktreeCreate, remove: worktreeRemove, list: worktreeList },
