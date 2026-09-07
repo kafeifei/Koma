@@ -24,6 +24,8 @@ const capabilities = {
 test("keeps Codex settings and text with their draft and preserves a rejected first send", async ({ page }) => {
   const backend = await setup(page)
   await page.goto(draftHref(draftA))
+  await expect(page.locator('[data-component="prompt-engine-label"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="prompt-engine"]')).toBeVisible()
   const editor = page.locator('[data-component="prompt-input"]')
   await editor.fill("Keep Codex draft A")
   await choose(page, "prompt-engine", "Codex")
@@ -85,6 +87,8 @@ test("routes the legacy composer through native Codex create without clearing a 
   const backend = await setup(page, { newLayout: false })
   await page.goto(`/${base64Encode(directory)}/session`)
   await expect(page.locator('[data-component="prompt-input-v2"]')).toHaveCount(0)
+  await expect(page.locator('[data-component="prompt-engine-label"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="prompt-engine"]')).toBeVisible()
   const editor = page.locator('[data-component="prompt-input"]')
   await editor.fill("Legacy native draft")
   await choose(page, "prompt-engine", "Codex")
@@ -95,15 +99,30 @@ test("routes the legacy composer through native Codex create without clearing a 
   expect(backend.legacyCreates).toBe(0)
 })
 
-test("keeps an ordinary existing Codex task free of persistent chrome in the legacy layout", async ({ page }) => {
-  await setup(page, { newLayout: false })
-  await page.goto(sessionHref)
+for (const scenario of [
+  { engine: "codex", newLayout: true, label: "Codex" },
+  { engine: "codex", newLayout: false, label: "Codex" },
+  { engine: "opencode", newLayout: true, label: "OpenCode" },
+  { engine: "opencode", newLayout: false, label: "OpenCode" },
+] as const) {
+  test(`shows a static ${scenario.label} agent for an existing task in the ${scenario.newLayout ? "new" : "legacy"} layout`, async ({
+    page,
+  }) => {
+    await setup(page, { newLayout: scenario.newLayout, sessionEngine: scenario.engine })
+    await page.goto(sessionHref)
 
-  await expect(page.locator('[data-component="prompt-input-v2"]')).toHaveCount(0)
-  await expect(page.locator('[data-component="prompt-input"]')).toBeVisible()
-  await expect(page.locator('[data-component="codex-session-docks"]')).toHaveCount(0)
-  await expect(page.locator('[data-component="codex-session-controls"]')).toHaveCount(0)
-})
+    const label = page.locator('[data-component="prompt-engine-label"]')
+    await expect(label).toHaveText(scenario.label)
+    await expect(label).toHaveAttribute("aria-label", "Execution engine")
+    await expect(label).not.toHaveAttribute("role", "button")
+    await expect(page.locator('[data-action="prompt-engine"]')).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Execution engine", exact: true })).toHaveCount(0)
+    await expect(page.locator('[data-component="prompt-input-v2"]')).toHaveCount(scenario.newLayout ? 1 : 0)
+    await expect(page.locator('[data-component="prompt-input"]')).toBeVisible()
+    await expect(page.locator('[data-component="codex-session-docks"]')).toHaveCount(0)
+    await expect(page.locator('[data-component="codex-session-controls"]')).toHaveCount(0)
+  })
+}
 
 test("disables native submission without adding persistent chrome while the runtime is disconnected", async ({
   page,
@@ -122,6 +141,7 @@ test("keeps an existing Codex engine immutable and submits the complete desired 
   const backend = await setup(page)
   await page.goto(sessionHref)
   await expect(page.locator('[data-action="prompt-engine"]')).toHaveCount(0)
+  await expect(page.locator('[data-component="prompt-engine-label"]')).toHaveText("Codex")
   await expect(page.locator('[data-action="prompt-codex-model"]')).toContainText("GPT-6-Astra")
 
   await choose(page, "prompt-codex-model", "GPT-5.6-Luna")
@@ -169,17 +189,22 @@ async function setup(
     codexAvailable?: boolean
     newLayout?: boolean
     runtimeStatus?: "idle" | "disconnected"
+    sessionEngine?: "codex" | "opencode"
   },
 ) {
   const session = {
     id: sessionID,
-    engine: "codex",
+    engine: options?.sessionEngine ?? "codex",
     projectID,
     directory,
     title: "Codex composer session",
     time: { created: 1, updated: 1 },
   }
-  let current = { ...descriptor(), runtimeStatus: options?.runtimeStatus ?? ("idle" as const) }
+  let current = {
+    ...descriptor(),
+    engine: options?.sessionEngine ?? ("codex" as const),
+    runtimeStatus: options?.runtimeStatus ?? ("idle" as const),
+  }
   const nativeCreates: LabCreateInput[] = []
   const nativeSubmits: Record<string, unknown>[] = []
   const settings: Record<string, unknown>[] = []
