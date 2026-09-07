@@ -2,6 +2,7 @@ import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import type { WslServersPlatform } from "@opencode-ai/app/wsl/types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 import type { DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
+import type { RemoteAccessPlatform } from "@opencode-ai/app/remote-access"
 import type { WebEntryPlatform } from "@opencode-ai/app/web-entry"
 export type {
   WslDistroProbe,
@@ -44,6 +45,7 @@ export type FatalRendererError = {
 }
 
 export type ElectronAPI = {
+  remoteAccess: RemoteAccessPlatform
   webEntry: WebEntryPlatform
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>

@@ -56,6 +56,7 @@ export default defineConfig(async ({ command }) => {
     main: {
       define: {
         "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+        "import.meta.env.OPENCODE_REMOTE_WEBSITE": JSON.stringify(process.env.OPENCODE_REMOTE_WEBSITE ?? ""),
         "import.meta.env.OPENCODE_BUILD": JSON.stringify(build),
       },
       build: {
@@ -73,7 +74,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
 `,
           },
         },
-        externalizeDeps: { include: [nodePtyPkg] },
+        externalizeDeps: { include: [nodePtyPkg], exclude: ["@opencode-ai/remote"] },
       },
       plugins: [
         {

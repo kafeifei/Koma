@@ -8,6 +8,7 @@ import type { UpdaterPlatform } from "../updater"
 import type { DraftStore } from "@/utils/draft-store"
 import type { BuildInfo } from "../build-info"
 import type { WebEntryPlatform } from "../web-entry"
+import type { RemoteAccessPlatform } from "../remote-access"
 
 type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
@@ -42,6 +43,9 @@ type PlatformBase = {
 
   /** Browser access to this desktop's local backend. */
   webEntry?: WebEntryPlatform
+
+  /** Account-backed access to this desktop and the user's other devices. */
+  remoteAccess?: RemoteAccessPlatform
 
   /** Open a web or mail URL in the default system application */
   openExternal(url: string): void

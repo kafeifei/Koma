@@ -52,6 +52,7 @@ import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { nativeT, setNativeTranslations } from "./native-translations"
 import { prepareLabEnvironment } from "./lab-environment"
+import { createRemoteAccess } from "./remote-access"
 import { createWebEntryController } from "./web-entry-controller"
 import { initializeRuntimeResources, runtimePath } from "./resources"
 
@@ -188,6 +189,7 @@ const main = Effect.gen(function* () {
 
   const serverReady = Deferred.makeUnsafe<ServerReadyData, unknown>()
   let webEntry: ReturnType<typeof createWebEntryController> | undefined
+  let remoteAccess: ReturnType<typeof createRemoteAccess> | undefined
 
   const wslServers = createWslServersController(
     app.getVersion(),
@@ -208,7 +210,7 @@ const main = Effect.gen(function* () {
   const stopSidecars = () => {
     return (stopping ??= (async () => {
       wslServers.stopAll()
-      await Promise.all([webEntry?.stop(), killSidecar()])
+      await Promise.all([webEntry?.stop(), remoteAccess?.stop(), killSidecar()])
     })())
   }
   const relaunch = () => {
@@ -354,6 +356,16 @@ const main = Effect.gen(function* () {
     },
     failed: (error) => logger.error("web entry failed", error),
   })
+  remoteAccess = createRemoteAccess({
+    backend: () => Effect.runPromise(Deferred.await(serverReady)),
+    root: runtimePath("renderer"),
+    clientOrigin: process.env.ELECTRON_RENDERER_URL
+      ? new URL(process.env.ELECTRON_RENDERER_URL).origin
+      : "oc://renderer",
+    changed: (state) => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("remote-access-state", state))
+    },
+  })
   app.setAsDefaultProtocolClient(APP_PROTOCOL)
   registerRendererProtocol()
   setDockIcon()
@@ -368,6 +380,7 @@ const main = Effect.gen(function* () {
   }
   registerIpcHandlers({
     webEntry,
+    remoteAccess,
     killSidecar: () => killSidecar(),
     relaunch,
     awaitInitialization: Effect.fnUntraced(
@@ -498,6 +511,7 @@ const main = Effect.gen(function* () {
   yield* Fiber.await(loadingTask)
   if (stopping) return
   yield* Effect.promise(() => webEntry.initialize())
+  void remoteAccess.initialize()
   if (stopping) return
 
   app.on("window-all-closed", () => {

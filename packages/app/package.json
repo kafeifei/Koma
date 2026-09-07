@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./build-info": "./src/build-info.ts",
+    "./remote-access": "./src/remote-access.ts",
     "./web-entry": "./src/web-entry.ts",
     "./web-entrypoint": "./src/entry.tsx",
     "./desktop-menu": "./src/desktop-menu.ts",
