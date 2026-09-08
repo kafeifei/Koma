@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Exit, Layer, Schema } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
@@ -29,6 +29,24 @@ function withTmp<A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) {
 }
 
 describe("LocationMutation", () => {
+  it.live("constructs for a missing location and fails resolution until it exists", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const missing = path.join(directory, "missing")
+        const service = yield* LocationMutation.Service
+        const unavailable = yield* service.resolve({ path: "new.txt" }).pipe(Effect.exit)
+        expect(Exit.isFailure(unavailable)).toBe(true)
+
+        yield* Effect.promise(() => fs.mkdir(missing))
+        const target = yield* service.resolve({ path: "new.txt" })
+        expect(target).toMatchObject({
+          canonical: path.join(yield* Effect.promise(() => fs.realpath(missing)), "new.txt"),
+          resource: "new.txt",
+        })
+      }).pipe(provide(path.join(directory, "missing"))),
+    ),
+  )
+
   it.live("resolves an active relative existing file target", () =>
     withTmp((directory) =>
       Effect.gen(function* () {
@@ -101,6 +119,30 @@ describe("LocationMutation", () => {
           resource: "actual/new.txt",
         })
       }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("rejects internal targets after the location symlink is rebound", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        if (process.platform === "win32") return
+        const original = path.join(directory, "original")
+        const outside = path.join(directory, "outside")
+        const link = path.join(directory, "location")
+        yield* Effect.promise(async () => {
+          await Promise.all([fs.mkdir(original), fs.mkdir(outside)])
+          await fs.symlink(original, link)
+        })
+        const service = yield* LocationMutation.Service
+        yield* service.resolve({ path: ".", kind: "directory" })
+
+        yield* Effect.promise(async () => {
+          await fs.unlink(link)
+          await fs.symlink(outside, link)
+        })
+        const error = yield* Effect.flip(service.resolve({ path: "new.txt" }))
+        expect(error).toMatchObject({ _tag: "LocationMutation.PathError", reason: "location_escape" })
+      }).pipe(provide(path.join(directory, "location"))),
     ),
   )
 

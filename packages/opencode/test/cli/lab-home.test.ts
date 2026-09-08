@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { createHash } from "node:crypto"
+import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
 const roots: string[] = []
 
@@ -65,4 +67,34 @@ test("Lab CLI rejects an interrupted migration before backend startup", async ()
   expect(result.code).not.toBe(0)
   expect(result.stderr).toContain("migration is incomplete")
   expect(await fs.readdir(root)).toEqual(["storage.json.tmp"])
+})
+
+test("Lab CLI upgrades a completed migration's archived identities and resumes only identity publication", async () => {
+  const root = await fixture()
+  const legacyRoot = `${root}.legacy`
+  await fs.mkdir(legacyRoot)
+  StorageMigration.prepareUnifiedHome({ root, legacyRoot, acquireLock: () => true })
+  const file = path.join(root, "storage.json")
+  const before = await Bun.file(file).text()
+  const directory = path.join(legacyRoot, "backend/data/opencode/worktree/project/archived")
+  await Bun.write(
+    path.join(root, "data/storage/worktree_lifecycle", `${createHash("sha256").update(directory).digest("hex")}.json`),
+    JSON.stringify({ version: 1, directory, phase: "removed", intent: "archive" }),
+  )
+  const first = await launch(root)
+  expect(first.code, first.stderr).toBe(0)
+  const after = await Bun.file(file).text()
+  expect(JSON.parse(after).worktrees).toContainEqual({ directory, path: path.join(root, "worktrees/project/archived") })
+  expect(await fs.stat(directory).catch(() => undefined)).toBeUndefined()
+  await Bun.write(`${file}.tmp`, after)
+  await Bun.write(file, before)
+  const resumed = await launch(root)
+  expect(resumed.code, resumed.stderr).toBe(0)
+  expect(await Bun.file(file).text()).toBe(after)
+  expect(await Bun.file(`${file}.tmp`).exists()).toBe(false)
+  await Bun.write(`${file}.tmp`, JSON.stringify({ ...JSON.parse(after), database: "opencode-local.db" }))
+  const rejected = await launch(root)
+  expect(rejected.code).not.toBe(0)
+  expect(rejected.stderr).toContain("not a completed worktree identity update")
+  expect(await Bun.file(file).text()).toBe(after)
 })

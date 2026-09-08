@@ -10,6 +10,7 @@ import { Git } from "./git"
 import { Global } from "./global"
 import { Location } from "./location"
 import { AbsolutePath, RelativePath } from "./schema"
+import { StorageDirectory } from "./storage-directory"
 import { Hash } from "./util/hash"
 
 export const ID = Schema.String.pipe(Schema.brand("Snapshot.ID"))
@@ -95,22 +96,47 @@ const layer = Layer.effect(
     const worktree = source
       ? AbsolutePath.make(yield* fs.realPath(source.worktree).pipe(Effect.orDie))
       : location.project.directory
-    const gitDirectory = AbsolutePath.make(path.join(global.data, "snapshot", location.project.id, Hash.fast(worktree)))
+    const stableWorktree = AbsolutePath.make(StorageDirectory.resolve(worktree, global.root))
+    const stableScope = path.relative(stableWorktree, location.directory)
+    const directory =
+      stableWorktree !== worktree && !stableScope.startsWith("..") && !path.isAbsolute(stableScope)
+        ? AbsolutePath.make(path.join(worktree, stableScope))
+        : location.directory
+    const snapshotRoot = global.root && global.snapshot ? global.snapshot : path.join(global.data, "snapshot")
+    const gitDirectory = AbsolutePath.make(path.join(snapshotRoot, location.project.id, Hash.fast(worktree)))
+    const stableGitDirectory = AbsolutePath.make(
+      path.join(snapshotRoot, location.project.id, Hash.fast(stableWorktree)),
+    )
 
     const scope = Effect.fnUntraced(function* () {
-      const relative = path.relative(worktree, location.directory)
+      const relative = path.relative(worktree, directory)
       if (relative.startsWith("..") || path.isAbsolute(relative))
         return yield* new Error({ operation: "capture", message: "Location is outside the project" })
       return RelativePath.make(relative.replaceAll("\\", "/") || ".")
     })
 
+    function includeObjects(repository: AbsolutePath, alternate: AbsolutePath) {
+      const file = path.join(repository, "objects", "info", "alternates")
+      return Effect.gen(function* () {
+        const objects = path.join(alternate, "objects")
+        const entries = (yield* fs.readFileStringSafe(file))?.split(/\r?\n/).filter(Boolean) ?? []
+        if (entries.includes(objects)) return
+        yield* fs.writeWithDirs(file, [...entries, objects].join("\n") + "\n")
+      })
+    }
+
     const repository = Effect.fnUntraced(function* () {
       if (!source) return yield* new Error({ operation: "capture", message: "Project is not a Git repository" })
-      if (yield* fs.existsSafe(path.join(gitDirectory, "HEAD")))
+      const current = yield* fs.existsSafe(path.join(gitDirectory, "HEAD"))
+      const stable =
+        stableGitDirectory !== gitDirectory && (yield* fs.existsSafe(path.join(stableGitDirectory, "HEAD")))
+      const selected = current ? gitDirectory : stable ? stableGitDirectory : gitDirectory
+      if (current && stable) yield* includeObjects(gitDirectory, stableGitDirectory)
+      if (current || stable)
         return new Git.Repository({
           worktree,
-          gitDirectory,
-          commonDirectory: gitDirectory,
+          gitDirectory: selected,
+          commonDirectory: selected,
         })
       return yield* git.repo
         .create({

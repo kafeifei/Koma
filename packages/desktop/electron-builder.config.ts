@@ -48,8 +48,9 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
+  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", "!resources/opencode-lab*"],
   extraResources: [
+    ...(channel === "lab" ? [{ from: "resources/", to: "", filter: ["opencode-lab*"] }] : []),
     ...(channel === "dev" || channel === "lab"
       ? [
           {

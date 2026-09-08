@@ -17,7 +17,8 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { lock, prepareUnifiedHome, unifiedHomeLockPath } from "../src/storage-migration"
+import { StorageDirectory } from "../src/storage-directory"
+import { lock, prepareUnifiedHome, reconcileWorktrees, unifiedHomeLockPath } from "../src/storage-migration"
 
 const fixtures: string[] = []
 afterEach(() => fixtures.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })))
@@ -233,6 +234,103 @@ describe("unified home migration", () => {
     expect(() => migrate(options)).toThrow("destination changed")
     expect(existsSync(join(options.root, "data"))).toBe(false)
   })
+  test("retained missing and archived owners keep identity without recreating checkouts", () => {
+    const options = fixture()
+    const source = join(options.legacyRoot, "backend/data/opencode")
+    const owners = [
+      { name: "archived", phase: "removed", intent: "archive" },
+      { name: "missing", phase: "resident" },
+      { name: "deleting", phase: "removed", intent: "delete" },
+      { name: "delete-preserve", phase: "delete-preserve", intent: "delete" },
+    ]
+    for (const owner of owners) {
+      const directory = join(source, "worktree/project", owner.name)
+      file(
+        join(source, "storage/worktree_lifecycle", createHash("sha256").update(directory).digest("hex") + ".json"),
+        JSON.stringify({ version: 1, directory, ...owner }),
+      )
+    }
+    migrate(options)
+    const manifest = JSON.parse(readFileSync(join(options.root, "storage.json"), "utf8"))
+    expect(manifest.worktrees.map((item: { directory: string }) => item.directory).sort()).toEqual([
+      join(source, "worktree/project/archived"),
+      join(source, "worktree/project/missing"),
+    ])
+    for (const owner of owners) {
+      const physical = join(options.root, "worktrees/project", owner.name)
+      expect(existsSync(physical)).toBe(false)
+      expect(StorageDirectory.resolve(physical, options.root)).toBe(
+        owner.intent === "delete" ? physical : join(source, "worktree/project", owner.name),
+      )
+    }
+  })
+
+  test("completed-home reconciliation adds retained owners once and survives interrupted metadata publication", () => {
+    const options = populated().options
+    migrate(options)
+    const directory = join(options.legacyRoot, "backend/data/opencode/worktree/project/archived-before-migration")
+    file(
+      join(
+        options.root,
+        "data/storage/worktree_lifecycle",
+        createHash("sha256").update(directory).digest("hex") + ".json",
+      ),
+      JSON.stringify({ version: 1, directory, phase: "removed", intent: "archive" }),
+    )
+    const metadata = join(options.root, "storage.json")
+    const before = readFileSync(metadata, "utf8")
+    expect(JSON.parse(before).worktrees.some((item: { directory: string }) => item.directory === directory)).toBe(false)
+    reconcileWorktrees(options)
+    const after = readFileSync(metadata, "utf8")
+    expect(JSON.parse(after).status).toBe("complete")
+    expect(
+      JSON.parse(after).worktrees.filter((item: { directory: string }) => item.directory === directory),
+    ).toHaveLength(1)
+    expect(
+      StorageDirectory.resolve(join(options.root, "worktrees/project/archived-before-migration"), options.root),
+    ).toBe(directory)
+    reconcileWorktrees(options)
+    expect(readFileSync(metadata, "utf8")).toBe(after)
+    file(metadata + ".tmp", after)
+    file(metadata, before)
+    reconcileWorktrees(options)
+    expect(existsSync(metadata + ".tmp")).toBe(false)
+    expect(readFileSync(metadata, "utf8")).toBe(after)
+    expect(existsSync(directory)).toBe(false)
+  })
+
+  test("completed identity reconciliation refuses a staging file that changes storage ownership", () => {
+    const options = populated().options
+    migrate(options)
+    const metadata = join(options.root, "storage.json")
+    const before = readFileSync(metadata, "utf8")
+    file(metadata + ".tmp", JSON.stringify({ ...JSON.parse(before), database: "opencode-local.db" }))
+    expect(() => reconcileWorktrees(options)).toThrow("not a completed worktree identity update")
+    expect(readFileSync(metadata, "utf8")).toBe(before)
+    expect(existsSync(metadata + ".tmp")).toBe(true)
+  })
+
+  test("retained-owner identity ignores out-of-root, malformed, mismatched and newly created paths", () => {
+    const options = populated().options
+    migrate(options)
+    const records = join(options.root, "data/storage/worktree_lifecycle")
+    for (const directory of [
+      join(options.root, "worktrees/project/fresh"),
+      join(options.legacyRoot, "elsewhere/project/external"),
+    ]) {
+      file(
+        join(records, createHash("sha256").update(directory).digest("hex") + ".json"),
+        JSON.stringify({ version: 1, directory, phase: "resident" }),
+      )
+    }
+    const old = join(options.legacyRoot, "backend/data/opencode/worktree/project/old")
+    file(join(records, createHash("sha256").update(old).digest("hex") + ".json"), "invalid-json")
+    file(join(records, "0".repeat(64) + ".json"), JSON.stringify({ version: 1, directory: old, phase: "removed" }))
+    const before = readFileSync(join(options.root, "storage.json"), "utf8")
+    reconcileWorktrees(options)
+    expect(readFileSync(join(options.root, "storage.json"), "utf8")).toBe(before)
+  })
+
   test("fresh initialization resumes every compatibility-link boundary", () => {
     const boundaries: string[] = []
     migrate(fixture(), (event) => boundaries.push(event.stage))

@@ -13,7 +13,7 @@ const legacyRoot =
 const lease = await StorageMigration.lock(paths.root)
 try {
   const manifest = StoragePaths.metadata(paths.root)
-  if (manifest?.status === "migrating" || existsSync(`${paths.metadata}.tmp`)) {
+  if (manifest?.status !== "complete" && (manifest || existsSync(`${paths.metadata}.tmp`))) {
     throw new Error("OpenCode data migration is incomplete. Start OpenCode Lab to finish it before using this CLI.")
   }
   if (!manifest) {
@@ -27,6 +27,7 @@ try {
       acquireLock: () => true,
     })
   }
+  StorageMigration.reconcileWorktrees({ root: paths.root, legacyRoot })
   StoragePaths.database(paths.root)
 } finally {
   await lease.release()

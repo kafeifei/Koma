@@ -5,13 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "tsx ./src/server/dev.ts",
-    "build": "vite build",
+    "build": "bun run build:server && vite build",
     "typecheck": "tsgo -b",
     "test": "bun run test:server && bun run test:app",
     "test:server": "bun test ./src/server",
-    "test:app": "bun test --conditions=solid --preload ./happydom.ts ./src/app.test.ts"
+    "test:app": "bun test --conditions=solid --preload ./happydom.ts ./src/app.test.ts",
+    "build:server": "bun build ./src/server/vercel.ts --target=node --format=esm --external \"@microsoft/*\" --outdir=dist-server"
   },
   "dependencies": {
+    "@microsoft/dev-tunnels-contracts": "1.3.56",
+    "@microsoft/dev-tunnels-management": "1.3.56",
+    "@microsoft/dev-tunnels-ssh": "3.12.42",
     "@opencode-ai/remote": "workspace:*",
     "solid-js": "catalog:"
   },

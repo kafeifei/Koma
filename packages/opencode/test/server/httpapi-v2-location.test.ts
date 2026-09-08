@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { EventV2 } from "@opencode-ai/core/event"
+import path from "node:path"
+import { stat } from "node:fs/promises"
 import { Location } from "@opencode-ai/core/location"
 import { Context, Schema } from "effect"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
@@ -103,6 +105,15 @@ describe("v2 location HttpApi", () => {
       expect(body.location.directory).toBe(tmp.path)
       expect(body.location.project.id).toBeTruthy()
     }
+  })
+
+  test("loads reference metadata for a missing worktree without creating it", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const directory = path.join(tmp.path, "missing-worktree")
+    const response = await request("/api/reference", directory)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ location: { directory } })
+    await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   test("streams native EventV2 payloads across locations", async () => {

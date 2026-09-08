@@ -29,5 +29,6 @@ electron.vite.config.[0-9]*.mjs
 out/
 
 resources/opencode-cli*
+resources/opencode-lab*
 resources/icons
 resources/*.metainfo.xml

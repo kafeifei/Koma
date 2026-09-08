@@ -5,7 +5,7 @@ export async function installCli(): Promise<void> {
 
   try {
     const path = await window.api.installCli()
-    window.alert(t("desktop.cli.installed.message", { path }))
+    window.alert(`${t("desktop.cli.installed.title")}\n\n${path}`)
   } catch (e) {
     window.alert(t("desktop.cli.failed.message", { error: String(e) }))
   }
