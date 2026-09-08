@@ -44,6 +44,7 @@
    - 运行中的实例必须已持有独立资源快照：启动日志 `runtime resources prepared` 的 renderer 路径应位于该实例的 `opencode-runtime-*` 临时目录。仅把应用整体改名再替换，仍会让旧 Electron 的 ASAR 索引读到新包内容，不能视为运行安全。
    - 对尚未采用资源快照的旧实例，先完成候选构建与校验，再请用户退出旧应用后安装；安装新代码不能补救已经运行的旧代码。不能以“稍后重启”为由继续覆盖。
    - 快照包含 ASAR 与 unpacked 文件，供 renderer、preload 和本地 Node sidecar 使用；正常退出时等待本地服务停止后清理本实例快照。异常退出可能遗留临时目录，不扫描删除其他实例的目录。
+   - Lab 候选还包含本 fork 的 `opencode-lab` 终端程序。安装应用后，从干净主 checkout 的 `packages/desktop` 执行 `bun run install:lab-cli "/Applications/OpenCode Lab.app/Contents/Resources/opencode-lab"`，将同包 CLI 原子安装到 `~/.opencode/bin/` 并接入 `~/.local/bin/opencode-lab`。保留官方 `opencode`；遇到已有同名独立命令则报告冲突，不覆盖。独立 CLI 修复可先单独构建、验证和安装，无需重启桌面。
 5. **报告准确状态。** 给出构建 ID、来源 SHA、安装位置和验证结果。应用原来在运行时，说明“新包已安装，当前运行实例仍待用户重启验证”；用户重启后，再只读核对实际进程、构建身份和后端。回退应用包不等于回退数据库，不自动回滚用户数据。
 
 Lab 序号从 `#1` 开始，每次 `build:lab` 分配一个新号，显示在版本／构建信息中。同一仓库各 worktree 共用 Git 元数据目录中的计数；开发热更新不占号，构建失败后已分配的号不复用。重新安装同一个候选包沿用原号。
@@ -58,7 +59,7 @@ Lab 序号从 `#1` 开始，每次 `build:lab` 分配一个新号，显示在版
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Desktop package.json](./packages/desktop/package.json) 的 `bun run lab`                               | 构建并生成 macOS 目录包；**不安装、不启动应用**。安装仍需交付 agent 完成上述步骤                                                                             |
 | [electron.vite.config.ts](./packages/desktop/electron.vite.config.ts)                                  | 写入时间构建 ID、版本、Lab 递增序号、短 commit、dirty 和构建时间；先沿用这些字段，不额外维护手工版本号。dirty 标志是信息，不是自动拒绝打包的门禁             |
-| [prebuild.ts](./packages/desktop/scripts/prebuild.ts)、[utils.ts](./packages/desktop/scripts/utils.ts) | 构建本仓 Node 后端，同时获取固定版本 CLI。默认 sidecar 与 `OPENCODE_SIDECAR_V2=1` 的 CLI 路径不同；交付要说明实际验证了哪条路径                              |
+| [prebuild.ts](./packages/desktop/scripts/prebuild.ts)、[utils.ts](./packages/desktop/scripts/utils.ts) | 构建本仓 Node 后端和 Lab 终端 CLI，同时获取固定版本 V2 CLI。默认 sidecar、终端入口和 `OPENCODE_SIDECAR_V2=1` 的资源不同；交付要说明实际验证了哪条路径        |
 | [Lab 环境隔离](./packages/desktop/src/main/lab-environment.ts)                                         | 隔离 Lab 与其他渠道的应用／后端状态；多个同身份 Lab 并不因此各有独立数据                                                                                     |
 | [Desktop 启动入口](./packages/desktop/src/main/index.ts)                                               | `OPENCODE_TEST_ONBOARDING=1` 是临时 onboarding 测试模式，不是通用 worktree 开发配置；尚无通用的多实例隔离启动命令，不能直接复用正式 Lab profile 代替隔离测试 |
 

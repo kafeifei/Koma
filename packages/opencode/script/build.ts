@@ -4,6 +4,8 @@ import { $ } from "bun"
 import path from "path"
 import { fileURLToPath } from "url"
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -205,12 +207,17 @@ for (const item of targets) {
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {
     const binaryPath = `dist/${name}/bin/opencode`
     console.log(`Running smoke test: ${binaryPath} --version`)
+    const smokeHome = Script.channel === "lab" ? await mkdtemp(path.join(tmpdir(), "opencode-build-")) : undefined
     try {
-      const versionOutput = await $`${binaryPath} --version`.text()
+      const versionOutput = await $`${binaryPath} --version`
+        .env({ ...process.env, ...(smokeHome ? { OPENCODE_HOME: path.join(smokeHome, "home") } : {}) })
+        .text()
       console.log(`Smoke test passed: ${versionOutput.trim()}`)
     } catch (e) {
       console.error(`Smoke test failed for ${name}:`, e)
-      process.exit(1)
+      throw e
+    } finally {
+      if (smokeHome) await rm(smokeHome, { recursive: true, force: true })
     }
   }
 

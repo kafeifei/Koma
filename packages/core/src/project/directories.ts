@@ -8,6 +8,7 @@ import { AbsolutePath, optional } from "../schema"
 import { ProjectSchema } from "./schema"
 import { ProjectDirectoryTable } from "./sql"
 import type { EffectDrizzleSqlite } from "@opencode-ai/effect-drizzle-sqlite"
+import { StorageDirectory } from "../storage-directory"
 
 export interface Directory {
   readonly directory: AbsolutePath
@@ -62,10 +63,76 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const db = (yield* Database.Service).db
 
+    const canonical = (directory: AbsolutePath) => AbsolutePath.make(StorageDirectory.resolve(directory))
+    const reconcileWith = Effect.fnUntraced(function* (
+      projectID: ProjectSchema.ID,
+      client: DatabaseClient | Transaction,
+    ) {
+      const rows = yield* client
+        .select()
+        .from(ProjectDirectoryTable)
+        .where(eq(ProjectDirectoryTable.project_id, projectID))
+        .all()
+        .pipe(Effect.orDie)
+      const changed = yield* Effect.forEach(
+        Map.groupBy(rows, (row) => canonical(row.directory)),
+        ([directory, entries]) =>
+          Effect.gen(function* () {
+            if (entries.every((row) => row.directory === directory)) return false
+            const strategies = [...new Set(entries.flatMap((row) => (row.strategy === null ? [] : [row.strategy])))]
+            const types = [...new Set(entries.flatMap((row) => (row.type === null ? [] : [row.type])))]
+            // Conflicting metadata may represent distinct ownership. Keep both records for inspection.
+            if (strategies.length > 1 || types.length > 1) {
+              yield* Effect.logWarning("conflicting migrated project directory records", { projectID, directory })
+              return false
+            }
+            const retained = entries.find((row) => row.directory === directory) ?? entries[0]!
+            yield* Effect.forEach(
+              entries.filter((row) => row !== retained),
+              (row) =>
+                client
+                  .delete(ProjectDirectoryTable)
+                  .where(
+                    and(
+                      eq(ProjectDirectoryTable.project_id, projectID),
+                      eq(ProjectDirectoryTable.directory, row.directory),
+                    ),
+                  )
+                  .run()
+                  .pipe(Effect.orDie),
+            )
+            yield* client
+              .update(ProjectDirectoryTable)
+              .set({
+                directory,
+                strategy: strategies[0] ?? null,
+                type: types[0] ?? null,
+              })
+              .where(
+                and(
+                  eq(ProjectDirectoryTable.project_id, projectID),
+                  eq(ProjectDirectoryTable.directory, retained.directory),
+                ),
+              )
+              .run()
+              .pipe(Effect.orDie)
+            return true
+          }),
+      )
+      return changed.some(Boolean)
+    })
+    const reconcile = (projectID: ProjectSchema.ID, tx?: Transaction) => {
+      if (!process.env.OPENCODE_HOME?.trim()) return Effect.succeed(false)
+      return tx
+        ? reconcileWith(projectID, tx)
+        : db.transaction((client) => reconcileWith(projectID, client)).pipe(Effect.orDie)
+    }
+
     const create = Effect.fn("ProjectDirectories.create")(function* (input: CreateInput, tx?: Transaction) {
+      const repaired = yield* reconcile(input.projectID, tx)
       const insert = (tx ?? db)
         .insert(ProjectDirectoryTable)
-        .values({ project_id: input.projectID, directory: input.directory, strategy: input.strategy })
+        .values({ project_id: input.projectID, directory: canonical(input.directory), strategy: input.strategy })
       const query =
         input.behavior === "replace"
           ? insert.onConflictDoUpdate({
@@ -77,18 +144,20 @@ const layer = Layer.effect(
             })
           : insert.onConflictDoNothing()
       return (
-        (yield* query.returning({ directory: ProjectDirectoryTable.directory }).get().pipe(Effect.orDie)) !== undefined
+        (yield* query.returning({ directory: ProjectDirectoryTable.directory }).get().pipe(Effect.orDie)) !==
+          undefined || repaired
       )
     })
 
     const remove = Effect.fn("ProjectDirectories.remove")(function* (input: RemoveInput, tx?: Transaction) {
+      yield* reconcile(input.projectID, tx)
       return (
         (yield* (tx ?? db)
           .delete(ProjectDirectoryTable)
           .where(
             and(
               eq(ProjectDirectoryTable.project_id, input.projectID),
-              eq(ProjectDirectoryTable.directory, input.directory),
+              eq(ProjectDirectoryTable.directory, canonical(input.directory)),
             ),
           )
           .returning({ directory: ProjectDirectoryTable.directory })
@@ -98,6 +167,7 @@ const layer = Layer.effect(
     })
 
     const list = Effect.fn("ProjectDirectories.list")(function* (projectID: ProjectSchema.ID) {
+      yield* reconcile(projectID)
       const rows = yield* db
         .select({ directory: ProjectDirectoryTable.directory, strategy: ProjectDirectoryTable.strategy })
         .from(ProjectDirectoryTable)
@@ -112,6 +182,7 @@ const layer = Layer.effect(
       projectID: ProjectSchema.ID
       directory: AbsolutePath
     }) {
+      yield* reconcile(input.projectID)
       return (
         (yield* db
           .select({ directory: ProjectDirectoryTable.directory })
@@ -119,7 +190,7 @@ const layer = Layer.effect(
           .where(
             and(
               eq(ProjectDirectoryTable.project_id, input.projectID),
-              eq(ProjectDirectoryTable.directory, input.directory),
+              eq(ProjectDirectoryTable.directory, canonical(input.directory)),
             ),
           )
           .get()
@@ -131,13 +202,14 @@ const layer = Layer.effect(
       projectID: ProjectSchema.ID
       directory: AbsolutePath
     }) {
+      yield* reconcile(input.projectID)
       const row = yield* db
         .select({ directory: ProjectDirectoryTable.directory, strategy: ProjectDirectoryTable.strategy })
         .from(ProjectDirectoryTable)
         .where(
           and(
             eq(ProjectDirectoryTable.project_id, input.projectID),
-            eq(ProjectDirectoryTable.directory, input.directory),
+            eq(ProjectDirectoryTable.directory, canonical(input.directory)),
           ),
         )
         .get()

@@ -8,6 +8,7 @@ import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath, RelativePath } from "@opencode-ai/core/schema"
 import { Snapshot } from "@opencode-ai/core/snapshot"
+import { StorageMigration } from "@opencode-ai/core/storage-migration"
 import { Hash } from "@opencode-ai/core/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -129,6 +130,101 @@ describe("Snapshot", () => {
     ),
   )
 
+  testEffect(Layer.empty).live("reuses snapshots after a managed worktree moves to unified storage", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) =>
+        Effect.gen(function* () {
+          const root = path.join(tmp.path, "home")
+          const legacyRoot = path.join(tmp.path, "legacy")
+          const data = path.join(legacyRoot, "backend/data/opencode")
+          const repository = path.join(data, "repos/project")
+          const logical = path.join(data, "worktree/project/task")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(repository, { recursive: true })
+            await fs.writeFile(path.join(repository, "tracked.txt"), "one\n")
+            await $`git init`.cwd(repository).quiet()
+            await $`git config core.fsmonitor false`.cwd(repository).quiet()
+            await $`git config commit.gpgsign false`.cwd(repository).quiet()
+            await $`git config user.email test@opencode.test`.cwd(repository).quiet()
+            await $`git config user.name Test`.cwd(repository).quiet()
+            await $`git add .`.cwd(repository).quiet()
+            await $`git commit -m initial`.cwd(repository).quiet()
+            await fs.mkdir(path.dirname(logical), { recursive: true })
+            await $`git worktree add --detach ${logical} HEAD`.cwd(repository).quiet()
+          })
+
+          const before = yield* Effect.gen(function* () {
+            const snapshot = yield* Snapshot.Service
+            return yield* snapshot.capture()
+          }).pipe(Effect.provide(snapshotLayer(data, logical)))
+          expect(before).toBeDefined()
+          if (!before) return
+
+          const [projectID] = yield* Effect.promise(() => fs.readdir(path.join(data, "snapshot")))
+          expect(projectID).toBeDefined()
+          if (!projectID) return
+          const oldRepository = path.join(data, "snapshot", projectID, Hash.fast(logical))
+          expect(yield* exists(path.join(oldRepository, "HEAD"))).toBe(true)
+
+          yield* Effect.sync(() => {
+            StorageMigration.prepareUnifiedHome({ root, legacyRoot, acquireLock: () => true })
+          })
+          const physical = yield* Effect.promise(() => fs.realpath(path.join(root, "worktrees/project/task")))
+          const snapshots = path.join(root, "data/snapshots")
+          const migratedRepository = path.join(snapshots, projectID, Hash.fast(logical))
+          const physicalRepository = path.join(snapshots, projectID, Hash.fast(physical))
+          expect(migratedRepository).not.toBe(physicalRepository)
+
+          yield* Effect.promise(() => fs.writeFile(path.join(physical, "tracked.txt"), "two\n"))
+          const reused = yield* Effect.gen(function* () {
+            const snapshot = yield* Snapshot.Service
+            const captured = yield* snapshot.capture()
+            expect(captured).toBeDefined()
+            if (!captured) return
+            expect(yield* snapshot.files({ from: before, to: captured })).toEqual([RelativePath.make("tracked.txt")])
+            return captured
+          }).pipe(Effect.provide(snapshotLayer(path.join(root, "data"), logical, { root, snapshot: snapshots })))
+          expect(reused).toBeDefined()
+          if (!reused) return
+          expect(yield* exists(path.join(migratedRepository, "HEAD"))).toBe(true)
+          expect(yield* exists(physicalRepository)).toBe(false)
+
+          const parked = migratedRepository + ".parked"
+          yield* Effect.promise(() => fs.rename(migratedRepository, parked))
+          const physicalSnapshot = yield* Effect.gen(function* () {
+            const snapshot = yield* Snapshot.Service
+            return yield* snapshot.capture()
+          }).pipe(Effect.provide(snapshotLayer(path.join(root, "data"), physical, { root, snapshot: snapshots })))
+          expect(physicalSnapshot).toBeDefined()
+          if (!physicalSnapshot) return
+          expect(yield* exists(path.join(physicalRepository, "HEAD"))).toBe(true)
+          yield* Effect.promise(() => fs.rename(parked, migratedRepository))
+
+          yield* Effect.promise(() => fs.writeFile(path.join(physical, "tracked.txt"), "three\n"))
+          yield* Effect.gen(function* () {
+            const snapshot = yield* Snapshot.Service
+            const after = yield* snapshot.capture()
+            expect(after).toBeDefined()
+            if (!after) return
+            expect(yield* snapshot.files({ from: physicalSnapshot, to: after })).toEqual([
+              RelativePath.make("tracked.txt"),
+            ])
+            const diff = yield* snapshot.diff({ from: before, to: after })
+            expect(diff).toHaveLength(1)
+            expect(diff[0]?.path).toBe(RelativePath.make("tracked.txt"))
+            expect(diff[0]?.patch).toContain("-one")
+            expect(diff[0]?.patch).toContain("+three")
+          }).pipe(Effect.provide(snapshotLayer(path.join(root, "data"), logical, { root, snapshot: snapshots })))
+
+          expect(yield* read(path.join(physicalRepository, "objects/info/alternates"))).toContain(
+            path.join(migratedRepository, "objects"),
+          )
+        }),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+
   testEffect(Layer.empty).live("checks out a legacy revert snapshot without removing unrelated files", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),
@@ -166,13 +262,22 @@ describe("Snapshot", () => {
   )
 })
 
-function snapshotLayer(data: string, directory: string) {
+function snapshotLayer(data: string, directory: string, storage?: { root: string; snapshot: string }) {
   return AppNodeBuilder.build(Snapshot.node, [
     [Location.node, Location.boundNode(Location.Ref.make({ directory: AbsolutePath.make(directory) }))],
-    [Global.node, Global.layerWith({ data, config: path.join(data, "config") })],
+    [Global.node, Global.layerWith({ data, config: path.join(data, "config"), ...storage })],
   ])
 }
 
 function read(file: string) {
   return Effect.promise(() => fs.readFile(file, "utf8")).pipe(Effect.map((content) => content.replaceAll("\r\n", "\n")))
+}
+
+function exists(file: string) {
+  return Effect.promise(() =>
+    fs.stat(file).then(
+      () => true,
+      () => false,
+    ),
+  )
 }

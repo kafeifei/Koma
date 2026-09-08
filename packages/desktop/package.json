@@ -14,6 +14,8 @@
     "predev": "bun ./scripts/predev.ts",
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",
+    "build:lab-cli": "bun ./scripts/build-lab-cli.ts",
+    "install:lab-cli": "bun ./scripts/install-lab-cli.ts",
     "build": "electron-vite build",
     "build:lab": "OPENCODE_CHANNEL=lab electron-vite build",
     "preview": "electron-vite preview",

@@ -2,6 +2,7 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { describe, expect } from "bun:test"
 import path from "path"
+import fs from "node:fs/promises"
 import { Effect } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import type { Tool } from "@/tool/tool"
@@ -11,6 +12,8 @@ import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { testEffect } from "../lib/effect"
+import { InstanceRef } from "../../src/effect/instance-ref"
+import { InstanceState } from "../../src/effect/instance-state"
 
 const it = testEffect(LayerNode.compile(CrossSpawnSpawner.node))
 
@@ -38,6 +41,21 @@ function makeCtx() {
   }
   return { requests, ctx }
 }
+
+const isolateStorageRoot = Effect.fnUntraced(function* (root?: string) {
+  const previous = process.env.OPENCODE_HOME
+  yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      if (root === undefined) delete process.env.OPENCODE_HOME
+      else process.env.OPENCODE_HOME = root
+    }),
+    () =>
+      Effect.sync(() => {
+        if (previous === undefined) delete process.env.OPENCODE_HOME
+        else process.env.OPENCODE_HOME = previous
+      }),
+  )
+})
 
 describe("tool.assertExternalDirectory", () => {
   it.live("no-ops for empty target", () =>
@@ -103,6 +121,117 @@ describe("tool.assertExternalDirectory", () => {
 
       expect(requests.length).toBe(0)
     }),
+  )
+
+  it.instance(
+    "accepts old and physical paths for the same worktree, including missing files",
+    () =>
+      Effect.gen(function* () {
+        const ins = yield* InstanceState.context
+        const outer = yield* tmpdirScoped()
+        yield* isolateStorageRoot(outer)
+        const logical = path.join(outer, "legacy-worktree")
+        yield* Effect.promise(async () => {
+          await fs.symlink(ins.directory, logical)
+          await Bun.write(path.join(ins.directory, "file.txt"), "same file")
+        })
+        const input = makeCtx()
+        for (const directory of [logical, ins.directory]) {
+          for (const suffix of ["file.txt", "new/nested/file.txt"]) {
+            expect(
+              yield* assertExternalDirectoryEffect(input.ctx, path.join(directory, suffix)).pipe(
+                Effect.provideService(InstanceRef, { ...ins, directory: logical, worktree: logical }),
+              ),
+            ).toBe(false)
+          }
+        }
+        expect(input.requests).toEqual([])
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "asks for the actual external target when either alias traverses an escaping symlink",
+    () =>
+      Effect.gen(function* () {
+        const ins = yield* InstanceState.context
+        const outer = yield* tmpdirScoped()
+        yield* isolateStorageRoot(outer)
+        const logical = path.join(outer, "legacy-worktree")
+        const outside = path.join(outer, "outside")
+        yield* Effect.promise(async () => {
+          await fs.mkdir(outside)
+          await fs.symlink(ins.directory, logical)
+          await fs.symlink(outside, path.join(ins.directory, "escape"))
+          await Bun.write(path.join(outside, "file.txt"), "external file")
+        })
+        const input = makeCtx()
+        for (const directory of [logical, ins.directory]) {
+          for (const suffix of ["file.txt", "missing.txt"]) {
+            expect(
+              yield* assertExternalDirectoryEffect(input.ctx, path.join(directory, "escape", suffix)).pipe(
+                Effect.provideService(InstanceRef, { ...ins, directory: logical, worktree: logical }),
+              ),
+            ).toBe(true)
+          }
+        }
+        expect(input.requests).toHaveLength(4)
+        expect(input.requests.every((request) => request.patterns[0] === glob(path.join(outside, "*")))).toBe(true)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "does not infer internal access through a dangling or cyclic symlink",
+    () =>
+      Effect.gen(function* () {
+        const ins = yield* InstanceState.context
+        const outer = yield* tmpdirScoped()
+        yield* isolateStorageRoot(outer)
+        const dangling = path.join(ins.directory, "dangling")
+        const cyclic = path.join(ins.directory, "cyclic")
+        yield* Effect.promise(async () => {
+          await fs.symlink(path.join(outer, "not-created"), dangling)
+          await fs.symlink(cyclic, cyclic)
+        })
+        const input = makeCtx()
+        expect(yield* assertExternalDirectoryEffect(input.ctx, dangling)).toBe(true)
+        expect(yield* assertExternalDirectoryEffect(input.ctx, cyclic)).toBe(true)
+        expect(input.requests).toHaveLength(2)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "keeps the original lexical permission behavior without a unified home",
+    () =>
+      Effect.gen(function* () {
+        yield* isolateStorageRoot()
+        const ins = yield* InstanceState.context
+        const outer = yield* tmpdirScoped()
+        const logical = path.join(outer, "legacy-worktree")
+        yield* Effect.promise(async () => {
+          await fs.symlink(ins.directory, logical)
+          await fs.symlink(outer, path.join(ins.directory, "escape"))
+          await Bun.write(path.join(ins.directory, "file.txt"), "internal")
+          await Bun.write(path.join(outer, "outside.txt"), "external")
+        })
+        const input = makeCtx()
+        const context = { ...ins, directory: logical, worktree: logical }
+        expect(
+          yield* assertExternalDirectoryEffect(input.ctx, path.join(ins.directory, "file.txt")).pipe(
+            Effect.provideService(InstanceRef, context),
+          ),
+        ).toBe(true)
+        expect(
+          yield* assertExternalDirectoryEffect(input.ctx, path.join(logical, "escape", "outside.txt")).pipe(
+            Effect.provideService(InstanceRef, context),
+          ),
+        ).toBe(false)
+        expect(input.requests).toHaveLength(1)
+        expect(input.requests[0]?.patterns).toEqual([glob(path.join(ins.directory, "*"))])
+      }),
+    { git: true },
   )
 
   if (process.platform === "win32") {

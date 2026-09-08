@@ -72,6 +72,7 @@ export function prepareUnifiedHome(
   const previous = readManifest(root, legacyRoot)
   if (previous?.status !== "complete") requireStoppedLegacyService(root, legacyRoot)
   const manifest = previous ?? plan(root, legacyRoot)
+  if (manifest.status === "complete") validateWorktreeStaging(root, legacyRoot, manifest)
   if (previous?.source === null && entry(legacyRoot)) fail("legacy data appeared after home initialization", legacyRoot)
   if (previous && !entry(join(root, "storage.json"))) {
     renameSync(join(root, "storage.json.tmp"), join(root, "storage.json"))
@@ -126,7 +127,14 @@ export function prepareUnifiedHome(
     syncDirectory(dirname(alias.from))
     options.checkpoint?.({ stage: "linked", from: alias.from, to: alias.to })
   }
-  if (manifest.status !== "complete") {
+  // A prior release only recorded resident directories. Retained owners also cover archived or missing checkouts.
+  const additions = manifest.source
+    ? retainedWorktrees(root, legacyRoot, join(root, "data")).filter(
+        (worktree) => !manifest.worktrees.some((known) => known.directory === worktree.directory),
+      )
+    : []
+  if (manifest.status !== "complete" || additions.length > 0 || entry(join(root, "storage.json.tmp"))) {
+    manifest.worktrees.push(...additions)
     manifest.status = "complete"
     save(root, manifest)
     options.checkpoint?.({ stage: "complete" })
@@ -138,6 +146,21 @@ export function prepareUnifiedHome(
     codexScope: manifest.codexScope,
     status: "complete" as const,
   }
+}
+
+/** The caller must hold lock(root). This updates identity metadata only, before backend startup. */
+export function reconcileWorktrees(options: Options) {
+  const root = resolve(options.root)
+  const legacyRoot = resolve(options.legacyRoot)
+  const manifest = readManifest(root, legacyRoot)
+  if (!manifest || manifest.status !== "complete" || !manifest.source) return
+  validateWorktreeStaging(root, legacyRoot, manifest)
+  const additions = retainedWorktrees(root, legacyRoot, join(root, "data")).filter(
+    (worktree) => !manifest.worktrees.some((known) => known.directory === worktree.directory),
+  )
+  if (additions.length === 0 && !entry(join(root, "storage.json.tmp"))) return
+  manifest.worktrees.push(...additions)
+  save(root, manifest)
 }
 
 function requireStoppedLegacyService(root: string, legacyRoot: string) {
@@ -231,7 +254,15 @@ function plan(root: string, legacyRoot: string): HomeStorage {
     codexScope: `codex:${createHash("sha256")
       .update(source ? join(legacyRoot, "backend/state/opencode/codex") : join(root, "engines/codex"))
       .digest("hex")}`,
-    worktrees: source ? legacyWorktrees(root, legacyRoot) : [],
+    worktrees: source
+      ? [
+          ...new Map(
+            [...legacyWorktrees(root, legacyRoot), ...retainedWorktrees(root, legacyRoot, databasePath)].map(
+              (worktree) => [worktree.directory, worktree],
+            ),
+          ).values(),
+        ]
+      : [],
     operations,
   }
 }
@@ -249,6 +280,52 @@ function legacyWorktrees(root: string, legacyRoot: string) {
           path: join(root, "worktrees", project.name, worktree.name),
         })),
     )
+}
+
+// Both host V1 and V2 lifecycle adapters persist these owner records through Storage.Service.
+// Reading only retained owners avoids treating a removed directory as an instruction to restore it.
+function retainedWorktrees(root: string, legacyRoot: string, data: string) {
+  const records = join(data, "storage/worktree_lifecycle")
+  if (!entry(records)) return []
+  requireParents(data, join(records, "placeholder"))
+  const base = join(legacyRoot, "backend/data/opencode/worktree")
+  return readdirSync(records, { withFileTypes: true }).flatMap((file) => {
+    if (!file.isFile() || !/^[a-f0-9]{64}\.json$/.test(file.name)) return []
+    const owner = retainedOwner(join(records, file.name))
+    if (!owner || `${createHash("sha256").update(owner.directory).digest("hex")}.json` !== file.name) return []
+    const suffix = relative(base, owner.directory)
+    if (
+      !inside(base, owner.directory) ||
+      suffix.split(/[\/\\]/).length !== 2 ||
+      resolve(owner.directory) !== owner.directory
+    )
+      return []
+    return [{ directory: owner.directory, path: join(root, "worktrees", suffix) }]
+  })
+}
+
+function retainedOwner(file: string): { directory: string } | undefined {
+  try {
+    const value: unknown = JSON.parse(readFileSync(file, "utf8"))
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("version" in value) ||
+      value.version !== 1 ||
+      !("directory" in value) ||
+      typeof value.directory !== "string" ||
+      !("phase" in value) ||
+      typeof value.phase !== "string" ||
+      !["registered", "resident", "captured", "removed", "restored"].includes(value.phase) ||
+      ("intent" in value && value.intent !== undefined && value.intent !== "archive" && value.intent !== "restore")
+    )
+      return
+    return { directory: value.directory }
+  } catch (error) {
+    // Atomic owner replacement can race a completed-home metadata refresh. Invalid records are not identity evidence.
+    if (error instanceof SyntaxError || (error instanceof Error && "code" in error && error.code === "ENOENT")) return
+    throw error
+  }
 }
 
 function mappings(root: string, legacyRoot: string) {
@@ -278,8 +355,9 @@ function mappings(root: string, legacyRoot: string) {
   ]
 }
 
-function readManifest(root: string, legacyRoot: string): HomeStorage | undefined {
-  const file = entry(join(root, "storage.json")) ? join(root, "storage.json") : join(root, "storage.json.tmp")
+function readManifest(root: string, legacyRoot: string, temporary = false): HomeStorage | undefined {
+  const file =
+    !temporary && entry(join(root, "storage.json")) ? join(root, "storage.json") : join(root, "storage.json.tmp")
   if (!entry(file)) return undefined
   if (entry(root)?.isSymbolicLink() || !entry(file)?.isFile()) fail("invalid storage manifest location", file)
   const value: unknown = JSON.parse(readFileSync(file, "utf8"))
@@ -321,6 +399,25 @@ function readManifest(root: string, legacyRoot: string): HomeStorage | undefined
   )
     fail("invalid migration order", file)
   return manifest as HomeStorage
+}
+
+function validateWorktreeStaging(root: string, legacyRoot: string, manifest: HomeStorage) {
+  if (!entry(join(root, "storage.json.tmp"))) return
+  const pending = readManifest(root, legacyRoot, true)
+  if (
+    !pending ||
+    pending.status !== "complete" ||
+    pending.database !== manifest.database ||
+    pending.codexScope !== manifest.codexScope ||
+    pending.source !== manifest.source ||
+    JSON.stringify(pending.operations) !== JSON.stringify(manifest.operations) ||
+    manifest.worktrees.some(
+      (current) =>
+        !pending.worktrees.some((next) => current.directory === next.directory && current.path === next.path),
+    )
+  ) {
+    fail("manifest staging is not a completed worktree identity update", join(root, "storage.json.tmp"))
+  }
 }
 
 function save(root: string, manifest: HomeStorage) {

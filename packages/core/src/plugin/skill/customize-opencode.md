@@ -37,16 +37,29 @@ already-loaded config until then.
 
 ## Where files live
 
+Resolve the active global configuration directory before editing files. Use the
+same executable and environment as the running instance with `debug paths` and
+read its `config` entry. Do not use an unrelated globally installed CLI to infer
+Lab paths. In the table below, `$CONFIG_ROOT` means that resolved directory:
+
+- With `OPENCODE_HOME`, it is `<OPENCODE_HOME>/config`; OpenCode Lab defaults to
+  `~/.opencode/config`.
+- Without `OPENCODE_HOME`, use the active XDG config directory (usually
+  `~/.config/opencode`). An explicit `OPENCODE_CONFIG_DIR` can override extension
+  lookup; inspect the active configuration before choosing an extension directory.
+- Project `.opencode/` is separate from the global Lab home. Lab Desktop disables
+  project configuration; its global configuration still loads normally.
+
 | Scope                         | Path                                                                                                                      |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Project config                | `./opencode.json`, `./opencode.jsonc`, or `.opencode/opencode.json` (opencode walks up from the cwd to the worktree root) |
-| Global config                 | `~/.config/opencode/opencode.json` or `~/.config/opencode/opencode.jsonc` (NOT `~/.opencode/`)                            |
+| Global config                 | `$CONFIG_ROOT/opencode.json` or `$CONFIG_ROOT/opencode.jsonc`                                                             |
 | Project agents                | `.opencode/agent/<name>.md` or `.opencode/agents/<name>.md`                                                               |
-| Global agents                 | `~/.config/opencode/agent(s)/<name>.md`                                                                                   |
+| Global agents                 | `$CONFIG_ROOT/agent(s)/<name>.md`                                                                                         |
 | Project commands              | `.opencode/command/<name>.md` or `.opencode/commands/<name>.md`                                                           |
-| Global commands               | `~/.config/opencode/command(s)/<name>.md`                                                                                 |
+| Global commands               | `$CONFIG_ROOT/command(s)/<name>.md`                                                                                       |
 | Project skills                | `.opencode/skill(s)/<name>/SKILL.md`                                                                                      |
-| Global skills                 | `~/.config/opencode/skill(s)/<name>/SKILL.md`                                                                             |
+| Global skills                 | `$CONFIG_ROOT/skill(s)/<name>/SKILL.md`                                                                                   |
 | External skills (auto-loaded) | `~/.claude/skills/<name>/SKILL.md`, `~/.agents/skills/<name>/SKILL.md`                                                    |
 
 Configs from each scope are deep-merged. Project overrides global. Unknown
