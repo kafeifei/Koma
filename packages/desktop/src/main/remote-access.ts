@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { hostname } from "node:os"
-import { safeStorage } from "electron"
+import { net, safeStorage } from "electron"
+import { createGitHubClient } from "@opencode-ai/remote/github"
 import type { RemoteAccessState } from "@opencode-ai/app/remote-access"
 import type { createWebEntry } from "./web-entry"
 import type { RemoteControllerFailure } from "./remote-controller"
@@ -16,6 +17,8 @@ export function createRemoteAccess(options: {
   failed?(failure: RemoteControllerFailure): void
 }) {
   const settings = getStore()
+  // Keep desktop OAuth on Chromium's network stack, like browser authorization.
+  const github = createGitHubClient({ fetch: (url, init) => net.fetch(url, init) })
   const saved = settings.get("remoteDeviceID")
   const deviceID = typeof saved === "string" && /^[a-f0-9-]{36}$/.test(saved) ? saved : randomUUID()
   settings.set("remoteDeviceID", deviceID)
@@ -36,22 +39,10 @@ export function createRemoteAccess(options: {
         : null,
     changed: options.changed,
     failed: options.failed,
-    login: async (input) => {
-      const { beginGitHubLogin } = await import("@opencode-ai/remote/github")
-      return beginGitHubLogin(input)
-    },
-    waitLogin: async (authorization, input) => {
-      const { waitGitHubLogin } = await import("@opencode-ai/remote/github")
-      return waitGitHubLogin(authorization, input)
-    },
-    account: async (token) => {
-      const { getGitHubAccount } = await import("@opencode-ai/remote/github")
-      return getGitHubAccount(token)
-    },
-    refreshCredential: async (credential) => {
-      const { refreshGitHubCredential } = await import("@opencode-ai/remote/github")
-      return refreshGitHubCredential(credential)
-    },
+    login: github.beginGitHubLogin,
+    waitLogin: github.waitGitHubLogin,
+    account: github.getGitHubAccount,
+    refreshCredential: github.refreshGitHubCredential,
     list: async (token) => {
       const { createTunnelManagement, listRemoteDevices } = await import("@opencode-ai/remote/tunnels")
       return listRemoteDevices(createTunnelManagement(token))

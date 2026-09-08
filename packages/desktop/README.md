@@ -33,6 +33,8 @@ Credentials are encrypted with Electron `safeStorage`. The feature refuses an un
 system credential backend. The public OAuth application identity follows Sandy/Code OSS; GitHub may
 show Visual Studio Code during consent. See [the shared module notice](../remote/NOTICE) for provenance.
 No existing Sandy login data is imported.
+Desktop GitHub requests use Electron's Chromium network stack, including device-code exchange,
+account lookup and credential refresh; the standalone website keeps its server-side transport.
 
 Set `OPENCODE_REMOTE_WEBSITE` to the deployed HTTPS address when building or launching the app to show the website
 entry in Settings. Without it, account, hosting, and desktop connections still work and the website
