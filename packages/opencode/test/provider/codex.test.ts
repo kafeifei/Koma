@@ -110,7 +110,7 @@ listing.it.live("lists only configured API-key Responses providers and applies m
         },
         configured: {
           name: "Config key",
-          npm: "@ai-sdk/openai",
+          npm: "@ai-sdk/openai-compatible",
           options: { baseURL: "http://configured.example.test/v1", apiKey: "secret-configured" },
           models: { gpt: { name: "Configured only" } },
         },
@@ -196,7 +196,7 @@ credentials.it.live("resolves credentials live and fails closed when the endpoin
     credentials.state.config = {
       provider: {
         xd: {
-          npm: "@ai-sdk/openai",
+          npm: "@ai-sdk/openai-compatible",
           options: { baseURL: "https://one.example.test/v1" },
           models: { gpt: {} },
         },
