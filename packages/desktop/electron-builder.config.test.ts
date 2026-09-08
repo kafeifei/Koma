@@ -47,6 +47,8 @@ test("keeps the Lab app independent from production", async () => {
   expect(config.mac?.forceCodeSigning).toBe(true)
   expect(config.mac?.hardenedRuntime).toBe(false)
   expect(config.mac?.notarize).toBe(false)
+  expect(config.files).toContain("!resources/opencode-lab*")
+  expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["opencode-lab*"] })
 })
 
 test("falls back to the environment channel for invalid resource arguments", () => {
@@ -117,5 +119,6 @@ for (const channel of ["beta", "prod"] as const) {
       to: "",
       filter: ["opencode-cli*"],
     })
+    expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["opencode-lab*"] })
   })
 }

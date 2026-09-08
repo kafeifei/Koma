@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
+import { homedir } from "node:os"
 import { basename, join } from "node:path"
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -26,6 +27,8 @@ import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { createDesktopDraftStore } from "./draft-store"
 import { nativeT } from "./native-translations"
+import { installLabCli } from "./lab-cli"
+import { CHANNEL } from "./constants"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -59,6 +62,20 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  ipcMain.handle("install-cli", () => {
+    if (CHANNEL !== "lab" || !process.env.OPENCODE_HOME) throw new Error("LAB_CLI_UNAVAILABLE")
+    return installLabCli({
+      source: join(
+        app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
+        process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab",
+      ),
+      root: process.env.OPENCODE_HOME,
+      linkDirectory:
+        process.env.OPENCODE_HOME === join(homedir(), ".opencode") && process.platform !== "win32"
+          ? join(homedir(), ".local/bin")
+          : undefined,
+    })
+  })
   for (const action of ["getState", "signIn", "cancelSignIn", "signOut", "refresh"] as const) {
     ipcMain.handle(`remote-access-${action}`, () => deps.remoteAccess[action]())
   }

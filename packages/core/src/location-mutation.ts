@@ -2,7 +2,7 @@ export * as LocationMutation from "./location-mutation"
 
 import { makeLocationNode } from "./effect/app-node"
 import path from "path"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, SynchronizedRef } from "effect"
 import { FSUtil } from "./fs-util"
 import { Location } from "./location"
 
@@ -81,7 +81,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
-    const locationRoot = yield* fs.realPath(location.directory)
+    const locationRoot = yield* SynchronizedRef.make<string | undefined>(undefined)
 
     function notFound<A>(effect: Effect.Effect<A, FSUtil.Error>) {
       return effect.pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(undefined)))
@@ -123,15 +123,17 @@ const layer = Layer.effect(
       const lexicallyInternal = FSUtil.contains(location.directory, absolute)
       if (relative && !lexicallyInternal) return yield* new PathError({ path: input.path, reason: "relative_escape" })
 
+      const root = yield* SynchronizedRef.modifyEffect(locationRoot, (current) => {
+        if (current) return Effect.succeed([current, current] as const)
+        return fs.realPath(location.directory).pipe(Effect.map((resolved) => [resolved, resolved] as const))
+      })
       const resolved = yield* resolvePath(absolute)
-      if (lexicallyInternal && !FSUtil.contains(locationRoot, resolved.canonical)) {
+      if (lexicallyInternal && !FSUtil.contains(root, resolved.canonical)) {
         return yield* new PathError({ path: input.path, reason: "location_escape" })
       }
 
       const external = !lexicallyInternal
-      const resource = external
-        ? slash(resolved.canonical)
-        : slash(path.relative(locationRoot, resolved.canonical) || ".")
+      const resource = external ? slash(resolved.canonical) : slash(path.relative(root, resolved.canonical) || ".")
       const externalDirectory =
         input.kind === "directory" && resolved.type === "Directory" ? resolved.canonical : resolved.directory
       const externalResource = slash(path.join(externalDirectory, "*"))

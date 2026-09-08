@@ -70,18 +70,19 @@ GitHub consent, a real account's tunnel registration, or a cross-device browser/
 OpenCode Lab and this fork's Lab CLI share `~/.opencode`. The app name,
 bundle identity, protocol, sessions and authentication remain unchanged.
 
-| Directory | Contents |
-| --- | --- |
-| `desktop/` | Electron profile, web storage, preferences and session data |
-| `data/` | SQLite databases, authentication, tool output and `snapshots/` |
-| `config/` | OpenCode configuration and global extensions |
-| `cache/` | Rebuildable caches and downloaded tools in `bin/` |
-| `state/` | Backend state and locks |
-| `logs/backend/`, `logs/desktop/` | Backend and desktop logs |
-| `worktrees/` | Managed Git worktrees, grouped by project |
-| `repos/` | Managed repository copies |
-| `engines/codex/` | Native Codex runtime home, authentication and history |
-| `storage.json` | Migration state, database choice and existing worktree identities |
+| Directory                        | Contents                                                          |
+| -------------------------------- | ----------------------------------------------------------------- |
+| `desktop/`                       | Electron profile, web storage, preferences and session data       |
+| `data/`                          | SQLite databases, authentication, tool output and `snapshots/`    |
+| `config/`                        | OpenCode configuration and global extensions                      |
+| `cache/`                         | Rebuildable caches and downloaded tools in `bin/`                 |
+| `state/`                         | Backend state and locks                                           |
+| `logs/backend/`, `logs/desktop/` | Backend and desktop logs                                          |
+| `worktrees/`                     | Managed Git worktrees, grouped by project                         |
+| `repos/`                         | Managed repository copies                                         |
+| `engines/codex/`                 | Native Codex runtime home, authentication and history             |
+| `bin/opencode-lab`               | This fork's terminal CLI                                          |
+| `storage.json`                   | Migration state, database choice and existing worktree identities |
 
 Temporary runtime resources and IPC remain in the system temporary directory.
 User repositories and their project-local `.opencode` directories remain in place.
@@ -93,6 +94,26 @@ Run this fork's shared-home CLI from the repository root with:
 ```bash
 bun run dev:lab debug paths
 ```
+
+The Lab packaging chain builds the fork's native terminal binary into
+`resources/opencode-lab` in addition to the separate pinned V2 service binary.
+To build and install just the terminal CLI from `packages/desktop`:
+
+```bash
+bun run build:lab-cli
+bun run install:lab-cli
+opencode-lab debug paths
+```
+
+Installation stages a versioned executable under `~/.opencode/bin/.opencode-lab/`,
+atomically switches `~/.opencode/bin/opencode-lab`, and creates
+`~/.local/bin/opencode-lab`. Put `~/.local/bin` on your shell's `PATH` if needed,
+or invoke the full path. The official `opencode` command is preserved. A
+conflicting `opencode-lab` entry is reported without replacing it. Previous
+managed versions remain available to processes that are already using them. An explicit
+`OPENCODE_HOME` installs only under that home, without changing shell entries.
+The installer also accepts the binary path from a verified Lab app bundle as
+its first argument, so local delivery can install the exact packaged executable.
 
 CLI binaries built with `OPENCODE_CHANNEL=lab` use the same launcher. Ordinary
 upstream CLI entrypoints retain their XDG defaults unless `OPENCODE_HOME` is set.
@@ -115,7 +136,12 @@ filesystem blocks migration instead of overwriting or partially copying it.
 Compatibility symlinks preserve old file paths. Existing managed worktrees also
 retain their logical directory identities in the backend so task ownership,
 permissions and draft persistence continue to use their original keys. Newly
-created worktrees use the new physical directory. Native Codex ownership retains
+created worktrees use the new physical directory. Startup also adds retained
+archived worktrees that an earlier migration omitted, using their persisted
+owners; this does not recreate directories or restore tasks automatically.
+Compatible duplicate project-directory records converge when that project is
+next accessed. Conflicting non-empty ownership metadata is preserved and logged.
+Snapshot repositories from both before and after migration remain readable. Native Codex ownership retains
 its previous scope. Do not remove these links or edit `storage.json` by hand.
 
 For an explicit isolated home, only its sibling `<OPENCODE_HOME>.legacy` is a

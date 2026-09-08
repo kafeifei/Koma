@@ -1144,7 +1144,7 @@ const layer = Layer.effect(
           }
 
           step++
-          if (step === 1)
+          if (step === 1 && (yield* fsys.isDir(session.directory)))
             yield* title({
               session,
               modelID: lastUser.model.modelID,
@@ -1224,15 +1224,16 @@ const layer = Layer.effect(
             yield* sessions.updateMessage(msg)
           })
 
-          const handle = yield* processor
-            .create({
+          const outcome: "break" | "continue" = yield* Effect.gen(function* () {
+            const directory = yield* fsys.stat(session.directory)
+            if (directory.type !== "Directory")
+              return yield* Effect.fail(new Error(`Working directory is not a directory: ${session.directory}`))
+
+            const handle = yield* processor.create({
               assistantMessage: msg,
               sessionID,
               model,
             })
-            .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
-
-          const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps = yield* ops()
@@ -1346,7 +1347,20 @@ const layer = Layer.effect(
             }
             return "continue" as const
           }).pipe(
-            Effect.ensuring(instruction.clear(handle.message.id)),
+            Effect.catchCauseIf(
+              (cause) => !Cause.hasInterruptsOnly(cause),
+              (cause) =>
+                Effect.gen(function* () {
+                  msg.error ??= MessageV2.fromError(Cause.squash(cause), { providerID: msg.providerID })
+                  msg.finish = "error"
+                  msg.time.completed ??= Date.now()
+                  yield* sessions.updateMessage(msg)
+                  yield* events.publish(Session.Event.Error, { sessionID, error: msg.error })
+                  return "break" as const
+                }),
+            ),
+            Effect.orDie,
+            Effect.ensuring(instruction.clear(msg.id)),
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
           )
           if (outcome === "break") break

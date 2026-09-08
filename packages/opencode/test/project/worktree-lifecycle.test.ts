@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto"
+import { StorageDirectory } from "@opencode-ai/core/storage-directory"
+import { StorageMigration } from "@opencode-ai/core/storage-migration"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Config } from "@opencode-ai/core/config"
 import { Location } from "@opencode-ai/core/location"
@@ -71,7 +73,7 @@ const exists = (target: string) =>
       .catch(() => false),
   )
 
-const fixture = Effect.fn("WorktreeLifecycleTest.fixture")(function* () {
+const fixture = Effect.fn("WorktreeLifecycleTest.fixture")(function* (directoryForRoot?: (root: string) => string) {
   const root = yield* scopedTmpdir()
   yield* Effect.promise(() => Bun.write(path.join(root.path, "tracked.txt"), "base\n"))
   yield* git(root.path, ["add", "tracked.txt"])
@@ -80,7 +82,8 @@ const fixture = Effect.fn("WorktreeLifecycleTest.fixture")(function* () {
   const sessionID = SessionID.descending()
   const projectID = ProjectV2.ID.make(`lifecycle-${crypto.randomUUID()}`)
   const branch = `opencode/lifecycle-${crypto.randomUUID().slice(0, 8)}`
-  const directory = path.join(path.dirname(root.path), `opencode-lifecycle-${crypto.randomUUID()}`)
+  const directory =
+    directoryForRoot?.(root.path) ?? path.join(path.dirname(root.path), `opencode-lifecycle-${crypto.randomUUID()}`)
   yield* git(root.path, ["worktree", "add", "-b", branch, directory, "HEAD"])
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
@@ -653,5 +656,91 @@ it.live("repairs a proven legacy linked root before removing its checkout", () =
       .register({ directory: input.root, root: input.root, branch: "main", projectID: input.projectID })
       .pipe(Effect.flip)
     expect(forbidden.reason).toBe("conflict")
+  }),
+)
+
+it.live("restores an archived checkout after completed-home identity repair and retains lifecycle ownership", () =>
+  Effect.gen(function* () {
+    const environment = process.env.OPENCODE_HOME
+    delete process.env.OPENCODE_HOME
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (environment === undefined) delete process.env.OPENCODE_HOME
+        else process.env.OPENCODE_HOME = environment
+      }),
+    )
+    const input = yield* fixture((root) => path.join(root, "legacy/backend/data/opencode/worktree/project/task"))
+    const legacyRoot = path.join(input.root, "legacy")
+    const root = path.join(input.root, "unified")
+    const physical = path.join(root, "worktrees/project/task")
+    yield* Effect.promise(() => fs.writeFile(path.join(input.directory, "tracked.txt"), "saved before migration\n"))
+    yield* Effect.promise(() => fs.writeFile(path.join(input.directory, "untracked.txt"), "untracked retained\n"))
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* input.lifecycle.continueArchive(input.sessionID)
+    expect(yield* exists(input.directory)).toBe(false)
+    const owner = yield* input.lifecycle.get(input.sessionID)
+    expect(owner?.phase).toBe("removed")
+    // The fixture runtime uses its own database/storage service. Supply its actual persisted owner to the migration fixture.
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(
+          legacyRoot,
+          "backend/data/opencode/storage/worktree_lifecycle",
+          createHash("sha256").update(input.directory).digest("hex") + ".json",
+        ),
+        JSON.stringify(owner),
+      ),
+    )
+    yield* Effect.acquireRelease(
+      Effect.promise(() => StorageMigration.lock(root)),
+      (lease) => Effect.promise(() => lease.release()),
+    )
+    yield* Effect.sync(() => StorageMigration.prepareUnifiedHome({ root, legacyRoot, acquireLock: () => true }))
+    const metadata = path.join(root, "storage.json")
+    const manifest = yield* Effect.promise(() => Bun.file(metadata).json())
+    // Reproduce a home already migrated by the previous release, when this removed checkout was omitted.
+    yield* Effect.promise(() => Bun.write(metadata, JSON.stringify({ ...manifest, worktrees: [] })))
+    expect(StorageDirectory.resolve(physical, root)).toBe(physical)
+    yield* Effect.sync(() => StorageMigration.reconcileWorktrees({ root, legacyRoot }))
+    expect(StorageDirectory.resolve(physical, root)).toBe(input.directory)
+    expect(yield* exists(physical)).toBe(false)
+    process.env.OPENCODE_HOME = root
+    expect((yield* input.lifecycle.getDirectory(physical))?.sessionID).toBe(input.sessionID)
+    yield* input.lifecycle.prepareRestore(input.sessionID)
+    expect(yield* exists(physical)).toBe(true)
+    expect(yield* Effect.promise(() => fs.readFile(path.join(physical, "tracked.txt"), "utf8"))).toBe(
+      "saved before migration\n",
+    )
+    expect(yield* Effect.promise(() => fs.readFile(path.join(physical, "untracked.txt"), "utf8"))).toBe(
+      "untracked retained\n",
+    )
+    expect((yield* input.lifecycle.getDirectory(physical))?.sessionID).toBe(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: null })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* input.lifecycle.finalizeRestore(input.sessionID)
+    expect((yield* input.lifecycle.getDirectory(physical))?.phase).toBe("resident")
+    expect((yield* input.lifecycle.get(input.sessionID))?.directory).toBe(input.directory)
+    yield* input.lifecycle.acquire({ directory: physical, sessionID: input.sessionID })
+    expect((yield* input.lifecycle.usage(physical)).ownerIDs).toEqual([input.sessionID])
+    yield* input.lifecycle.release({ directory: physical, sessionID: input.sessionID })
+    expect((yield* input.lifecycle.usage(physical)).ownerIDs).toEqual([])
+    expect(yield* git(physical, ["branch", "--show-current"])).toBe(input.branch)
+    const session = yield* input.db
+      .select({ directory: SessionTable.directory })
+      .from(SessionTable)
+      .where(eq(SessionTable.id, input.sessionID))
+      .get()
+      .pipe(Effect.orDie)
+    expect(session?.directory).toBe(input.directory)
   }),
 )

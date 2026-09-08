@@ -5,6 +5,12 @@ import path from "node:path"
 import { Effect, Layer } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { Database } from "@opencode-ai/core/database/database"
+import { ProjectDirectories } from "@opencode-ai/core/project/directories"
+import { ProjectCopy } from "@opencode-ai/core/project/copy"
+import { ProjectDirectoryTable } from "@opencode-ai/core/project/sql"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { eq } from "drizzle-orm"
 import { InstanceStore } from "../../src/project/instance-store"
 import { InstanceBootstrap } from "../../src/project/bootstrap-service"
 import { Worktree } from "../../src/worktree"
@@ -21,6 +27,9 @@ const it = testEffect(
       WorktreeLifecycle.node,
       WorktreeManager.node,
       CrossSpawnSpawner.node,
+      Database.node,
+      ProjectDirectories.node,
+      ProjectCopy.node,
     ]),
     [
       [
@@ -47,6 +56,9 @@ it.live("moving a managed worktree keeps its instance, project list and lifecycl
     const lifecycle = yield* WorktreeLifecycle.Service
     const worktrees = yield* Worktree.Service
     const manager = yield* WorktreeManager.Service
+    const directories = yield* ProjectDirectories.Service
+    const copies = yield* ProjectCopy.Service
+    const db = (yield* Database.Service).db
     yield* instances.load({ directory: primary })
     const before = yield* instances.load({ directory: old })
     yield* lifecycle.register({
@@ -81,10 +93,41 @@ it.live("moving a managed worktree keeps its instance, project list and lifecycl
           else process.env.OPENCODE_HOME = previous
         }),
     )
+    // Model the physical duplicate written by versions that registered raw realpaths.
+    yield* db
+      .insert(ProjectDirectoryTable)
+      .values({
+        project_id: before.project.id,
+        directory: AbsolutePath.make(physical),
+      })
+      .run()
+      .pipe(Effect.orDie)
     const opened = yield* instances.load({ directory: physical })
     expect(opened.directory).toBe(old)
     expect(opened.project.id).toBe(before.project.id)
     expect(opened.project.sandboxes).toContain(old)
+    const registered = yield* db
+      .select()
+      .from(ProjectDirectoryTable)
+      .where(eq(ProjectDirectoryTable.project_id, before.project.id))
+      .all()
+      .pipe(Effect.orDie)
+    expect(
+      registered.filter((row) => row.directory === old || row.directory === physical).map((row) => row.directory),
+    ).toEqual([AbsolutePath.make(old)])
+    expect(yield* directories.get({ projectID: before.project.id, directory: AbsolutePath.make(physical) })).toEqual({
+      directory: AbsolutePath.make(old),
+      strategy: undefined,
+    })
+    const copied = yield* copies.create({
+      projectID: before.project.id,
+      sourceDirectory: AbsolutePath.make(physical),
+      strategy: ProjectCopy.StrategyID.make("git_worktree"),
+      directory: AbsolutePath.make(path.join(temp, "copies")),
+      name: "alias-source",
+    })
+    expect((yield* Effect.promise(() => fs.stat(copied.directory))).isDirectory()).toBe(true)
+    yield* copies.remove({ projectID: before.project.id, directory: copied.directory, force: false })
     expect(yield* instances.load({ directory: old })).toBe(opened)
     expect(
       (yield* instances.provide({ directory: primary }, worktrees.list())).map((item) => item.directory),

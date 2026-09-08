@@ -231,7 +231,7 @@ function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; proces
 
 function makeHttp(input?: {
   mcpInstructions?: MCP.ServerInstructions[]
-  processor?: "blocking"
+  processor?: "blocking" | "failing"
   backgroundSubagents?: boolean
 }) {
   const root = LayerNode.group([promptRoot, testLLMServerNode])
@@ -244,6 +244,15 @@ function makeHttp(input?: {
   if (input?.processor === "blocking") {
     return LayerNode.compile(root, [...replacements, [SessionProcessor.node, blockingProcessor]])
   }
+  if (input?.processor === "failing") {
+    return LayerNode.compile(root, [
+      ...replacements,
+      [
+        SessionProcessor.node,
+        Layer.mock(SessionProcessor.Service, { create: () => Effect.die(new Error("Processor startup failed")) }),
+      ],
+    ])
+  }
   return LayerNode.compile(root, replacements)
 }
 
@@ -255,6 +264,7 @@ const it = testEffect(makeHttp())
 const background = testEffect(makeHttp({ backgroundSubagents: true }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
+const failedProcessor = testEffect(makeHttp({ processor: "failing" }))
 const withMcpInstructions = testEffect(
   makeHttp({
     mcpInstructions: [
@@ -529,13 +539,22 @@ noLLMServer.instance(
   "rejects a prompt before writing history while managed archive is pending",
   () =>
     Effect.gen(function* () {
-      const { directory } = yield* TestInstance
+      const instance = yield* TestInstance
       const { prompt, sessions, chat } = yield* boot()
       const lifecycle = yield* WorktreeLifecycle.Service
       const git = yield* Git.Service
-      const branch = yield* git.branch(directory)
-      if (!branch) return yield* Effect.die("prompt lifecycle test requires a branch")
-      yield* lifecycle.register({ directory, root: directory, branch, projectID: chat.projectID })
+      const database = yield* Database.Service
+      const directory = path.join(instance.directory, "managed-worktree")
+      const branch = "opencode/archive-pending"
+      const created = yield* git.run(["worktree", "add", "-b", branch, directory, "HEAD"], {
+        cwd: instance.directory,
+      })
+      expect(created.exitCode).toBe(0)
+      yield* Effect.addFinalizer(() =>
+        git.run(["worktree", "remove", "--force", directory], { cwd: instance.directory }).pipe(Effect.ignore),
+      )
+      yield* database.db.update(SessionTable).set({ directory }).where(eq(SessionTable.id, chat.id)).run()
+      yield* lifecycle.register({ directory, root: instance.directory, branch, projectID: chat.projectID })
       expect(yield* lifecycle.claim({ directory, sessionID: chat.id })).toBe(true)
       const storage = yield* Storage.Service
       yield* Effect.addFinalizer(() =>
@@ -673,6 +692,93 @@ it.instance("loop calls LLM and returns assistant message", () =>
     const parts = result.parts.filter((p) => p.type === "text")
     expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
     expect(yield* llm.hits).toHaveLength(1)
+  }),
+)
+
+for (const kind of ["missing", "file"] as const) {
+  it.instance(`prompt preserves a visible failure when the working directory is ${kind}`, () =>
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const database = yield* Database.Service
+      const fs = yield* FSUtil.Service
+      const events = yield* EventV2Bridge.Service
+      const status = yield* SessionStatus.Service
+      const chat = yield* sessions.create({})
+      const directory = path.join(dir, "unavailable-worktree")
+      if (kind === "file") yield* fs.writeFileString(directory, "not a directory")
+      yield* database.db.update(SessionTable).set({ directory }).where(eq(SessionTable.id, chat.id)).run()
+      const errors: NonNullable<SessionV1.Assistant["error"]>[] = []
+      const off = yield* events.listen((event) => {
+        if (event.type !== Session.Event.Error.type) return Effect.void
+        const data = event.data as typeof Session.Event.Error.data.Type
+        if (data.sessionID === chat.id && data.error) errors.push(data.error)
+        return Effect.void
+      })
+
+      const result = yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "keep this input" }],
+      })
+      const stored = yield* MessageV2.get({ sessionID: chat.id, messageID: result.info.id })
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      yield* off
+
+      expect(yield* llm.hits).toHaveLength(0)
+      expect(yield* status.get(chat.id)).toEqual({ type: "idle" })
+      expect(messages.filter((message) => message.info.role === "user")).toHaveLength(1)
+      expect(messages.flatMap((message) => message.parts)).toContainEqual(
+        expect.objectContaining({ type: "text", text: "keep this input" }),
+      )
+      expect(stored.info.role).toBe("assistant")
+      if (stored.info.role === "assistant") {
+        expect(stored.info.finish).toBe("error")
+        expect(stored.info.time.completed).toBeNumber()
+        expect(stored.info.error).toMatchObject({ data: { message: expect.stringContaining(directory) } })
+        expect(errors).toHaveLength(1)
+        expect(stored.info.error).toEqual(errors[0])
+      }
+      expect(yield* fs.isDir(directory)).toBe(false)
+      expect((yield* sessions.get(chat.id)).directory).toBe(directory)
+    }),
+  )
+}
+
+failedProcessor.instance("prompt persists a processor startup defect as an assistant error", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const events = yield* EventV2Bridge.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    const errors: NonNullable<SessionV1.Assistant["error"]>[] = []
+    const off = yield* events.listen((event) => {
+      if (event.type !== Session.Event.Error.type) return Effect.void
+      const data = event.data as typeof Session.Event.Error.data.Type
+      if (data.sessionID === chat.id && data.error) errors.push(data.error)
+      return Effect.void
+    })
+    const result = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    const stored = yield* MessageV2.get({ sessionID: chat.id, messageID: result.info.id })
+    yield* off
+
+    expect(yield* llm.hits).toHaveLength(0)
+    expect(stored.info.role).toBe("assistant")
+    if (stored.info.role === "assistant") {
+      expect(stored.info.finish).toBe("error")
+      expect(stored.info.time.completed).toBeNumber()
+      expect(stored.info.error).toMatchObject({ data: { message: "Processor startup failed" } })
+      expect(errors).toHaveLength(1)
+      expect(stored.info.error).toEqual(errors[0])
+    }
   }),
 )
 
