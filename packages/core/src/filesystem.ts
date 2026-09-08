@@ -2,7 +2,7 @@ export * as FileSystem from "./filesystem"
 
 import { makeLocationNode } from "./effect/app-node"
 import path from "path"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, SynchronizedRef } from "effect"
 import { FSUtil } from "./fs-util"
 import { Location } from "./location"
 import { PositiveInt, RelativePath } from "./schema"
@@ -62,14 +62,21 @@ const baseLayer = Layer.effect(
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
     const search = yield* FileSystemSearch.Service
-    const root = yield* fs.realPath(location.directory).pipe(Effect.orDie)
+    const root = yield* SynchronizedRef.make<string | undefined>(undefined)
     const resolve = Effect.fnUntraced(function* (input?: RelativePath) {
       const absolute = path.resolve(location.directory, input ?? ".")
       if (!FSUtil.contains(location.directory, absolute))
         return yield* Effect.die(new Error("Path escapes the location"))
+      const canonicalRoot = yield* SynchronizedRef.modifyEffect(root, (current) => {
+        if (current) return Effect.succeed([current, current] as const)
+        return fs.realPath(location.directory).pipe(
+          Effect.orDie,
+          Effect.map((resolved) => [resolved, resolved] as const),
+        )
+      })
       const real = yield* fs.realPath(absolute).pipe(Effect.orDie)
-      if (!FSUtil.contains(root, real)) return yield* Effect.die(new Error("Path escapes the location"))
-      return { absolute, real, directory: location.directory, root }
+      if (!FSUtil.contains(canonicalRoot, real)) return yield* Effect.die(new Error("Path escapes the location"))
+      return { absolute, real, directory: location.directory, root: canonicalRoot }
     })
     return Service.of({
       find: search.find,

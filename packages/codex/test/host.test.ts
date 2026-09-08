@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
-import { chmod, mkdir, mkdtemp, readFile, writeFile, realpath, symlink } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, writeFile, realpath, rmdir, symlink } from "node:fs/promises"
 import path from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -1432,6 +1432,47 @@ describe("CodexHost native process boundaries", () => {
       expect(
         snapshot.interactions.every((value) => /^codex-[a-f0-9]{64}$/.test(value.id) && value.id.length <= 100),
       ).toBe(true)
+    }))
+
+  test("loads native history after the working directory is removed", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const missing = path.join(home, "removed-worktree")
+      await mkdir(missing)
+      const id = await seed(sessions, scope, Location.Ref.make({ directory: AbsolutePath.make(missing) }))
+      await configure(home, {
+        thread: {
+          ...thread(),
+          cwd: missing,
+          turns: [
+            {
+              id: "past-turn",
+              status: "completed",
+              itemsView: "full",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1000,
+              items: [
+                {
+                  type: "agentMessage",
+                  id: "past-answer",
+                  text: "Preserved native history",
+                  phase: null,
+                  memoryCitation: null,
+                  delivery: null,
+                  questions: null,
+                },
+              ],
+            },
+          ],
+        },
+      })
+      await rmdir(missing)
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+      expect(snapshot.descriptor.error).toBeUndefined()
+      expect(JSON.stringify(snapshot.messages)).toContain("Preserved native history")
+      await expect(realpath(missing)).rejects.toMatchObject({ code: "ENOENT" })
     }))
 
   test("native plans are validated live data and become unavailable after reconnect", () =>
