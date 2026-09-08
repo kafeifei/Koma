@@ -87,19 +87,83 @@ test("malformed metadata fails closed instead of throwing during list projection
   }
 })
 
-test("lists all clusters with the product filter and deduplicates credential-free devices", async () => {
-  const unrelated = tunnel()
-  unrelated.labels = []
+test.each(["empty", "missing"] as const)(
+  "hydrates complete device metadata when the global listing has %s ports",
+  async (ports) => {
+    const summary = tunnel()
+    if (ports === "empty") summary.ports = []
+    if (ports === "missing") delete summary.ports
+    const devices = await listRemoteDevices({
+      listTunnels: async (cluster, domain, options) => {
+        expect(cluster).toBeUndefined()
+        expect(domain).toBeUndefined()
+        expect(options).toEqual({ labels: [REMOTE_LABEL] })
+        return [summary]
+      },
+      getTunnel: async (reference, options) => {
+        expect(reference).toEqual({ clusterId: "usw2", tunnelId: "lab-test-device" })
+        expect(options).toEqual({ includePorts: true })
+        return tunnel()
+      },
+    })
+    expect(devices).toHaveLength(1)
+    expect(devices[0]?.id).toBe("usw2/lab-test-device")
+    expect(JSON.stringify(devices)).not.toContain("secret")
+  },
+)
+
+test("hydrates each owned identity once when the listing contains duplicates", async () => {
+  const summaries = [tunnel(), tunnel()]
+  summaries.forEach((summary) => delete summary.ports)
+  const fetched: string[] = []
   const devices = await listRemoteDevices({
-    listTunnels: async (cluster, domain, options) => {
-      expect(cluster).toBeUndefined()
-      expect(domain).toBeUndefined()
-      expect(options).toEqual({ labels: [REMOTE_LABEL], includePorts: true })
-      return [tunnel(), tunnel(), unrelated]
+    listTunnels: async () => summaries,
+    getTunnel: async (reference) => {
+      fetched.push(`${reference.clusterId}/${reference.tunnelId}`)
+      return tunnel()
     },
   })
+  expect(fetched).toEqual(["usw2/lab-test-device"])
   expect(devices).toHaveLength(1)
-  expect(JSON.stringify(devices)).not.toContain("secret")
+})
+
+test("does not fetch unrelated or malformed listing candidates", async () => {
+  const unrelated = tunnel()
+  unrelated.labels = ["another-product"]
+  const malformed = tunnel()
+  malformed.clusterId = "../evil"
+  let fetched = 0
+  const devices = await listRemoteDevices({
+    listTunnels: async () => [unrelated, malformed],
+    getTunnel: async () => {
+      fetched++
+      return tunnel()
+    },
+  })
+  expect(fetched).toBe(0)
+  expect(devices).toEqual([])
+})
+
+test("rejects a detail response whose identity differs from the owned listing", async () => {
+  const changed = tunnel()
+  changed.tunnelId = "other-device"
+  await expect(
+    listRemoteDevices({ listTunnels: async () => [tunnel()], getTunnel: async () => changed }),
+  ).rejects.toMatchObject({ code: "invalid_tunnel" })
+})
+
+test("does not display a device whose hydrated detail fails strict projection", async () => {
+  const invalid = tunnel()
+  invalid.ports![0]!.labels = []
+  expect(
+    await listRemoteDevices({ listTunnels: async () => [tunnel()], getTunnel: async () => invalid }),
+  ).toEqual([])
+})
+
+test("skips a listing candidate that disappears before detail hydration", async () => {
+  expect(
+    await listRemoteDevices({ listTunnels: async () => [tunnel()], getTunnel: async () => null }),
+  ).toEqual([])
 })
 
 test("fetches tokens only after confirming current-account ownership", async () => {
@@ -111,8 +175,13 @@ test("fetches tokens only after confirming current-account ownership", async () 
         return [tunnel()]
       },
       getTunnel: async (reference, options) => {
-        calls.push("get")
         expect(reference).toEqual({ clusterId: "usw2", tunnelId: "lab-test-device" })
+        if (calls.length === 1) {
+          calls.push("get-detail")
+          expect(options).toEqual({ includePorts: true })
+          return tunnel()
+        }
+        calls.push("get-connect")
         expect(options).toEqual({ includePorts: true, tokenScopes: ["connect"] })
         return tunnel()
       },
@@ -120,7 +189,7 @@ test("fetches tokens only after confirming current-account ownership", async () 
     "usw2/lab-test-device",
     ["connect"],
   )
-  expect(calls).toEqual(["list", "get"])
+  expect(calls).toEqual(["list", "get-detail", "get-connect"])
   expect(result.device.id).toBe("usw2/lab-test-device")
   expect(result.tunnel.accessTokens?.connect).toBe("secret-connect")
 })
@@ -162,14 +231,39 @@ test.each(["../lab-test-device", "usw2/lab-test-device/extra", "usw2/../../evil"
 test("rejects an identity swap or newly unlabelled response after the owned listing", async () => {
   const changed = tunnel()
   changed.tunnelId = "other-device"
+  let fetched = 0
   await expect(
-    getRemoteTunnel({ listTunnels: async () => [tunnel()], getTunnel: async () => changed }, "usw2/lab-test-device"),
+    getRemoteTunnel(
+      {
+        listTunnels: async () => [tunnel()],
+        getTunnel: async () => {
+          fetched++
+          return fetched === 1 ? tunnel() : changed
+        },
+      },
+      "usw2/lab-test-device",
+    ),
   ).rejects.toMatchObject({ code: "invalid_tunnel" })
 })
 
 test("redacts SDK request errors that may include authorization headers", async () => {
   const error = await listRemoteDevices({
     listTunnels: async () => {
+      throw Object.assign(new Error("secret"), { config: { authorization: "secret" } })
+    },
+    getTunnel: async () => {
+      throw new Error("must not fetch")
+    },
+  }).catch((error: unknown) => error)
+  expect(error).toMatchObject({ code: "request_failed" })
+  expect(JSON.stringify(error)).not.toContain("secret")
+  expect(String(error)).not.toContain("secret")
+})
+
+test("redacts detail request errors that may include authorization headers", async () => {
+  const error = await listRemoteDevices({
+    listTunnels: async () => [tunnel()],
+    getTunnel: async () => {
       throw Object.assign(new Error("secret"), { config: { authorization: "secret" } })
     },
   }).catch((error: unknown) => error)

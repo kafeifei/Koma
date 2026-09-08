@@ -74,18 +74,40 @@ export function toRemoteDevice(tunnel: Tunnel): RemoteTunnelDevice | undefined {
   }
 }
 
-export async function listRemoteDevices(client: Pick<TunnelManagementClient, "listTunnels">) {
+export async function listRemoteDevices(client: Pick<TunnelManagementClient, "listTunnels" | "getTunnel">) {
   const tunnels = await client
     .listTunnels(undefined, undefined, {
       labels: [REMOTE_LABEL],
-      includePorts: true,
     })
     .catch(() => {
       throw new RemoteTunnelError("request_failed")
     })
   if (!Array.isArray(tunnels)) throw new RemoteTunnelError("invalid_tunnel")
-  const devices = tunnels.map(toRemoteDevice).filter((device) => device !== undefined)
-  return [...new Map(devices.map((device) => [device.id, device])).values()]
+  // Global listings omit ports even with includePorts. Use the owner-scoped
+  // directory only for identity discovery, then validate each complete detail.
+  const candidates = tunnels.filter(
+    (tunnel) =>
+      Array.isArray(tunnel?.labels) &&
+      tunnel.labels.includes(REMOTE_LABEL) &&
+      validIdentity(tunnel.clusterId, tunnel.tunnelId),
+  )
+  const devices = await Promise.all(
+    [...new Map(candidates.map((tunnel) => [`${tunnel.clusterId}/${tunnel.tunnelId}`, tunnel])).values()].map(
+      async (candidate) => {
+        const tunnel = await client
+          .getTunnel({ clusterId: candidate.clusterId, tunnelId: candidate.tunnelId }, { includePorts: true })
+          .catch(() => {
+            throw new RemoteTunnelError("request_failed")
+          })
+        if (!tunnel) return
+        if (tunnel.clusterId !== candidate.clusterId || tunnel.tunnelId !== candidate.tunnelId) {
+          throw new RemoteTunnelError("invalid_tunnel")
+        }
+        return toRemoteDevice(tunnel)
+      },
+    ),
+  )
+  return devices.filter((device) => device !== undefined)
 }
 
 /** Fetches only a labelled, single-port tunnel owned by the current account. */
