@@ -2,6 +2,8 @@
 
 This package provides the browser entry point and backend-for-frontend for OpenCode Lab remote access. The browser signs in with GitHub, lists the current account's labelled Microsoft Dev Tunnels, and opens an online device. Tasks continue to run on that device.
 
+GitHub authorization requests `read:user` and `read:org`; the tunnel service requires both even for owner-only devices. An existing authorization without `read:org` must be renewed by signing out and signing in again.
+
 GitHub device codes, access tokens, and refresh tokens stay in an encrypted, authenticated `HttpOnly` session cookie. API responses expose only the one-time user code, account identity, and credential-free device projections. Sessions have a 30-day absolute expiration that is preserved when credentials rotate.
 
 ## Configuration

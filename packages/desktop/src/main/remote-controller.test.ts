@@ -274,6 +274,21 @@ describe("remote controller", () => {
   })
 
   test.each([
+    ["GitHub token is missing required scope: read:org", "authentication"],
+    ["Another access policy rejected this request", "connection"],
+  ] as const)("classifies the service permission failure: %s", async (detail, category) => {
+    const input = fixture({
+      host: async () => {
+        throw { response: { status: 403, data: { detail } } }
+      },
+    })
+    const state = await input.controller.setEnabled(true)
+    expect(state.account?.username).toBe("tester")
+    expect(state.error).toBe(category)
+    await input.controller.stop()
+  })
+
+  test.each([
     ["reauth_required", "authentication"],
     ["network_error", "connection"],
     ["invalid_client", "configuration"],

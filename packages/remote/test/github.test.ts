@@ -9,7 +9,7 @@ const authorization = {
   interval: 5,
 }
 
-test("requests the minimal GitHub scope using the selected public client", async () => {
+test("requests the GitHub scopes required by Dev Tunnels using the selected public client", async () => {
   const requests: { url: string; init: RequestInit }[] = []
   const github = createGitHubClient({
     now: () => 10_000,
@@ -26,7 +26,7 @@ test("requests the minimal GitHub scope using the selected public client", async
     interval: 5,
   })
   expect(requests[0]?.url).toBe("https://github.com/login/device/code")
-  expect(new URLSearchParams(String(requests[0]?.init.body)).get("scope")).toBe("read:user")
+  expect(new URLSearchParams(String(requests[0]?.init.body)).get("scope")).toBe("read:user read:org")
   expect(new URLSearchParams(String(requests[0]?.init.body)).get("client_id")).toBe(GITHUB_CLIENT_ID)
   expect(requests[0]?.init.redirect).toBe("error")
   await github.beginGitHubLogin({ clientId: "our-future-client" })

@@ -20,7 +20,9 @@ bun run build && bun run package
 
 ## Remote access (Lab experiment)
 
-Settings → Remote uses GitHub device authorization and Microsoft Dev Tunnels. Signing in only discovers
+Settings → Remote uses GitHub device authorization (`read:user` and `read:org`) and Microsoft Dev Tunnels.
+The tunnel service requires `read:org` even for owner-only tunnels. Accounts authorized by earlier builds
+with only `read:user` must sign out and sign in again to grant it. Signing in only discovers
 devices. “Allow remote access” explicitly hosts this computer's existing backend through a separate,
 owner-only tunnel. Disabling it closes the host gateway and its active streams. Signing out also closes
 this client's connections to other computers; backend sessions continue to belong to their original server.

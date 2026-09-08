@@ -396,6 +396,18 @@ class RemoteConfigurationError extends Error {}
 
 function failureCategory(error: unknown): FailureCategory {
   if (error instanceof RemoteConfigurationError) return "configuration"
+  if (error && typeof error === "object") {
+    const response = property(error, "response")
+    if (response && typeof response === "object" && property(response, "status") === 403) {
+      const data = property(response, "data")
+      if (
+        data &&
+        typeof data === "object" &&
+        property(data, "detail") === "GitHub token is missing required scope: read:org"
+      )
+        return "authentication"
+    }
+  }
   if (!(error instanceof GitHubAuthError)) return "connection"
   if (error.code === "invalid_client" || error.code === "device_flow_disabled") return "configuration"
   if (

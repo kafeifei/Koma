@@ -92,7 +92,8 @@ export function createGitHubClient(transport: GitHubTransport = {}) {
   }
 
   async function beginGitHubLogin(options: GitHubOptions = {}): Promise<GitHubAuthorization> {
-    const data = await post("device/code", { scope: "read:user" }, options)
+    // Dev Tunnels requires organization membership scope even for owner-only tunnels.
+    const data = await post("device/code", { scope: "read:user read:org" }, options)
     if (data.error !== undefined) throw providerError(data.error)
     if (data.verification_uri !== "https://github.com/login/device") throw new GitHubAuthError("invalid_response")
     return {
