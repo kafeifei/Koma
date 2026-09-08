@@ -11,6 +11,7 @@ import { Config } from "../config/config"
 import { EffectBridge } from "../effect/bridge"
 
 const nativeEfforts = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"])
+const responsesCompatibleSDKs = new Set(["@ai-sdk/openai", "@ai-sdk/openai-compatible"])
 
 type ProviderConfig = NonNullable<ConfigV1.Info["provider"]>[string]
 type ModelConfig = NonNullable<ProviderConfig["models"]>[string]
@@ -124,7 +125,9 @@ function configuredModels(provider: ProviderConfig, catalog: ModelsDev.Provider 
     const configured = provider.models?.[modelID]
     const catalogModel = catalog?.models[configured?.id ?? modelID] ?? catalog?.models[modelID]
     const npm = configured?.provider?.npm ?? provider.npm ?? catalogModel?.provider?.npm ?? catalog?.npm
-    if (npm !== "@ai-sdk/openai") return []
+    // Codex calls the configured endpoint's Responses API directly. The SDK choice
+    // only declares compatibility; gateways without Responses support fail normally.
+    if (!responsesCompatibleSDKs.has(npm ?? "")) return []
     if ((configured?.status ?? catalogModel?.status) === "deprecated") return []
 
     const id = configured?.id ?? catalogModel?.id ?? modelID
