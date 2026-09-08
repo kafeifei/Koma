@@ -203,6 +203,14 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                     }),
                   ),
                 ),
+                Effect.catchTag("Session.ArchivedError", (error) =>
+                  Effect.fail(
+                    new ConflictError({
+                      message: `Session is archived: ${error.sessionID}`,
+                      resource: error.sessionID,
+                    }),
+                  ),
+                ),
               ),
           }
         }),
@@ -224,6 +232,14 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 new ServiceUnavailableError({
                   message: `Session ${error.operation} is not available yet`,
                   service: `session.${error.operation}`,
+                }),
+              ),
+            ),
+            Effect.catchTag("Session.ArchivedError", (error) =>
+              Effect.fail(
+                new ConflictError({
+                  message: `Session is archived: ${error.sessionID}`,
+                  resource: error.sessionID,
                 }),
               ),
             ),

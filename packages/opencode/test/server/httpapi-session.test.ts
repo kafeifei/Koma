@@ -301,6 +301,77 @@ describe("session HttpApi", () => {
     }),
   )
 
+  it.instance("returns conflict for archived execution routes and accepts prompts after restore", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const session = yield* createSession({ title: "Archived read only" })
+      const headers = { "x-opencode-directory": test.directory, "content-type": "application/json" }
+      yield* Session.use.setArchived({ sessionID: session.id, time: Date.now() })
+
+      const promptBody = {
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "must not be accepted" }],
+      }
+      const routes = [
+        { path: SessionPaths.prompt, body: promptBody },
+        { path: SessionPaths.promptAsync, body: promptBody },
+        { path: SessionPaths.command, body: { command: "must-not-resolve", arguments: "" } },
+        { path: SessionPaths.shell, body: { agent: "build", command: "printf 'must not run'" } },
+        {
+          path: SessionPaths.init,
+          body: { providerID: "test", modelID: "test-model", messageID: MessageID.ascending() },
+        },
+        { path: SessionPaths.summarize, body: { providerID: "test", modelID: "test-model" } },
+      ]
+      for (const item of routes) {
+        const response = yield* request(pathFor(item.path, { sessionID: session.id }), {
+          headers,
+          method: "POST",
+          body: JSON.stringify(item.body),
+        })
+        expect(response.status, item.path).toBe(409)
+        expect(yield* responseJson(response)).toMatchObject({ _tag: "ConflictError", resource: session.id })
+      }
+
+      for (const path of [`/api/session/${session.id}/prompt`, `/api/session/${session.id}/compact`]) {
+        const response = yield* request(path, {
+          headers,
+          method: "POST",
+          body: path.endsWith("/prompt") ? JSON.stringify({ prompt: { text: "must not be admitted" } }) : undefined,
+        })
+        expect(response.status, path).toBe(409)
+        expect(yield* responseJson(response)).toMatchObject({ _tag: "ConflictError", resource: session.id })
+      }
+
+      const database = yield* Database.Service
+      expect(
+        yield* database.db
+          .select()
+          .from(SessionMessageTable)
+          .where(eq(SessionMessageTable.session_id, session.id))
+          .all(),
+      ).toHaveLength(0)
+      expect(
+        yield* database.db.select().from(SessionInputTable).where(eq(SessionInputTable.session_id, session.id)).all(),
+      ).toHaveLength(0)
+
+      const restored = yield* request(pathFor(SessionPaths.update, { sessionID: session.id }), {
+        headers,
+        method: "PATCH",
+        body: JSON.stringify({ time: { archived: null } }),
+      })
+      expect(restored.status).toBe(200)
+      const accepted = yield* request(pathFor(SessionPaths.prompt, { sessionID: session.id }), {
+        headers,
+        method: "POST",
+        body: JSON.stringify({ ...promptBody, parts: [{ type: "text", text: "accepted after restore" }] }),
+      })
+      expect(accepted.status).toBe(200)
+      expect(yield* responseJson(accepted)).toMatchObject({ info: { sessionID: session.id, role: "user" } })
+    }),
+  )
+
   it.effect("maps busy sessions to public session busy errors", () =>
     Effect.gen(function* () {
       const sessionID = SessionID.descending()

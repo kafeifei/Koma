@@ -21,6 +21,14 @@ export type SessionComposerRevertDock = {
   onRestore: (id: string) => void
 }
 
+export type SessionComposerArchive = {
+  restoring: boolean
+  canRestore: boolean
+  running: boolean
+  onRestore: () => void
+  onStop: () => void
+}
+
 export function createSessionComposerRegionController(input: {
   state: SessionComposerController
   sessionKey: Accessor<string>
@@ -34,6 +42,7 @@ export function createSessionComposerRegionController(input: {
   }
   followup: Accessor<SessionComposerFollowupDock | undefined>
   revert: Accessor<SessionComposerRevertDock | undefined>
+  archived?: Accessor<SessionComposerArchive | undefined>
   onResponseSubmit: () => void
   openParent: () => void
   restoreFocus?: () => void
@@ -126,6 +135,7 @@ export function createSessionComposerRegionController(input: {
     todo: input.todo,
     followup: input.followup,
     revert: input.revert,
+    archived: input.archived ?? (() => undefined),
     onResponseSubmit: input.onResponseSubmit,
     openParent: input.openParent,
     restoreFocus: input.restoreFocus ?? (() => undefined),

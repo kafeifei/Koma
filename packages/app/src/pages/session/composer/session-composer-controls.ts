@@ -22,6 +22,7 @@ import { pathKey } from "@/utils/path-key"
 export function createPromptInputController(input: {
   sessionKey: Accessor<string>
   sessionID: Accessor<string | undefined>
+  readOnly?: Accessor<boolean>
   queryOptions: Pick<QueryOptionsApi, "agents" | "providers">
   model?: ModelSelection
 }) {
@@ -57,6 +58,7 @@ export function createPromptInputController(input: {
       },
       session: {
         id: input.sessionID(),
+        readOnly: input.readOnly,
         tabs: layout.tabs(input.sessionKey),
         reviewPanel: view.reviewPanel,
         workspacePanel:

@@ -13,6 +13,7 @@ import { ProjectV2 } from "@opencode-ai/core/project"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
+import { SessionTable } from "@opencode-ai/core/session/sql"
 import { CodexHost } from "../src/host"
 import { CodexWorktreeAccess } from "../src/worktree-access"
 import { CodexAuth } from "../src/auth"
@@ -79,6 +80,7 @@ async function harness<A>(
   fn: (input: {
     host: CodexHost.Interface
     sessions: SessionExternal.Interface
+    database: Database.Interface
     home: string
     scope: string
     gate: { refuse: boolean; acquired: number; released: number }
@@ -92,7 +94,7 @@ async function harness<A>(
   process.env.OPENCODE_CODEX_HOME = home
   await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread() }))
   const gate = { refuse: false, acquired: 0, released: 0 }
-  const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node]), [
+  const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node, Database.node]), [
     ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
     ...(providers ? [[CodexProviders.node, Layer.succeed(CodexProviders.Service, providers)] as const] : []),
     [Database.node, Database.layerFromPath(":memory:")],
@@ -124,8 +126,9 @@ async function harness<A>(
     Effect.gen(function* () {
       const host = yield* CodexHost.Service
       const sessions = yield* SessionExternal.Service
+      const database = yield* Database.Service
       return yield* Effect.promise(() =>
-        fn({ host, sessions, home, scope: `codex:${createHash("sha256").update(home).digest("hex")}`, gate }),
+        fn({ host, sessions, database, home, scope: `codex:${createHash("sha256").update(home).digest("hex")}`, gate }),
       )
     }).pipe(Effect.provide(layer), Effect.scoped),
   )
@@ -822,6 +825,85 @@ describe("CodexHost native process boundaries", () => {
       )
       expect((await run(host.delivery(id, "blocked"))).state).toBe("pending")
       expect((await rpc(home)).some((call) => call.method === "turn/start")).toBe(false)
+    }))
+
+  test("archived sessions reject new input and explicit queue resume before native execution", () =>
+    harness(async ({ host, sessions, database, home, scope }) => {
+      const id = await seed(sessions, scope)
+      await run(sessions.admit({ sessionID: id, requestID: "queued", payload: prompt, delivery: "queue" }))
+      await run(sessions.admit({ sessionID: id, requestID: "withdraw", payload: prompt, delivery: "queue" }))
+      await run(sessions.setQueuePaused(id, true))
+      const snapshot = await run(host.snapshot(id))
+      await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
+      const starts = (await rpc(home)).filter((call) => call.method === "turn/start").length
+
+      await expect(
+        run(host.submit(id, { requestID: "archived-new", input: prompt, delivery: "steer" })),
+      ).rejects.toThrow("is archived")
+      await expect(
+        run(host.queue(id, { action: "resume", requestID: "queued", revision: snapshot.descriptor.revision })),
+      ).rejects.toThrow("is archived")
+      expect(await run(sessions.getDelivery({ sessionID: id, requestID: "archived-new" }))).toBeUndefined()
+      expect((await run(host.delivery(id, "queued"))).state).toBe("pending")
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(starts)
+
+      await run(host.queue(id, { action: "withdraw", requestID: "withdraw", revision: snapshot.descriptor.revision }))
+      expect((await run(host.delivery(id, "withdraw"))).state).toBe("withdrawn")
+      await run(database.db.update(SessionTable).set({ time_archived: null }).run().pipe(Effect.orDie))
+      const restored = await run(host.snapshot(id))
+      await run(host.queue(id, { action: "resume", requestID: "queued", revision: restored.descriptor.revision }))
+      await until(
+        () => run(host.delivery(id, "queued")),
+        (delivery) => delivery.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(starts + 1)
+    }))
+
+  test("archived sessions reject an existing create receipt before native execution", () =>
+    harness(async ({ host, sessions, database, home, scope }) => {
+      const request = {
+        runtimeScope: scope,
+        requestID: "archived-create-retry",
+        engine: "codex" as const,
+        location: location(),
+        payload: prompt,
+        settings: {},
+        delivery: "steer" as const,
+      }
+      const created = await run(sessions.create(request))
+      await run(sessions.claimBinding({ sessionID: created.session.id, generation: "seed" }))
+      await run(sessions.bind({ sessionID: created.session.id, nativeThreadID: "native-thread", generation: "seed" }))
+      await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
+
+      await expect(
+        run(
+          host.create({
+            requestID: request.requestID,
+            engine: "codex",
+            location: request.location,
+            input: prompt,
+            delivery: request.delivery,
+          }),
+        ),
+      ).rejects.toThrow("is archived")
+      expect((await run(host.delivery(created.session.id, request.requestID))).state).toBe("pending")
+      expect((await rpc(home)).some((call) => ["thread/start", "turn/start"].includes(call.method ?? ""))).toBe(false)
+
+      await run(database.db.update(SessionTable).set({ time_archived: null }).run().pipe(Effect.orDie))
+      await run(
+        host.create({
+          requestID: request.requestID,
+          engine: "codex",
+          location: request.location,
+          input: prompt,
+          delivery: request.delivery,
+        }),
+      )
+      await until(
+        () => run(host.delivery(created.session.id, request.requestID)),
+        (delivery) => delivery.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
     }))
 
   test("snapshot-covered deltas never duplicate text and active turn is reconstructed", () =>

@@ -78,6 +78,18 @@
   background: var(--v2-overlay-simple-overlay-pressed);
 }
 
+[data-component="task-sidebar"]
+  [data-slot="workspace-task"][data-archived="true"]
+  :is(
+    [data-slot="workspace-task-status"],
+    [data-slot="workspace-task-title"],
+    [data-slot="workspace-task-snippet"],
+    [data-slot="workspace-task-time"]
+  ) {
+  color: var(--v2-text-text-muted);
+  opacity: 0.72;
+}
+
 [data-component="task-sidebar"] :is(button, a, input):focus-visible {
   outline: 2px solid var(--v2-border-border-focus);
   outline-offset: -2px;

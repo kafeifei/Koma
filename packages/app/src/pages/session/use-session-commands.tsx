@@ -27,6 +27,7 @@ export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
   setActiveMessage: (message: UserMessage | undefined) => void
   focusInput: () => void
+  archived?: () => boolean
   review?: () => boolean
   fileBrowser?: () => boolean
   sidePanel?: () => boolean
@@ -54,6 +55,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const sync = useSync()
   const serverSync = useServerSync()
   const external = () => !!params.id && serverSync().external.isExternal(params.id)
+  const archived = () => actions.archived?.() === true
   const terminal = useTerminal()
   const layout = useLayout()
   const local = useLocal()
@@ -341,6 +343,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const undo = async () => {
+    if (archived()) return
     const sessionID = params.id
     if (!sessionID) return
     const owner = sessionOwnership.capture()
@@ -371,6 +374,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const redo = async () => {
+    if (archived()) return
     const sessionID = params.id
     if (!sessionID) return
     const owner = sessionOwnership.capture()
@@ -405,6 +409,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const compact = async () => {
+    if (archived()) return
     const sessionID = params.id
     if (!sessionID) return
 
@@ -424,6 +429,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const fork = () => {
+    if (archived()) return
     void openDialog(
       () => import("@/components/dialog-fork"),
       (x) => dialog.show(() => <x.DialogFork />),
@@ -473,7 +479,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.undo"),
       description: language.t("command.session.undo.description"),
       slash: "undo",
-      disabled: external() || !params.id || visibleUserMessages().length === 0,
+      disabled: archived() || external() || !params.id || visibleUserMessages().length === 0,
       onSelect: undo,
     }),
     sessionCommand({
@@ -481,7 +487,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.redo"),
       description: language.t("command.session.redo.description"),
       slash: "redo",
-      disabled: external() || !params.id || !info()?.revert?.messageID,
+      disabled: archived() || external() || !params.id || !info()?.revert?.messageID,
       onSelect: redo,
     }),
     sessionCommand({
@@ -489,7 +495,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.compact"),
       description: language.t("command.session.compact.description"),
       slash: "compact",
-      disabled: external() || !params.id || visibleUserMessages().length === 0,
+      disabled: archived() || external() || !params.id || visibleUserMessages().length === 0,
       onSelect: compact,
     }),
     sessionCommand({
@@ -497,7 +503,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.fork"),
       description: language.t("command.session.fork.description"),
       slash: "fork",
-      disabled: external() || !params.id || visibleUserMessages().length === 0,
+      disabled: archived() || external() || !params.id || visibleUserMessages().length === 0,
       onSelect: fork,
     }),
     sessionCommand({
@@ -512,7 +518,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "session.archive",
       title: language.t("command.session.archive"),
       keybind: "mod+shift+backspace",
-      disabled: !params.id || !sessionArchive.canArchive(),
+      disabled: archived() || !params.id || !sessionArchive.canArchive(),
       onSelect: () => {
         const id = params.id
         if (id) void sessionArchive.archive(id)
@@ -547,7 +553,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.context.addSelection"),
       description: language.t("command.context.addSelection.description"),
       keybind: "mod+shift+l",
-      disabled: !canAddSelectionContext(),
+      disabled: archived() || !canAddSelectionContext(),
       onSelect: addSelection,
     }),
   ]
@@ -590,6 +596,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "input.focus",
       title: language.t("command.input.focus"),
       keybind: "ctrl+l",
+      disabled: archived(),
       onSelect: focusInput,
     }),
   ]

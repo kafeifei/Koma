@@ -26,6 +26,7 @@ export type PromptInputControls = {
   }
   session: {
     id?: string
+    readOnly?: () => boolean
     tabs: {
       active: () => string | undefined
       all: () => string[]

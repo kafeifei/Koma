@@ -101,12 +101,14 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
   return part.state.status === "error" && part.state.metadata?.interrupted === true
 }
 
+type PromptError = Image.Error | Session.BusyError | Session.ArchivedError
+
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
-  readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError>
+  readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, PromptError>
   readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
-  readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
-  readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError>
+  readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError | Session.ArchivedError>
+  readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, PromptError>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
 }
 
@@ -1053,36 +1055,38 @@ const layer = Layer.effect(
       return { info, parts }
     }, Effect.scoped)
 
-    const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError> =
-      Effect.fn("SessionPrompt.prompt")(function* (input: PromptInput) {
-        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "prompt").pipe(Effect.orDie)
-        const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-        const message = yield* Effect.acquireUseRelease(
-          lifecycle
-            .acquire({ directory: session.directory, sessionID: input.sessionID })
-            .pipe(Effect.mapError(() => new Session.BusyError({ sessionID: input.sessionID }))),
-          () =>
-            Effect.gen(function* () {
-              yield* revert.cleanup(session)
-              const created = yield* createUserMessage(input)
-              yield* sessions.touch(input.sessionID)
+    const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, PromptError> = Effect.fn(
+      "SessionPrompt.prompt",
+    )(function* (input: PromptInput) {
+      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "prompt").pipe(Effect.orDie)
+      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      if (session.time.archived !== undefined) return yield* new Session.ArchivedError({ sessionID: input.sessionID })
+      const message = yield* Effect.acquireUseRelease(
+        lifecycle
+          .acquire({ directory: session.directory, sessionID: input.sessionID })
+          .pipe(Effect.mapError(() => new Session.BusyError({ sessionID: input.sessionID }))),
+        () =>
+          Effect.gen(function* () {
+            yield* revert.cleanup(session)
+            const created = yield* createUserMessage(input)
+            yield* sessions.touch(input.sessionID)
 
-              const permissions: PermissionV1.Rule[] = []
-              for (const [t, enabled] of Object.entries(input.tools ?? {})) {
-                permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
-              }
-              if (permissions.length > 0) {
-                session.permission = permissions
-                yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
-              }
-              return created
-            }),
-          () => lifecycle.release({ directory: session.directory, sessionID: input.sessionID }),
-        )
+            const permissions: PermissionV1.Rule[] = []
+            for (const [t, enabled] of Object.entries(input.tools ?? {})) {
+              permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+            }
+            if (permissions.length > 0) {
+              session.permission = permissions
+              yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+            }
+            return created
+          }),
+        () => lifecycle.release({ directory: session.directory, sessionID: input.sessionID }),
+      )
 
-        if (input.noReply === true) return message
-        return yield* loop({ sessionID: input.sessionID })
-      })
+      if (input.noReply === true) return message
+      return yield* loop({ sessionID: input.sessionID })
+    })
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
       const match = yield* sessions.findMessage(sessionID, (m) => m.info.role !== "user").pipe(Effect.orDie)
@@ -1365,16 +1369,19 @@ const layer = Layer.effect(
       return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
     })
 
-    const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
-      "SessionPrompt.shell",
-    )(function* (input: ShellInput) {
-      yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "shell").pipe(Effect.orDie)
-      const ready = yield* Latch.make()
-      return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), shellImpl(input, ready), ready)
-    })
+    const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError | Session.ArchivedError> =
+      Effect.fn("SessionPrompt.shell")(function* (input: ShellInput) {
+        yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "shell").pipe(Effect.orDie)
+        const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        if (session.time.archived !== undefined) return yield* new Session.ArchivedError({ sessionID: input.sessionID })
+        const ready = yield* Latch.make()
+        return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), shellImpl(input, ready), ready)
+      })
 
     const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
       yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "command").pipe(Effect.orDie)
+      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      if (session.time.archived !== undefined) return yield* new Session.ArchivedError({ sessionID: input.sessionID })
       yield* Effect.logInfo("command", {
         "session.id": input.sessionID,
         command: input.command,

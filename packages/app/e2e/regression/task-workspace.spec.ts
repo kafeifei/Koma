@@ -532,24 +532,58 @@ test("archives an idle task, preserves its identity and body, restores it, and b
   await expect(sidebar.locator('[data-session-id="ses-task-b"]')).toBeHidden()
 
   await sidebar.locator('[data-action="workspace-archives"]').click()
-  const archived = sidebar.locator('[data-session-id="ses-task-b"]')
+  let archived = sidebar.locator('[data-session-id="ses-task-b"]')
   await expect(archived).toBeVisible()
+  await expect(archived).toHaveAttribute("data-archived", "true")
+  const activeTasks = sidebar.locator('[data-action="workspace-active-tasks"]')
+  await expect(activeTasks.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-arrow-left")
+  await activeTasks.click()
+  await expect(sidebar.locator('[data-session-id="ses-task-a"]')).toBeVisible()
+  await expect(archived).toBeHidden()
+
+  await sidebar.locator('[data-action="workspace-archives"]').click()
+  archived = sidebar.locator('[data-session-id="ses-task-b"]')
   await archived.click()
   await expect(page).toHaveURL(/\/session\/ses-task-b$/)
   await expect(page.getByText(betaBody, { exact: true })).toBeVisible()
 
-  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Restore", exact: true }).click()
+  const archivedComposer = page.locator('[data-component="session-archived"]')
+  await expect(archivedComposer).toBeVisible()
+  await expect(composer).toBeHidden()
+  await archivedComposer.getByRole("button", { name: "Restore", exact: true }).click()
   await expect(archived).toBeHidden()
+  await expect(archivedComposer).toBeHidden()
+  await expect(composer).toBeVisible()
+  await expect(composer).toHaveText(draft)
   await expect(page.getByText("Request failed", { exact: true })).toBeHidden()
 
-  await sidebar.locator('[data-action="workspace-archives"]').click()
+  await sidebar.locator('[data-action="workspace-active-tasks"]').click()
   const restored = sidebar.locator('[data-session-id="ses-task-b"]')
   await expect(restored).toBeVisible()
   await restored.click()
   await expect(page).toHaveURL(/\/session\/ses-task-b$/)
   await expect(page.getByText(betaBody, { exact: true })).toBeVisible()
   await expect(composer).toHaveText(draft)
+})
+
+test("archives remain read-only when restore fails", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  await taskRow(sidebar, "ses-task-b").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click()
+  await sidebar.locator('[data-action="workspace-archives"]').click()
+  await sidebar.locator('[data-session-id="ses-task-b"]').click()
+
+  await page.route("**/session/ses-task-b**", (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback()
+    return route.fulfill({ status: 503, json: { name: "UnknownError", data: { message: "restore failed" } } })
+  })
+  const archivedComposer = page.locator('[data-component="session-archived"]')
+  await expect(archivedComposer).toBeVisible()
+  await archivedComposer.getByRole("button", { name: "Restore", exact: true }).click()
+
+  await expect(page.getByText("Request failed", { exact: true })).toBeVisible()
+  await expect(archivedComposer).toBeVisible()
+  await expect(page.getByRole("textbox", { name: "Prompt" })).toBeHidden()
 })
 
 test("shows the Sandy worktree checkbox and base branch selector", async ({ page }) => {

@@ -1835,6 +1835,8 @@ const layer = Layer.effect(
             }),
           )
           const entry = await getEntry(created.session.id)
+          if (existing && created.session.time.archived !== undefined)
+            return fail("conflict", `Session ${created.session.id} is archived; restore it before retrying input`)
           if (!existing) {
             await run(worktrees.claim({ directory: created.session.location.directory, sessionID: created.session.id }))
             dispatch(entry, input.requestID)
@@ -1899,6 +1901,9 @@ const layer = Layer.effect(
             if (input.revision !== entry.revision) return fail("conflict", "Queue changed; refresh before modifying it")
             if (input.action === "withdraw") await run(sessions.withdraw({ sessionID, requestID: input.requestID }))
             else {
+              entry.record = await run(sessions.get(sessionID))
+              if (entry.record.session.time.archived !== undefined)
+                return fail("conflict", `Session ${sessionID} is archived; restore it before resuming queued input`)
               await load(entry, true)
               if (entry.status !== "idle") return fail("conflict", "Native session has not been confirmed idle")
               await run(sessions.setQueuePaused(sessionID, false))

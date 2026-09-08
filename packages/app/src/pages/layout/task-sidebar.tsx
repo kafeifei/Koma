@@ -79,16 +79,18 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
         </button>
         <button
           type="button"
+          data-action="workspace-active-tasks"
           data-slot="workspace-action"
           aria-current={layout.route().type === "home" ? "page" : undefined}
           onClick={() => {
             const conn = focusedServer()
             if (conn) home.selection.set({ server: ServerConnection.key(conn) })
+            setState({ search: "", archived: false })
             navigate("/")
             props.onNavigate()
           }}
         >
-          <Icon name="grid-plus" />
+          <Icon name="arrow-left" />
           <span>{language.t("home.title")}</span>
         </button>
         <label data-slot="workspace-search">
@@ -131,10 +133,10 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
           data-slot="workspace-action"
           data-action="workspace-archives"
           aria-pressed={state.archived}
-          onClick={() => setState("archived", !state.archived)}
+          onClick={() => setState("archived", true)}
         >
-          <Icon name={state.archived ? "arrow-left" : "archive"} />
-          <span>{language.t(state.archived ? "workspace.activeTasks" : "workspace.archived")}</span>
+          <Icon name="archive" />
+          <span>{language.t("workspace.archived")}</span>
         </button>
         <button type="button" data-slot="workspace-action" onClick={projects.utility.settings}>
           <Icon name="settings-gear" />
@@ -514,6 +516,7 @@ function TaskSession(props: {
         href={tabHref(tab())}
         data-slot="workspace-task"
         data-session-id={props.session.id}
+        data-archived={props.archived ? "true" : undefined}
         data-status={status()}
         aria-current={props.active ? "page" : undefined}
         title={title()}
@@ -522,6 +525,7 @@ function TaskSession(props: {
           event.preventDefault()
           props.context.projects.open(props.projectDirectory)
           props.context.projects.touch(props.projectDirectory)
+          if (typeof props.session.time.archived === "number") props.context.sync.session.remember(props.session)
           const next = tabs.addSessionTab(tab())
           tabs.rememberSessionInfo(tab(), props.session)
           tabs.select(next)

@@ -152,6 +152,68 @@ describe("SessionExternal", () => {
     }),
   )
 
+  it.effect("rejects archived native input before creating a delivery and allows it after restore", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const database = yield* Database.Service
+      const created = yield* external.create(input)
+      yield* database.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, created.session.id))
+        .run()
+        .pipe(Effect.orDie)
+
+      const rejected = yield* Effect.flip(
+        external.admit({
+          sessionID: created.session.id,
+          requestID: "archived-input",
+          payload: input.payload,
+          delivery: "steer",
+        }),
+      )
+      expect(rejected._tag).toBe("SessionExternal.Conflict")
+      expect(rejected.message).toContain("is archived")
+      expect(
+        (yield* Effect.flip(
+          external.admit({
+            sessionID: created.session.id,
+            requestID: input.requestID,
+            payload: input.payload,
+            delivery: "steer",
+          }),
+        )).message,
+      ).toContain("is archived")
+      expect(
+        yield* database.db
+          .select()
+          .from(SessionExternalDeliveryTable)
+          .where(eq(SessionExternalDeliveryTable.session_id, created.session.id))
+          .all(),
+      ).toHaveLength(1)
+
+      yield* database.db
+        .update(SessionTable)
+        .set({ time_archived: null })
+        .where(eq(SessionTable.id, created.session.id))
+        .run()
+        .pipe(Effect.orDie)
+      yield* external.admit({
+        sessionID: created.session.id,
+        requestID: "restored-input",
+        payload: input.payload,
+        delivery: "steer",
+      })
+      expect(
+        yield* database.db
+          .select()
+          .from(SessionExternalDeliveryTable)
+          .where(eq(SessionExternalDeliveryTable.session_id, created.session.id))
+          .all(),
+      ).toHaveLength(2)
+    }),
+  )
+
   it.effect("repairs legacy default titles from their durable first prompt", () =>
     Effect.gen(function* () {
       const external = yield* SessionExternal.Service

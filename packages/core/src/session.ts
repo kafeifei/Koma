@@ -110,10 +110,14 @@ export class PromptConflictError extends Schema.TaggedErrorClass<PromptConflictE
   sessionID: SessionSchema.ID,
   messageID: SessionMessage.ID,
 }) {}
+
+export class ArchivedError extends Schema.TaggedErrorClass<ArchivedError>()("Session.ArchivedError", {
+  sessionID: SessionSchema.ID,
+}) {}
 export const MessageNotFoundError = SessionRevert.MessageNotFoundError
 export type MessageNotFoundError = SessionRevert.MessageNotFoundError
 
-export type Error = NotFoundError | MessageDecodeError | OperationUnavailableError | PromptConflictError
+export type Error = NotFoundError | MessageDecodeError | OperationUnavailableError | PromptConflictError | ArchivedError
 
 export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
@@ -159,7 +163,7 @@ export interface Interface {
     prompt: PromptInput.Prompt
     delivery?: SessionInput.Delivery
     resume?: boolean
-  }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
+  }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError | ArchivedError>
   readonly shell: (input: {
     id?: EventV2.ID
     sessionID: SessionSchema.ID
@@ -172,12 +176,14 @@ export interface Interface {
     skill: string
     resume?: boolean
   }) => Effect.Effect<void, OperationUnavailableError>
-  readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
+  readonly compact: (
+    input: CompactInput,
+  ) => Effect.Effect<void, NotFoundError | OperationUnavailableError | ArchivedError>
   readonly wait: (id: SessionSchema.ID) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly resume: (
     sessionID: SessionSchema.ID,
-  ) => Effect.Effect<void, NotFoundError | SessionRunner.RunError | DirectoryLease.UnavailableError>
+  ) => Effect.Effect<void, NotFoundError | ArchivedError | SessionRunner.RunError | DirectoryLease.UnavailableError>
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   readonly revert: {
     readonly stage: (input: {
@@ -386,7 +392,8 @@ const layer = Layer.effect(
         Effect.uninterruptible(
           Effect.gen(function* () {
             yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "prompt").pipe(Effect.orDie)
-            yield* result.get(input.sessionID)
+            const session = yield* result.get(input.sessionID)
+            if (session.time.archived !== undefined) return yield* new ArchivedError({ sessionID: input.sessionID })
             const prompt = resolvePrompt(input.prompt)
             const messageID = input.id ?? SessionMessage.ID.create()
             const delivery = input.delivery ?? "steer"
@@ -453,7 +460,8 @@ const layer = Layer.effect(
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         yield* SessionEngineGuard.requireOpenCode(db, input.sessionID, "compact").pipe(Effect.orDie)
-        yield* result.get(input.sessionID)
+        const session = yield* result.get(input.sessionID)
+        if (session.time.archived !== undefined) return yield* new ArchivedError({ sessionID: input.sessionID })
         return yield* new OperationUnavailableError({ operation: "compact" })
       }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
@@ -463,7 +471,8 @@ const layer = Layer.effect(
       active: execution.active,
       resume: Effect.fn("V2Session.resume")(function* (sessionID) {
         yield* SessionEngineGuard.requireOpenCode(db, sessionID, "resume").pipe(Effect.orDie)
-        yield* result.get(sessionID)
+        const session = yield* result.get(sessionID)
+        if (session.time.archived !== undefined) return yield* new ArchivedError({ sessionID })
         yield* execution.resume(sessionID)
       }),
       interrupt: Effect.fn("V2Session.interrupt")(function* (sessionID) {

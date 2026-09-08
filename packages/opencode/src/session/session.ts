@@ -463,6 +463,10 @@ export class BusyError extends Schema.TaggedErrorClass<BusyError>()("SessionBusy
   sessionID: SessionID,
 }) {}
 
+export class ArchivedError extends Schema.TaggedErrorClass<ArchivedError>()("SessionArchivedError", {
+  sessionID: SessionID,
+}) {}
+
 export type NotFound = NotFoundError
 
 export interface Interface {
@@ -916,8 +920,8 @@ const layer = Layer.effect(
       }
 
       const managed = yield* lifecycle.prepareRestore(input.sessionID)
-      yield* patch(input.sessionID, { time: { archived: undefined } }).pipe(Effect.orDie)
       if (managed.managed) yield* lifecycle.finalizeRestore(input.sessionID)
+      yield* patch(input.sessionID, { time: { archived: undefined } }).pipe(Effect.orDie)
     })
 
     const setMetadata = Effect.fn("Session.setMetadata")(function* (input: typeof SetMetadataInput.Type) {

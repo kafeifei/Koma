@@ -226,6 +226,59 @@ describe("step-finish token propagation via event", () => {
 
 describe("Session", () => {
   it.live(
+    "keeps a managed session archived when restore ref cleanup fails and retries after unlock",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* tmpdirScoped({ git: true })
+        yield* Effect.promise(() => Bun.write(path.join(root, "tracked.txt"), "base\n"))
+        yield* Effect.promise(() => $`git add tracked.txt && git commit -m ${"restore failure base"}`.cwd(root).quiet())
+        const branch = `opencode/restore-${crypto.randomUUID().slice(0, 8)}`
+        const directory = path.join(path.dirname(root), `opencode-restore-${crypto.randomUUID()}`)
+        yield* Effect.promise(() => $`git worktree add -b ${branch} ${directory} HEAD`.cwd(root).quiet())
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            await $`git worktree remove --force ${directory}`.cwd(root).quiet().nothrow()
+            await fs.rm(directory, { recursive: true, force: true })
+          }),
+        )
+
+        const session = yield* SessionNs.Service
+        const lifecycle = yield* WorktreeLifecycle.Service
+        const created = yield* provideInstance(directory)(
+          Effect.gen(function* () {
+            const ctx = yield* InstanceState.context
+            if (!ctx.project.id) return yield* Effect.die("managed lifecycle test requires a project ID")
+            yield* lifecycle.register({ directory, root, branch, projectID: ctx.project.id })
+            const info = yield* session.create({ title: "restore cleanup failure" })
+            yield* Effect.promise(() => Bun.write(path.join(directory, "tracked.txt"), "working\n"))
+            yield* session.setArchived({ sessionID: info.id, time: Date.now() })
+            return info
+          }),
+        )
+        expect(yield* exists(directory)).toBe(false)
+
+        const lock = path.join(root, ".git", "refs", "opencode", "worktree-archive", `${created.id}.lock`)
+        yield* Effect.promise(async () => {
+          await fs.mkdir(path.dirname(lock), { recursive: true })
+          await Bun.write(lock, "locked")
+        })
+        yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(lock, { force: true })))
+
+        const failed = yield* provideInstance(root)(session.setArchived({ sessionID: created.id })).pipe(Effect.flip)
+        expect(failed.reason).toBe("git")
+        expect((yield* session.get(created.id)).time.archived).toBeNumber()
+        expect(yield* lifecycle.get(created.id)).toMatchObject({ intent: "restore", phase: "restored" })
+        expect(yield* Effect.promise(() => Bun.file(path.join(directory, "tracked.txt")).text())).toBe("working\n")
+
+        yield* Effect.promise(() => fs.rm(lock, { force: true }))
+        yield* provideInstance(root)(session.setArchived({ sessionID: created.id }))
+        expect((yield* session.get(created.id)).time.archived).toBeUndefined()
+        expect(yield* lifecycle.get(created.id)).toMatchObject({ phase: "resident" })
+      }),
+    { timeout: 30000 },
+  )
+
+  it.live(
     "finishes a pending archive after the active runner becomes idle and restores through the project root",
     () =>
       Effect.gen(function* () {

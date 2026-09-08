@@ -15,6 +15,7 @@ import {
   createEffect,
   createComputed,
   createSignal,
+  createResource,
   on,
   onMount,
   type ParentProps,
@@ -25,6 +26,7 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { debounce } from "@solid-primitives/scheduled"
 import { useLocal } from "@/context/local"
+import { useGlobal } from "@/context/global"
 import { FileProvider, selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { createStore } from "solid-js/store"
 import type { SessionReviewLineComment } from "@opencode-ai/session-ui/session-review"
@@ -103,10 +105,13 @@ import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { formatServerError, isLocalSessionNotFoundError, isSessionNotFoundError } from "@/utils/server-errors"
+import { sessionCapabilities } from "@/utils/server-compat"
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { useUsageExceededDialogs } from "./session/usage-exceeded-dialogs"
 import { createSessionOwnership } from "./session/session-ownership"
 import { createSessionLineage } from "./session/session-lineage"
+import { mutateTask } from "./layout/task-lifecycle"
+import { taskSessionProjectDirectory } from "./layout/task-sidebar-data"
 
 type FollowupItem = FollowupDraft & { id: string }
 type FollowupEdit = Pick<FollowupItem, "id" | "prompt" | "context">
@@ -355,6 +360,7 @@ function SessionPanelFrame(props: ParentProps<{ newLayout: boolean }>) {
 
 export default function Page() {
   const serverSync = useServerSync()
+  const global = useGlobal()
   const layout = useLayout()
   const local = useLocal()
   const file = useFile()
@@ -370,10 +376,16 @@ export default function Page() {
   const comments = useComments()
   const command = useCommand()
   const terminal = useTerminal()
+  const taskTabs = useTabs()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const location = useLocation()
   const navigate = useNavigate()
   const { params, sessionKey, workspaceKey, tabs, view } = useSessionLayout()
+  const serverContext = createMemo(() => global.ensureServerCtx(serverSDK().server))
+  const [lifecycleCapabilities] = createResource(
+    () => serverContext().sdk.api,
+    (api) => sessionCapabilities(api).catch(() => undefined),
+  )
   const reviewMode = () => view().review.mode() ?? "git"
   const reviewFile = () => view().review.file()
   const sessionOwnership = createSessionOwnership(sessionKey)
@@ -394,6 +406,7 @@ export default function Page() {
   const [ui, setUi] = createStore({
     panelWidth: undefined as number | undefined,
     pendingMessage: undefined as string | undefined,
+    restoringArchived: {} as Record<string, boolean>,
     reviewSnap: false,
     scrollGesture: 0,
     scroll: {
@@ -407,6 +420,7 @@ export default function Page() {
   const inputController = createPromptInputController({
     sessionKey,
     sessionID: () => params.id,
+    readOnly: () => archived(),
     queryOptions: serverSync().queryOptions,
   })
 
@@ -563,6 +577,12 @@ export default function Page() {
   })
 
   const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))
+  const archiveInfo = createMemo(() => {
+    const id = params.id
+    if (!id) return
+    return info() ?? serverSync().session.get(id)
+  })
+  const archived = createMemo(() => typeof archiveInfo()?.time.archived === "number")
   const isChildSession = createMemo(() => !!info()?.parentID)
   const canReview = createMemo(() => !!sync().project)
   const reviewTab = createMemo(() => isDesktop() && !unifiedSidePanel())
@@ -1174,7 +1194,7 @@ export default function Page() {
   }
 
   const focusInput = () => {
-    if (isChildSession()) return
+    if (isChildSession() || archived()) return
     inputRef?.focus()
   }
 
@@ -1183,6 +1203,7 @@ export default function Page() {
     navigateMessageByOffset,
     setActiveMessage,
     focusInput,
+    archived,
     review: reviewTab,
     fileBrowser: () => newSessionDesign() && isDesktop() && !!params.id,
     sidePanel: unifiedSidePanel,
@@ -1756,6 +1777,27 @@ export default function Page() {
     })
   }
 
+  const restoreArchived = async () => {
+    const session = archiveInfo()
+    if (!session || !archived() || ui.restoringArchived[session.id]) return
+    const context = serverContext()
+    const targetSync = serverSync()
+    const projectDirectory = taskSessionProjectDirectory(session, targetSync.data.project)
+    setUi("restoringArchived", session.id, true)
+    await mutateTask({
+      context,
+      tabs: taskTabs,
+      server: ServerConnection.key(serverSDK().server),
+      projectDirectory,
+      session,
+      operation: "restore",
+      onArchivedOrDeleted: () => undefined,
+    })
+      .then((next) => targetSync.session.remember(next))
+      .catch(fail)
+      .finally(() => setUi("restoringArchived", session.id, false))
+  }
+
   const merge = (next: NonNullable<ReturnType<typeof info>>, target = sync()) => target.session.remember(next)
 
   const roll = (sessionID: string, next: NonNullable<ReturnType<typeof info>>["revert"], target = sync()) => {
@@ -1850,6 +1892,7 @@ export default function Page() {
   const followupDock = createMemo(() => queuedFollowups().map((item) => ({ id: item.id, text: followupText(item) })))
 
   const sendFollowup = (sessionID: string, id: string, opts?: { manual?: boolean }) => {
+    if (archived()) return Promise.resolve()
     if (sync().session.get(sessionID)?.parentID) return Promise.resolve()
     const item = (followup.items[sessionID] ?? []).find((entry) => entry.id === id)
     if (!item) return Promise.resolve()
@@ -1859,6 +1902,7 @@ export default function Page() {
   }
 
   const editFollowup = (id: string) => {
+    if (archived()) return
     const sessionID = params.id
     if (!sessionID) return
     if (followupBusy(sessionID)) return
@@ -1883,9 +1927,14 @@ export default function Page() {
 
   const halt = (sessionID: string) =>
     busy(sessionID)
-      ? sdk()
-          .api.session.interrupt({ sessionID })
-          .catch(() => {})
+      ? serverSync().external.isExternal(sessionID)
+        ? serverSync()
+            .external.actions.interrupt(sessionID)
+            .then(() => undefined)
+            .catch(() => {})
+        : sdk()
+            .api.session.interrupt({ sessionID })
+            .catch(() => {})
       : Promise.resolve()
 
   const revertMutation = useMutation(() => ({
@@ -1945,12 +1994,12 @@ export default function Page() {
   const restoring = createMemo(() => (restoreMutation.isPending ? restoreMutation.variables : undefined))
 
   const revert = (input: { sessionID: string; messageID: string }) => {
-    if (reverting()) return
+    if (archived() || reverting()) return
     return revertMutation.mutateAsync(input)
   }
 
   const restore = (id: string) => {
-    if (!params.id || reverting()) return
+    if (!params.id || archived() || reverting()) return
     return restoreMutation.mutateAsync(id)
   }
 
@@ -1989,7 +2038,7 @@ export default function Page() {
 
   const actions = {
     get revert() {
-      return params.id && serverSync().external.isExternal(params.id) ? undefined : revert
+      return params.id && (archived() || serverSync().external.isExternal(params.id)) ? undefined : revert
     },
     openAttachment,
   }
@@ -2004,6 +2053,7 @@ export default function Page() {
     if (followup.failed[sessionID] === item.id) return
     if (followup.paused[sessionID]) return
     if (isChildSession()) return
+    if (archived()) return
     if (composer.blocked()) return
     if (busy(sessionID)) return
 
@@ -2154,6 +2204,7 @@ export default function Page() {
               {(_id) => (
                 <MessageTimeline
                   actions={actions}
+                  readOnly={archived()}
                   onInspectTool={unifiedSidePanel() ? sidePanel.inspectTool : undefined}
                   onPreviewSession={unifiedSidePanel() ? sidePanel.previewSession : undefined}
                   scroll={ui.scroll}
@@ -2228,6 +2279,19 @@ export default function Page() {
                     restoring: restoring(),
                     disabled: reverting(),
                     onRestore: restore,
+                  }
+                : undefined,
+            archived: () =>
+              archived()
+                ? {
+                    restoring: !!params.id && ui.restoringArchived[params.id] === true,
+                    canRestore: lifecycleCapabilities()?.restore === true,
+                    running: params.id ? busy(params.id) : false,
+                    onRestore: () => void restoreArchived(),
+                    onStop: () => {
+                      const id = params.id
+                      if (id) void halt(id)
+                    },
                   }
                 : undefined,
             onResponseSubmit: resumeScroll,

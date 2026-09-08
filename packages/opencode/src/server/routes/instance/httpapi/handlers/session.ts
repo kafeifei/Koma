@@ -93,6 +93,17 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return info
     })
 
+    const requireWritable = Effect.fn("SessionHttpApi.requireWritable")(function* (sessionID: SessionID) {
+      const info = yield* requireOpenCode(sessionID)
+      if (info.time.archived !== undefined) {
+        return yield* new ConflictError({
+          resource: sessionID,
+          message: `Session is archived: ${sessionID}`,
+        })
+      }
+      return info
+    })
+
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
       return yield* requireSession(ctx.params.sessionID)
     })
@@ -282,15 +293,21 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof InitPayload.Type
     }) {
       yield* requireOpenCode(ctx.params.sessionID)
-      yield* promptSvc
-        .command({
-          sessionID: ctx.params.sessionID,
-          messageID: ctx.payload.messageID,
-          model: `${ctx.payload.providerID}/${ctx.payload.modelID}`,
-          command: Command.Default.INIT,
-          arguments: "",
-        })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      yield* SessionError.mapArchived(
+        promptSvc
+          .command({
+            sessionID: ctx.params.sessionID,
+            messageID: ctx.payload.messageID,
+            model: `${ctx.payload.providerID}/${ctx.payload.modelID}`,
+            command: Command.Default.INIT,
+            arguments: "",
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof Session.ArchivedError ? error : new HttpApiError.BadRequest({}),
+            ),
+          ),
+      )
       return true
     })
 
@@ -317,7 +334,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof SummarizePayload.Type
     }) {
-      yield* revertSvc.cleanup(yield* requireOpenCode(ctx.params.sessionID))
+      yield* revertSvc.cleanup(yield* requireWritable(ctx.params.sessionID))
       const messages = yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
       const defaultAgent = yield* agentSvc.defaultAgent()
       const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
@@ -340,12 +357,18 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireOpenCode(ctx.params.sessionID)
-      const message = yield* promptSvc
-        .prompt({
-          ...ctx.payload,
-          sessionID: ctx.params.sessionID,
-        })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      const message = yield* SessionError.mapArchived(
+        promptSvc
+          .prompt({
+            ...ctx.payload,
+            sessionID: ctx.params.sessionID,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof Session.ArchivedError ? error : new HttpApiError.BadRequest({}),
+            ),
+          ),
+      )
       return HttpServerResponse.stream(Stream.make(JSON.stringify(message)).pipe(Stream.encodeText), {
         contentType: "application/json",
       })
@@ -355,7 +378,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof PromptPayload.Type
     }) {
-      yield* requireOpenCode(ctx.params.sessionID)
+      yield* requireWritable(ctx.params.sessionID)
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
@@ -376,9 +399,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof CommandPayload.Type
     }) {
       yield* requireOpenCode(ctx.params.sessionID)
-      return yield* promptSvc
-        .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      return yield* SessionError.mapArchived(
+        promptSvc
+          .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof Session.ArchivedError ? error : new HttpApiError.BadRequest({}),
+            ),
+          ),
+      )
     })
 
     const shell = Effect.fn("SessionHttpApi.shell")(function* (ctx: {
@@ -386,7 +415,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof ShellPayload.Type
     }) {
       yield* requireOpenCode(ctx.params.sessionID)
-      return yield* SessionError.mapBusy(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID }))
+      return yield* SessionError.mapArchived(
+        SessionError.mapBusy(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID })),
+      )
     })
 
     const revert = Effect.fn("SessionHttpApi.revert")(function* (ctx: {

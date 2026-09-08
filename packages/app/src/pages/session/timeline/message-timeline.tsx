@@ -251,6 +251,7 @@ function TimelineDiffView(props: { diff: SummaryDiff }) {
 
 export function MessageTimeline(props: {
   actions?: UserActions
+  readOnly?: boolean
   scroll: { overflow: boolean; bottom: boolean; jump: boolean }
   onResumeScroll: () => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
@@ -1166,7 +1167,9 @@ export function MessageTimeline(props: {
                     <Message
                       message={message()}
                       parts={getMsgParts(userMessageRow().userMessageID)}
-                      actions={external() ? { openAttachment: props.actions?.openAttachment } : props.actions}
+                      actions={
+                        external() || props.readOnly ? { openAttachment: props.actions?.openAttachment } : props.actions
+                      }
                       useV2Actions={settings.general.newLayoutDesigns()}
                       comments={messageComments()}
                     />

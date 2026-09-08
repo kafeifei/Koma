@@ -130,6 +130,63 @@ describe("SessionV2.prompt", () => {
     }),
   )
 
+  it.effect("rejects new work while archived and allows it after restore", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      executionCalls.length = 0
+      interruptCalls.length = 0
+      wakeCalls.length = 0
+      const retry = yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "retry while archived" }),
+        resume: false,
+      })
+      yield* db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+        .pipe(Effect.orDie)
+
+      expect(
+        (yield* Effect.flip(
+          session.prompt({ sessionID, prompt: Prompt.make({ text: "must not be admitted" }), resume: false }),
+        ))._tag,
+      ).toBe("Session.ArchivedError")
+      expect(
+        (yield* Effect.flip(
+          session.prompt({
+            id: retry.id,
+            sessionID,
+            prompt: Prompt.make({ text: "retry while archived" }),
+            resume: false,
+          }),
+        ))._tag,
+      ).toBe("Session.ArchivedError")
+      expect((yield* Effect.flip(session.resume(sessionID)))._tag).toBe("Session.ArchivedError")
+      expect((yield* Effect.flip(session.compact({ sessionID })))._tag).toBe("Session.ArchivedError")
+      expect(yield* admittedCount).toBe(1)
+      expect(executionCalls).toEqual([])
+      expect(wakeCalls).toEqual([])
+
+      yield* session.interrupt(sessionID)
+      expect(interruptCalls).toEqual([sessionID])
+
+      yield* db
+        .update(SessionTable)
+        .set({ time_archived: null })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "restored" }), resume: false })
+      yield* session.resume(sessionID)
+      expect(yield* admittedCount).toBe(2)
+      expect(executionCalls).toEqual([sessionID])
+    }),
+  )
+
   it.effect("delegates interruption without requiring a recorded Session", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service

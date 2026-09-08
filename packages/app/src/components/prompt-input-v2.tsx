@@ -473,6 +473,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
         stopping,
         working,
         onSubmit: () => {
+          if (props.controls.session.readOnly?.()) return
           if (engine() === "codex" && (!codex.canSubmit() || codex.busy())) return
           void submission.handleSubmit(new Event("submit"))
         },
@@ -492,7 +493,10 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   })
   Object.defineProperty(controller, "codex", { get: () => codex })
   const canSubmit = controller.canSubmit.bind(controller)
-  controller.canSubmit = () => canSubmit() && (engine() !== "codex" || (codex.canSubmit() && !codex.busy()))
+  controller.canSubmit = () =>
+    !props.controls.session.readOnly?.() &&
+    canSubmit() &&
+    (engine() !== "codex" || (codex.canSubmit() && !codex.busy()))
 
   createEffect(() => {
     if (engine() !== "codex" || controller.state.mode !== "shell") return

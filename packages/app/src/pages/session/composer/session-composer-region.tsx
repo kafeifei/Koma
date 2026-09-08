@@ -1,4 +1,5 @@
 import { Show, type JSX } from "solid-js"
+import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
@@ -39,7 +40,7 @@ export function SessionComposerRegion(props: {
       >
         <Show when={controller.state.questionRequest()} keyed>
           {(request) => (
-            <div>
+            <div hidden={!!controller.archived()}>
               <SessionQuestionDock request={request} onSubmit={controller.onResponseSubmit} />
             </div>
           )}
@@ -47,7 +48,7 @@ export function SessionComposerRegion(props: {
 
         <Show when={controller.state.permissionRequest()} keyed>
           {(request) => (
-            <div>
+            <div hidden={!!controller.archived()}>
               <SessionPermissionDock
                 request={request}
                 responding={controller.state.permissionResponding()}
@@ -66,6 +67,7 @@ export function SessionComposerRegion(props: {
         <Show when={controller.showComposer()}>
           <Show when={controller.dock()}>
             <div
+              hidden={!!controller.archived()}
               classList={{
                 "overflow-hidden": true,
                 "pointer-events-none": controller.dockProgress() < 0.98,
@@ -92,7 +94,7 @@ export function SessionComposerRegion(props: {
               <>
                 <Show when={rolled()} keyed>
                   {(revert) => (
-                    <div class="pb-2">
+                    <div class="pb-2" hidden={!!controller.archived()}>
                       <SessionRevertDock
                         items={revert.items}
                         restoring={revert.restoring}
@@ -103,6 +105,7 @@ export function SessionComposerRegion(props: {
                   )}
                 </Show>
                 <div
+                  hidden={!!controller.archived()}
                   class="w-full min-h-32 md:min-h-40 rounded-md border border-border-weak-base bg-background-base/50 px-4 py-3 text-text-weak whitespace-pre-wrap pointer-events-none"
                   style={{ "margin-top": `${-36 * controller.dockProgress()}px` }}
                 >
@@ -114,6 +117,7 @@ export function SessionComposerRegion(props: {
             <Show when={rolled()} keyed>
               {(revert) => (
                 <div
+                  hidden={!!controller.archived()}
                   style={{
                     "margin-top": `${-36 * controller.dockProgress()}px`,
                   }}
@@ -128,6 +132,7 @@ export function SessionComposerRegion(props: {
               )}
             </Show>
             <div
+              hidden={!!controller.archived()}
               classList={{
                 "relative z-[70]": true,
               }}
@@ -165,6 +170,31 @@ export function SessionComposerRegion(props: {
               </Show>
             </div>
           </Show>
+        </Show>
+        <Show when={controller.archived()} keyed>
+          {(archived) => (
+            <div
+              data-component="session-archived"
+              class="w-full min-h-16 rounded-[12px] border border-border-weak-base bg-background-base px-4 py-3 flex items-center justify-between gap-3"
+            >
+              <span class="text-14-regular text-text-weak">{language.t("session.inspector.status.archived")}</span>
+              <div class="flex items-center gap-2">
+                <Show when={archived.running}>
+                  <ButtonV2 variant="neutral" size="normal" onClick={archived.onStop}>
+                    {language.t("prompt.action.stop")}
+                  </ButtonV2>
+                </Show>
+                <ButtonV2
+                  variant="neutral"
+                  size="normal"
+                  disabled={archived.restoring || !archived.canRestore}
+                  onClick={archived.onRestore}
+                >
+                  {language.t("workspace.task.restore")}
+                </ButtonV2>
+              </div>
+            </div>
+          )}
         </Show>
       </div>
     </div>

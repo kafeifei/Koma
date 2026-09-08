@@ -566,6 +566,41 @@ noLLMServer.instance(
   { config: cfg, git: true },
 )
 
+noLLMServer.instance("rejects new archived work before side effects and allows prompts after restore", () =>
+  Effect.gen(function* () {
+    const { prompt, sessions, chat } = yield* boot()
+    yield* sessions.setArchived({ sessionID: chat.id, time: Date.now() })
+
+    expect(
+      (yield* Effect.flip(
+        prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "must not be written" }],
+        }),
+      ))._tag,
+    ).toBe("SessionArchivedError")
+    expect(
+      (yield* Effect.flip(prompt.shell({ sessionID: chat.id, agent: "build", command: "printf 'must not run'" })))._tag,
+    ).toBe("SessionArchivedError")
+    expect(
+      (yield* Effect.flip(prompt.command({ sessionID: chat.id, command: "must-not-resolve", arguments: "" })))._tag,
+    ).toBe("SessionArchivedError")
+    expect(yield* sessions.messages({ sessionID: chat.id })).toEqual([])
+
+    yield* sessions.setArchived({ sessionID: chat.id })
+    const restored = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "accepted after restore" }],
+    })
+    expect(restored.info).toMatchObject({ sessionID: chat.id, role: "user" })
+    expect(yield* sessions.messages({ sessionID: chat.id })).toHaveLength(1)
+  }),
+)
+
 noLLMServer.instance(
   "loop exits immediately when last assistant has stop finish",
   () =>

@@ -290,7 +290,11 @@ const layer = Layer.effect(
     })
 
     const admit = Effect.fn("SessionExternal.admit")(function* (input: DeliveryInput) {
-      yield* get(input.sessionID)
+      const record = yield* get(input.sessionID)
+      if (record.session.time.archived !== undefined)
+        return yield* new ConflictError({
+          message: `Session ${input.sessionID} is archived; restore it before sending input`,
+        })
       if (!input.requestID) return yield* new ConflictError({ message: "Input requires a request ID" })
       const payload = yield* decodePayload(input.payload)
       const fingerprint = digest({ payload, delivery: input.delivery })
