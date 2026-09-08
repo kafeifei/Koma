@@ -27,6 +27,24 @@ const withTmp = <A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) =>
   ).pipe(Effect.flatMap((tmp) => f(tmp.path)))
 
 describe("FileSystem", () => {
+  it.live("constructs for a missing location and fails file operations", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const missing = path.join(directory, "missing")
+        const service = yield* FileSystem.Service
+        const read = yield* service.read({ path: RelativePath.make("file.txt") }).pipe(Effect.exit)
+        const list = yield* service.list().pipe(Effect.exit)
+        expect(Exit.isFailure(read)).toBe(true)
+        expect(Exit.isFailure(list)).toBe(true)
+
+        yield* Effect.promise(() => fs.mkdir(missing))
+        yield* Effect.promise(() => fs.writeFile(path.join(missing, "file.txt"), "restored"))
+        const restored = yield* service.read({ path: RelativePath.make("file.txt") })
+        expect(new TextDecoder().decode(restored.content)).toBe("restored")
+      }).pipe(provide(path.join(directory, "missing"))),
+    ),
+  )
+
   it.live("reads text and binary files", () =>
     withTmp((directory) =>
       Effect.gen(function* () {
@@ -64,6 +82,26 @@ describe("FileSystem", () => {
           .pipe(Effect.exit)
         expect(Exit.isFailure(result)).toBe(true)
       }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("rejects paths after the location symlink is rebound", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const original = path.join(directory, "original")
+        const outside = path.join(directory, "outside")
+        const link = path.join(directory, "location")
+        yield* Effect.promise(() => Promise.all([fs.mkdir(original), fs.mkdir(outside)]))
+        yield* Effect.promise(() => fs.writeFile(path.join(outside, "secret.txt"), "secret"))
+        yield* Effect.promise(() => fs.symlink(original, link, process.platform === "win32" ? "junction" : "dir"))
+        const service = yield* FileSystem.Service
+        yield* service.list()
+
+        yield* Effect.promise(() => fs.unlink(link))
+        yield* Effect.promise(() => fs.symlink(outside, link, process.platform === "win32" ? "junction" : "dir"))
+        const result = yield* service.read({ path: RelativePath.make("secret.txt") }).pipe(Effect.exit)
+        expect(Exit.isFailure(result)).toBe(true)
+      }).pipe(provide(path.join(directory, "location"))),
     ),
   )
 })
