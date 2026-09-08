@@ -5,6 +5,7 @@ import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
 import { desktopIdentity, resolveDesktopChannel } from "./src/main/channel"
+import { checkRemotePackage } from "./scripts/check-remote-package"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -110,7 +111,7 @@ const getBase = (appId: string): Configuration => ({
   },
 })
 
-function getConfig() {
+function getConfig(): Configuration {
   const appId = identity.appId
   const base = getBase(appId)
 
@@ -129,6 +130,13 @@ function getConfig() {
         ...base,
         appId,
         productName: identity.name,
+        afterPack: async (context) => {
+          if (context.electronPlatformName !== "darwin") return
+          await checkRemotePackage(
+            path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`),
+            context.packager.appInfo.productFilename,
+          )
+        },
         mac: {
           ...base.mac,
           target: ["dir"],

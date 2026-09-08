@@ -25,6 +25,8 @@ devices. “Allow remote access” explicitly hosts this computer's existing bac
 owner-only tunnel. Disabling it closes the host gateway and its active streams. Signing out also closes
 this client's connections to other computers; backend sessions continue to belong to their original server.
 
+The macOS Lab packaging step loads the tunnel management, host and client libraries from the candidate archive with its bundled Electron runtime. Missing runtime dependencies fail packaging before signing or installation. The SSH peer dependencies are explicit production dependencies because the Bun package collector does not include peer dependencies.
+
 Credentials are encrypted with Electron `safeStorage`. The feature refuses an unavailable or plaintext
 system credential backend. The public OAuth application identity follows Sandy/Code OSS; GitHub may
 show Visual Studio Code during consent. See [the shared module notice](../remote/NOTICE) for provenance.

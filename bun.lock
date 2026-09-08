@@ -405,6 +405,8 @@
         "@microsoft/dev-tunnels-connections": "1.3.56",
         "@microsoft/dev-tunnels-contracts": "1.3.56",
         "@microsoft/dev-tunnels-management": "1.3.56",
+        "@microsoft/dev-tunnels-ssh": "3.12.42",
+        "@microsoft/dev-tunnels-ssh-tcp": "3.12.42",
         "@opencode-ai/remote": "workspace:*",
         "@zip.js/zip.js": "2.7.62",
         "drizzle-orm": "catalog:",
@@ -760,6 +762,7 @@
       "dependencies": {
         "@microsoft/dev-tunnels-contracts": "1.3.56",
         "@microsoft/dev-tunnels-management": "1.3.56",
+        "@microsoft/dev-tunnels-ssh": "3.12.42",
       },
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
