@@ -251,6 +251,7 @@ export const Engine = Schema.Struct({
       default: Schema.Boolean,
       efforts: Schema.Array(Schema.String),
       defaultEffort: Schema.String.pipe(optional),
+      requiresAuth: Schema.Boolean.pipe(optional),
     }),
   ),
 }).annotate({ identifier: "SessionExternal.Engine" })

@@ -2918,6 +2918,7 @@ export type LabEnginesOutput = ReadonlyArray<{
     readonly default: boolean
     readonly efforts: ReadonlyArray<string>
     readonly defaultEffort?: string
+    readonly requiresAuth?: boolean
   }>
 }>
 

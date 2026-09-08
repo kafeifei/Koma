@@ -22,6 +22,9 @@ type Config = {
   afterReadThread?: v2.Thread
   readEvents?: Array<{ method: string; params: unknown }>
   nativeSettings?: Pick<v2.ThreadStartResponse, "sandbox" | "approvalPolicy" | "approvalsReviewer">
+  reflectProvider?: boolean
+  selectedModel?: string
+  selectedProvider?: string
   reflectSettings?: boolean
   turnRequests?: Array<{ id: string; method: string; params: Record<string, unknown> }>
   waitForApprovals?: boolean
@@ -31,7 +34,8 @@ const save = (value: Config) => writeFileSync(configPath, JSON.stringify(value))
 const send = (message: unknown) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const settings = (thread: v2.Thread) => ({
   thread,
-  model: "native-model",
+  model: read().selectedModel ?? "native-model",
+  modelProvider: read().selectedProvider ?? "openai",
   reasoningEffort: "low",
   approvalPolicy: "on-request",
   approvalsReviewer: "user",
@@ -71,7 +75,8 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     return reply({
       data: [
         {
-          model: "native-model",
+          model: read().selectedModel ?? "native-model",
+          modelProvider: read().selectedProvider ?? "openai",
           displayName: "Fixture",
           hidden: false,
           isDefault: true,
@@ -110,6 +115,11 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     config.thread = config.threads[message.params.threadId]!
   if (message.method === "thread/start") {
     config.thread.cwd = String(message.params?.cwd)
+    if (config.reflectProvider) {
+      config.selectedModel = String(message.params?.model ?? "native-model")
+      config.selectedProvider = String(message.params?.modelProvider ?? "openai")
+      config.thread.modelProvider = config.selectedProvider
+    }
     if (config.reflectSettings && message.params?.sandbox)
       config.nativeSettings = {
         approvalPolicy: message.params.approvalPolicy as v2.AskForApproval,
@@ -130,7 +140,12 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     save(config)
     return reply(settings(config.thread))
   }
+  if (message.method === "thread/unsubscribe") return reply({ status: "unsubscribed" })
   if (message.method === "thread/resume") {
+    if (config.reflectProvider) {
+      config.selectedModel = String(message.params?.model ?? config.selectedModel ?? "native-model")
+      config.selectedProvider = String(message.params?.modelProvider ?? config.selectedProvider ?? "openai")
+    }
     config.resumeEvents?.forEach(send)
     config.resumeEvents = undefined
     save(config)
@@ -171,6 +186,7 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
       completedAt: null,
       durationMs: null,
     }
+    if (config.reflectProvider) config.selectedModel = String(message.params?.model ?? config.selectedModel)
     config.thread.turns.push(turn)
     config.thread.status = { type: "active", activeFlags: [] }
     if (config.reflectSettings && message.params?.sandboxPolicy) {

@@ -31,6 +31,15 @@ export function updateCodexSettings(current: CodexSettings, patch: CodexSettings
   return { ...current, ...patch }
 }
 
+export function canSubmitWithCodexAccount(
+  account: Pick<CodexEngine["account"], "authenticated" | "requiresAuth"> | undefined,
+  model: Pick<CodexModel, "requiresAuth"> | undefined,
+) {
+  if (!account) return false
+  if (!account.requiresAuth || account.authenticated) return true
+  return model?.requiresAuth === false
+}
+
 export function createCodexPromptController(input: {
   prompt: ReturnType<typeof usePrompt>
   sessionID: Accessor<string | undefined>
@@ -49,7 +58,7 @@ export function createCodexPromptController(input: {
   const engine = () => input.sessionEngine() ?? input.prompt.engine.current()
   const codex = () => external().data.engines?.find((item) => item.id === "codex")
   const settings = () => desiredCodexSettings(descriptor(), input.prompt.codex.current())
-  const model = () => {
+  const model = (): CodexModel | undefined => {
     const modelID = settings().model
     if (!modelID) return input.sessionID() ? undefined : codex()?.models.find((item) => item.default)
     return (
@@ -66,7 +75,7 @@ export function createCodexPromptController(input: {
   const canSubmit = () => {
     if (engine() !== "codex") return true
     if (!external().data.engines) return false
-    if (codex()?.account.requiresAuth && !codex()?.account.authenticated) return false
+    if (!canSubmitWithCodexAccount(codex()?.account, model())) return false
     const sessionID = input.sessionID()
     if (!sessionID) return codex()?.available === true && codex()?.capabilities.prompt === true
     const current = descriptor()

@@ -337,3 +337,34 @@ Host 保留这一限制，不从历史伪造 wait 结果。
 就绪且投递已接收；未出现界面崩溃。生产控件移除会在路由 transition 中失效的 Show callback
 accessor，改用安全 memo；七项控件浏览器回归及类型检查通过。旧源码在自动夹具中未稳定
 触发该崩溃，旧版失败证据来自 #18 的实际 renderer 栈，不宣称自动回归已重现旧异常。
+
+### Codex 自定义供应商（2026-09-08）
+
+按“Codex 可以使用 XD 的模型”的追加授权，Desktop 所属后端通过独立 `CodexProviders`
+端口读取现有全局 Provider 配置与 Auth 凭据。配置了 Responses 协议（`@ai-sdk/openai`）、
+有效 endpoint 与 API key 的模型，追加到原生模型目录，保留 `xd/<model>` 身份与供应商名称；
+订阅模型保留原生目录和账号要求，自定义模型不要求另外登录 ChatGPT。供应商与模型过滤仍生效。
+Standalone 未接通配置端口时继续使用原生目录，不从其他运行实例读取认证库。
+
+执行仍完全属于原生 Codex。Host 在 thread/start 或 idle unsubscribe/resume 时传入原生
+`modelProvider` 和 provider config；同一进程可以承载不同供应商。运行中切换供应商的输入
+先保持 admitted，直到当前轮完成才在同一个原生 thread 上切换，不重建任务或重发旧输入。
+恢复模型取自已接受轮次的首个投递，后续 steer 与未发送的 desired settings 不冒充生效设置。
+原生 thread/read 的创建供应商可能长期不变，不能覆盖 resume 或 settings 通知确认的实际值。
+
+密钥仍由现有 Auth 所有者持有，原生 `auth.command` 通过带随机认证的宿主 loopback 端口
+按需获取；不将真实 key 写入 provider config、进程环境或 shell snapshot。原 endpoint
+发生变化后旧凭据路由拒绝服务，Host 退出时关闭端口。0.153.4 实测 1 秒 refresh interval
+只在请求时检查过期；空闲 5 秒不启动新的认证命令。
+
+Responses 协议兼容不等于支持 OpenAI 的托管工具。自定义供应商路径关闭原生 hosted web
+search：XD 的 Claude/Bedrock 实际拒绝该工具。普通原生命令、文件与审批流程保持由 Codex
+执行；不为第三方模型注入另一套工具循环，也不承诺目录中所有模型支持每种原生可选工具。
+
+已用隔离原生 home、临时项目和实际 XD 凭据验证 GPT-5.6-Luna/high、Claude Haiku 4.5 与 Gemini 3 Flash：
+Codex 实际执行读文件命令、投影工具输出并返回正确内容，投递 accepted、任务回到 idle，
+无需 ChatGPT 登录。原生 fixture 覆盖订阅与 XD 切换、运行中待投递、恢复后保留未发送选择；
+凭据测试使用真实 HTTP/curl 验证轮换、endpoint 失效、访问拒绝和生命周期关闭。
+隔离完整 source backend 的 `/lab/engines` 已返回 59 个 XD 模型；当前配置未声明原生
+reasoning effort 列表的模型不展示猜测档位。此记录是源码验证，不代表已安装或正在运行的
+Lab 包已经包含本次改动。

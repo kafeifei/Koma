@@ -18,3 +18,37 @@ describe("external session permission settings", () => {
     expect(() => Schema.decodeUnknownSync(SessionExternal.Settings)({ permission: "native" })).toThrow()
   })
 })
+
+describe("external engine model authentication", () => {
+  const engine = {
+    id: "codex" as const,
+    available: true,
+    account: { authenticated: false, requiresAuth: true },
+    capabilities: {
+      prompt: true,
+      steer: true,
+      queue: "native" as const,
+      compact: true,
+      images: true,
+      permissions: true,
+    },
+  }
+
+  test("preserves an explicit model authentication override", () => {
+    const decoded = Schema.decodeUnknownSync(SessionExternal.Engine)({
+      ...engine,
+      models: [{ id: "xd/gpt-5", name: "XD GPT-5", default: false, efforts: [], requiresAuth: false }],
+    })
+
+    expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]?.requiresAuth).toBeFalse()
+  })
+
+  test("omits model authentication when a provider does not specify it", () => {
+    const decoded = Schema.decodeUnknownSync(SessionExternal.Engine)({
+      ...engine,
+      models: [{ id: "gpt-5", name: "GPT-5", default: true, efforts: [] }],
+    })
+
+    expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]).not.toHaveProperty("requiresAuth")
+  })
+})

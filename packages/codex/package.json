@@ -25,6 +25,7 @@
     "./transport": "./src/transport.ts",
     "./host": "./src/host.ts",
     "./auth": "./src/auth.ts",
+    "./providers": "./src/providers.ts",
     "./worktree-access": "./src/worktree-access.ts",
     "./view": "./src/view.ts"
   },

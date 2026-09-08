@@ -8,7 +8,9 @@ import * as Socket from "effect/unstable/socket/Socket"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CodexHost } from "@opencode-ai/codex/host"
 import { CodexAuth } from "@opencode-ai/codex/auth"
+import { CodexProviders } from "@opencode-ai/codex/providers"
 import { CodexCredentials } from "../../../../auth/codex"
+import { CodexProvider } from "../../../../provider/codex"
 import { CodexWorktreeAccess } from "@opencode-ai/codex/worktree-access"
 import { CodexAccess } from "@/worktree/codex-access"
 import * as Observability from "@opencode-ai/core/observability"
@@ -337,6 +339,7 @@ export function createRoutes(
       AppNodeBuilderV1.build(app, [
         [CodexWorktreeAccess.node, CodexAccess.node],
         [CodexAuth.node, CodexCredentials.node],
+        [CodexProviders.node, CodexProvider.node],
       ]),
     ),
     Layer.provideMerge(Observability.layer),

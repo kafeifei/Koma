@@ -16,6 +16,7 @@ import { SessionExternal } from "@opencode-ai/core/session/external/index"
 import { CodexHost } from "../src/host"
 import { CodexWorktreeAccess } from "../src/worktree-access"
 import { CodexAuth } from "../src/auth"
+import { CodexProviders } from "../src/providers"
 import type { v2 } from "../src/protocol/generated/index"
 
 let directory: string
@@ -84,6 +85,7 @@ async function harness<A>(
   }) => Promise<A>,
   homeOverride?: string,
   auth?: CodexAuth.Interface,
+  providers?: CodexProviders.Interface,
 ) {
   const home = homeOverride ?? (await mkdtemp(path.join(directory, "home-")))
   await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages: [] }))
@@ -92,6 +94,7 @@ async function harness<A>(
   const gate = { refuse: false, acquired: 0, released: 0 }
   const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node]), [
     ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
+    ...(providers ? [[CodexProviders.node, Layer.succeed(CodexProviders.Service, providers)] as const] : []),
     [Database.node, Database.layerFromPath(":memory:")],
     [Global.node, Global.layerWith({ home, state: home })],
     [
@@ -204,7 +207,137 @@ function approval(id: string, kind: "command" | "file" | "permissions" = "comman
   }
 }
 
+const customProviders: CodexProviders.Interface = {
+  list: async () => [
+    {
+      id: "xd",
+      name: "XD",
+      baseURL: "https://example.invalid/v1",
+      models: [{ id: "native-model", name: "Custom", efforts: ["low", "high"] }],
+    },
+  ],
+  key: async () => "fixture-only-key",
+  onChange: () => () => {},
+}
+
+async function complete(home: string) {
+  const config = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8")) as { thread: v2.Thread }
+  const turn = config.thread.turns.at(-1)!
+  turn.status = "completed"
+  turn.completedAt = Date.now()
+  config.thread.status = { type: "idle" }
+  await configure(home, config)
+  await command(home, [{ method: "turn/completed", params: { threadId: config.thread.id, turn } }])
+}
+
 describe("CodexHost native process boundaries", () => {
+  test(
+    "custom models work without ChatGPT and switch providers only after idle, preserving restoration",
+    () =>
+      harness(
+        async ({ host, home, sessions }) => {
+          await configure(home, { authenticated: false, reflectProvider: true, reflectSettings: true })
+          const engine = await run(host.engines()).then((engines) => engines.find((engine) => engine.id === "codex")!)
+          expect(engine.models?.find((model) => model.id === "xd/native-model")?.requiresAuth).toBe(false)
+          await expect(
+            run(
+              host.create({
+                requestID: "needs-login",
+                engine: "codex",
+                location: location(),
+                input: prompt,
+                delivery: "steer",
+              }),
+            ),
+          ).rejects.toThrow("Sign in")
+          const created = await run(
+            host.create({
+              requestID: "xd-first",
+              engine: "codex",
+              location: location(),
+              input: { ...prompt, settings: { model: "xd/native-model" } },
+              delivery: "steer",
+            }),
+          )
+          const id = created.descriptor.sessionID
+          await until(
+            () => run(host.delivery(id, "xd-first")),
+            (value) => value.state === "accepted",
+          )
+          expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("xd/native-model")
+          await configure(home, { authenticated: true })
+          await run(
+            host.submit(id, {
+              requestID: "subscription-next",
+              input: { ...prompt, settings: {} },
+              delivery: "steer",
+            }),
+          )
+          await Bun.sleep(100)
+          expect((await run(host.delivery(id, "subscription-next"))).state).toBe("pending")
+          expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(0)
+          await complete(home)
+          await until(
+            () => run(host.delivery(id, "subscription-next")),
+            (value) => value.state === "accepted",
+          )
+          expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("native-model")
+          await complete(home)
+          await until(
+            () => run(host.snapshot(id)),
+            (value) => value.descriptor.runtimeStatus === "idle",
+          )
+          // An unsent selection must not be applied by a reconnect.
+          await run(host.settings(id, { model: "xd/native-model" }))
+          await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+          await until(
+            () => run(host.describe([id])),
+            (value) => value[0]?.runtimeStatus === "disconnected",
+          )
+          await command(home, [])
+          const restored = await run(host.snapshot(id))
+          expect(restored.descriptor.settings.model).toBe("native-model")
+          expect(restored.descriptor.pendingSettings?.model).toBe("xd/native-model")
+          expect((await run(sessions.get(id))).binding.nativeThreadID).toBe("native-thread")
+          await run(
+            host.submit(id, {
+              requestID: "xd-again",
+              input: { ...prompt, settings: { model: "xd/native-model" } },
+              delivery: "steer",
+            }),
+          )
+          await until(
+            () => run(host.delivery(id, "xd-again")),
+            (value) => value.state === "accepted",
+          )
+          expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("xd/native-model")
+          const calls = await rpc(home)
+          expect(calls.filter((call) => call.method === "thread/start")).toHaveLength(1)
+          expect(calls.filter((call) => call.method === "thread/unsubscribe")).toHaveLength(2)
+          expect(calls.filter((call) => call.method === "turn/start")).toHaveLength(3)
+          await complete(home)
+          await until(
+            () => run(host.snapshot(id)),
+            (value) => value.descriptor.runtimeStatus === "idle",
+          )
+          await run(host.settings(id, { model: "native-model" }))
+          await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+          await until(
+            () => run(host.describe([id])),
+            (value) => value[0]?.runtimeStatus === "disconnected",
+          )
+          await command(home, [])
+          const customRestored = await run(host.snapshot(id))
+          expect(customRestored.descriptor.settings.model).toBe("xd/native-model")
+          expect(customRestored.descriptor.pendingSettings?.model).toBe("native-model")
+        },
+        undefined,
+        undefined,
+        customProviders,
+      ),
+    30_000,
+  )
+
   test("auto approves the three native approval kinds before turn/start replies", () =>
     harness(async ({ host, home }) => {
       await configure(home, {

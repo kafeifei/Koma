@@ -79,6 +79,8 @@ Session 执行、持久输入、投影、Context Epoch 等具体不变量仍由 
 `packages/codex` 是原生后端适配模块，不是第二套任务数据库或 OpenCode 模型 Provider。共享
 `packages/schema` 定义有限的展示与操作数据；原生投影通过现有 SSE 服务进入 App 的同一任务视图。
 Backend 管理它创建的 app-server 进程、投递回执、审批和执行租约，Desktop/Web 不各自启动运行时。
+Codex 可通过独立配置端口使用现有 XD 等 Responses 供应商的模型与凭据；该端口只提供模型目录
+和原生 provider 配置，模型调用和工具执行仍由 Codex 持有，订阅模型继续保留。
 
 ## 5. 实验运行与用户数据的边界
 

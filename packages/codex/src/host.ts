@@ -45,6 +45,8 @@ import { createCodexInteraction } from "./interaction"
 import { codexInput, prepareInput, threadSettings, turnSettings } from "./input"
 import { CodexWorktreeAccess } from "./worktree-access"
 import { CodexAuth } from "./auth"
+import { CodexProviders } from "./providers"
+import { providerCredentials } from "./provider-credentials"
 import { codexStorage } from "./storage"
 
 export class HostError extends Schema.TaggedErrorClass<HostError>()("CodexHost.Error", {
@@ -126,6 +128,8 @@ type Entry = {
   refreshPending: boolean
   idleConfirmed: boolean
   appliedSettings: Settings
+  nativeProvider?: string
+  providerConfig?: string
   // Execution/history reads may complete after a settings write. Keep the
   // confirmed durable intent in the interaction lane instead of those snapshots.
   desiredSettings: Settings
@@ -154,6 +158,8 @@ const layer = Layer.effect(
     const ownership = yield* SessionExternalOwnership.Service
     const worktrees = yield* CodexWorktreeAccess.Service
     const auth = yield* CodexAuth.Service
+    const providers = yield* CodexProviders.Service
+    const credentials = providerCredentials(providers)
     const events = yield* EventV2.Service
     const global = yield* Global.Service
     const enabled = process.env.OPENCODE_ENABLE_CODEX === "1"
@@ -378,6 +384,8 @@ const layer = Layer.effect(
       entry.idleConfirmed = false
       entry.activeTurnID = undefined
       entry.appliedSettings = {}
+      entry.nativeProvider = undefined
+      entry.providerConfig = undefined
       entry.settingsSequence = 0
       entry.plan = undefined
       entry.dirty = true
@@ -468,6 +476,8 @@ const layer = Layer.effect(
               entry.executionObserved = false
               entry.idleConfirmed = false
               entry.appliedSettings = {}
+              entry.nativeProvider = undefined
+              entry.providerConfig = undefined
               entry.plan = undefined
               entry.dirty = true
               entry.status = "disconnected"
@@ -574,7 +584,7 @@ const layer = Layer.effect(
     })
     yield* Effect.addFinalizer(() => Effect.sync(unsubscribeAuth))
 
-    async function models() {
+    async function nativeModels() {
       if (state.models) return state.models
       const connected = await runtime()
       const values: v2.Model[] = []
@@ -600,6 +610,50 @@ const layer = Layer.effect(
       return state.models
     }
 
+    async function models() {
+      const [native, configured] = await Promise.all([nativeModels(), providers.list()])
+      return [
+        ...native,
+        ...configured.flatMap((provider) =>
+          provider.models.map((model) => ({
+            id: CodexProviders.modelID(provider.id, model.id),
+            name: `${provider.name} · ${model.name}`,
+            default: false,
+            efforts: model.efforts,
+            defaultEffort: model.defaultEffort,
+            requiresAuth: false,
+          })),
+        ),
+      ]
+    }
+
+    async function selectedModel(settings: Settings) {
+      const configured = await providers.list()
+      for (const provider of configured) {
+        const model = provider.models.find((model) => CodexProviders.modelID(provider.id, model.id) === settings.model)
+        if (!model) continue
+        const providerID = CodexProviders.nativeProviderID(provider.id)
+        return {
+          model: model.id,
+          modelProvider: providerID,
+          config: {
+            [`model_providers.${providerID}`]: await credentials.config(provider),
+            // Responses-compatible providers do not imply support for OpenAI's
+            // hosted web-search tool (for example XD's Bedrock models reject it).
+            web_search: "disabled",
+            ...(model.contextWindow ? { model_context_window: model.contextWindow } : {}),
+          },
+        }
+      }
+      const available = await nativeModels()
+      const model = available.find((model) => (settings.model ? model.id === settings.model : model.default))
+      if (!model) return fail("invalid", "The selected Codex model is unavailable")
+      return { model: model.id, modelProvider: "openai" }
+    }
+
+    const unsubscribeProviders = providers.onChange(() => void notifyEngine().catch(() => undefined))
+    yield* Effect.addFinalizer(() => Effect.sync(unsubscribeProviders))
+
     async function validateSettings(settings: Settings) {
       const available = await models()
       const selected =
@@ -608,12 +662,14 @@ const layer = Layer.effect(
       if (!selected) return fail("invalid", "The selected Codex model is unavailable")
       if (settings.effort && !selected.efforts.includes(settings.effort))
         return fail("invalid", "The selected reasoning effort is unavailable for this model")
+      return selected
     }
 
     async function requireReady(settings: Settings) {
+      const selected = await validateSettings(settings)
+      if ("requiresAuth" in selected && selected.requiresAuth === false) return
       const info = await account()
       if (info.requiresAuth && !info.authenticated) return fail("unavailable", "Sign in to Codex before sending a task")
-      await validateSettings(settings)
     }
 
     function updateView(entry: Entry) {
@@ -709,6 +765,21 @@ const layer = Layer.effect(
       }, 200)
     }
 
+    async function resumeModel(entry: Entry) {
+      const deliveries = await run(sessions.deliveries(entry.record.session.id))
+      // Only the first accepted input in a native turn selected its settings;
+      // later steers did not. Desired settings may be newer and still pending.
+      const turns = new Map<string, Settings>()
+      for (const input of deliveries) {
+        if (input.state !== "accepted" || !input.nativeTurnID || turns.has(input.nativeTurnID)) continue
+        turns.set(input.nativeTurnID, decodeInput(input.payload).settings)
+      }
+      const applied = [...turns.values()].at(-1)
+      if (applied) return selectedModel(applied)
+      const initial = deliveries[0] && decodeInput(deliveries[0].payload).settings
+      return initial?.model ? selectedModel(initial) : undefined
+    }
+
     async function load(entry: Entry, resume = false) {
       const connected = await runtime()
       attach(entry, connected)
@@ -716,7 +787,9 @@ const layer = Layer.effect(
       if (!threadID) return
       const observedAt = receiveSequence
       if (resume && !entry.resumed) {
+        const selected = await resumeModel(entry)
         const response = await connected.resumeThread(threadID, {
+          ...selected,
           cwd: entry.record.session.location.directory,
           excludeTurns: true,
         })
@@ -727,7 +800,13 @@ const layer = Layer.effect(
         )
           return fail("conflict", "Codex resumed a different native thread or directory")
         if (!current(connected)) return fail("unavailable", "Codex connection changed while checking the directory")
-        if (entry.settingsSequence <= observedAt) entry.appliedSettings = observedSettings(response)
+        if (entry.settingsSequence <= observedAt) {
+          entry.appliedSettings = observedSettings(response)
+          entry.nativeProvider = response.modelProvider
+          // Resume may rejoin an already loaded child and ignore overrides.
+          // Confirm custom config only after an explicit idle unload/resume.
+          entry.providerConfig = undefined
+        }
         entry.resumed = true
         scheduleAutomaticApprovals(entry)
       }
@@ -840,7 +919,11 @@ const layer = Layer.effect(
         entry.error = "Previous native execution has no confirmed completion; input and queued execution remain blocked"
       entry.appliedSettings = {
         ...entry.appliedSettings,
-        model: native.model ?? entry.appliedSettings.model,
+        // thread/read retains the creation provider even after an idle provider
+        // switch. Effective settings come from resume/turn notifications.
+        model:
+          entry.appliedSettings.model ??
+          CodexProviders.observedModel(native.model, entry.nativeProvider ?? native.modelProvider),
         effort: native.reasoningEffort ?? entry.appliedSettings.effort,
       }
       entry.dirty = (signals.get(threadID) ?? 0) > observedAt
@@ -864,6 +947,7 @@ const layer = Layer.effect(
       const observedAt = receiveSequence
       const options = {
         ...threadSettings(decodeSettings(entry.record.binding.settings)),
+        ...(await selectedModel(decodeSettings(entry.record.binding.settings))),
         cwd: entry.record.session.location.directory,
         historyMode: "paginated" as const,
       }
@@ -888,11 +972,17 @@ const layer = Layer.effect(
           }),
         )
         nativeSessions.set(started.thread.id, entry.record.session.id)
+        if (started.modelProvider !== options.modelProvider)
+          return fail("conflict", "Codex did not apply the selected provider")
         if (!current(connected) || entry.generation !== connected.generation) return
         for (const notification of buffered.get(started.thread.id) ?? []) observeTool(entry, notification)
         entry.native = started.thread
         entry.resumed = true
-        if (entry.settingsSequence <= observedAt) entry.appliedSettings = observedSettings(started)
+        if (entry.settingsSequence <= observedAt) {
+          entry.appliedSettings = observedSettings(started)
+          entry.nativeProvider = started.modelProvider
+          entry.providerConfig = JSON.stringify(options.config)
+        }
         scheduleAutomaticApprovals(entry)
         entry.status = executionStatus(entry, nativeStatus(started.thread.status))
         entry.idleConfirmed = entry.status === "idle"
@@ -946,9 +1036,48 @@ const layer = Layer.effect(
       if (entry.status === "idle" && !entry.idleConfirmed) return
       const payload = decodeInput(input.payload)
       const nativeInput = codexInput(payload)
-      const options = turnSettings(payload.settings, entry.record.session.location.directory)
+      const selected = await selectedModel(payload.settings)
+      const options = turnSettings(
+        { ...payload.settings, model: selected.model },
+        entry.record.session.location.directory,
+      )
       const activeTurnID = entry.activeTurnID
+      const switchProvider =
+        selected.modelProvider !== entry.nativeProvider || JSON.stringify(selected.config) !== entry.providerConfig
+      // A steer cannot change providers. Keep the admitted input pending until
+      // the current native turn completes, then dispatch it with its own route.
+      if (activeTurnID && switchProvider) return
       await acquire(entry)
+      if (switchProvider) {
+        if (!entry.idleConfirmed || entry.status !== "idle" || entry.activeTurnID) return
+        // Loaded threads ignore provider overrides. Unsubscribe only after the
+        // ownership lane has confirmed idle, then resume the same durable ID.
+        const threadID = entry.record.binding.nativeThreadID!
+        const unsubscribed = await connected.client.request<"thread/unsubscribe", v2.ThreadUnsubscribeResponse>(
+          "thread/unsubscribe",
+          { threadId: threadID },
+        )
+        if (unsubscribed.status !== "unsubscribed" && unsubscribed.status !== "notLoaded")
+          return fail("conflict", "Codex could not unload the idle thread to select its provider")
+        entry.resumed = false
+        entry.idleConfirmed = false
+        const resumed = await connected.resumeThread(threadID, {
+          ...selected,
+          cwd: entry.record.session.location.directory,
+          excludeTurns: true,
+        })
+        if (!current(connected) || resumed.thread.id !== threadID)
+          return fail("unavailable", "Codex connection changed while selecting the provider")
+        if (!(await sameDirectory(resumed.cwd, entry.record.session.location.directory)))
+          return fail("conflict", "Codex resumed a different directory while selecting the provider")
+        if (resumed.modelProvider !== selected.modelProvider)
+          return fail("conflict", "Codex did not apply the selected provider")
+        entry.nativeProvider = resumed.modelProvider
+        entry.providerConfig = JSON.stringify(selected.config)
+        entry.appliedSettings = observedSettings(resumed)
+        entry.resumed = true
+        entry.idleConfirmed = true
+      }
       // An event consumer failure must not strand a claimed but undispatched row.
       await emit(entry, { refresh: true })
       if (!current(connected)) return fail("unavailable", "Codex connection changed before input dispatch")
@@ -1457,6 +1586,7 @@ const layer = Layer.effect(
         sandbox: settings.sandboxPolicy,
         reasoningEffort: settings.effort,
       })
+      entry.nativeProvider = settings.modelProvider
       entry.settingsSequence = notification.sequence
       // Confirmation can precede an approval and the turn/start response.
       // Never wait for the execution lane before answering that approval.
@@ -1584,7 +1714,11 @@ const layer = Layer.effect(
       Effect.promise(async () => {
         state.closed = true
         for (const entry of entries.values()) if (entry.refreshTimer) clearTimeout(entry.refreshTimer)
-        if (state.manager) await state.manager.close()
+        try {
+          if (state.manager) await state.manager.close()
+        } finally {
+          await credentials.close()
+        }
       }),
     )
 
@@ -1832,6 +1966,7 @@ export const node = makeGlobalNode({
     SessionExternalOwnership.node,
     CodexWorktreeAccess.node,
     CodexAuth.node,
+    CodexProviders.node,
     EventV2.node,
   ],
 })
@@ -1957,7 +2092,7 @@ function mergeViews(base: CodexView, live: CodexView): CodexView {
 function observedSettings(
   value: Pick<
     v2.ThreadStartResponse,
-    "model" | "reasoningEffort" | "approvalPolicy" | "approvalsReviewer" | "sandbox" | "cwd"
+    "model" | "modelProvider" | "reasoningEffort" | "approvalPolicy" | "approvalsReviewer" | "sandbox" | "cwd"
   >,
 ): Settings {
   const sandbox = value.sandbox
@@ -1979,7 +2114,11 @@ function observedSettings(
               value.approvalPolicy === "on-request"
             ? "default"
             : undefined
-  return { model: value.model, effort: value.reasoningEffort ?? undefined, permission }
+  return {
+    model: CodexProviders.observedModel(value.model, value.modelProvider),
+    effort: value.reasoningEffort ?? undefined,
+    permission,
+  }
 }
 
 function errorMessage(error: unknown) {
