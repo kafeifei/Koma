@@ -2,7 +2,6 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
 import { readdir, readFile, writeFile } from "node:fs/promises"
-import { nextLabBuildSequence } from "./scripts/lab-build-sequence"
 import { resolveDesktopChannel } from "./src/main/channel"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
@@ -44,14 +43,12 @@ const sentry =
     : false
 
 export default defineConfig(async ({ command }) => {
-  const common =
-    channel === "lab" && command === "build"
-      ? spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], git)
-      : undefined
-  if (common && (common.status !== 0 || !common.stdout?.trim())) {
-    throw new Error("Cannot resolve shared Git directory for the Lab build sequence")
+  const sequence =
+    channel === "lab" && command === "build" ? Number(process.env.OPENCODE_LAB_BUILD_SEQUENCE) : undefined
+  if (sequence !== undefined && (!Number.isSafeInteger(sequence) || sequence < 1)) {
+    throw new Error("Use bun run build:lab or bun run lab to reserve a Lab build sequence")
   }
-  const build = { ...buildInfo, sequence: common ? await nextLabBuildSequence(common.stdout.trim()) : undefined }
+  const build = { ...buildInfo, sequence }
   return {
     main: {
       define: {

@@ -6,7 +6,7 @@ const LOCK_DIRECTORY = "lab-build-sequence.lock"
 const LOCK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 10
 
-export async function nextLabBuildSequence(directory: string) {
+export async function withLabBuildSequence<T>(directory: string, build: (sequence: number) => Promise<T>) {
   await mkdir(directory, { recursive: true })
   const lockPath = join(directory, LOCK_DIRECTORY)
   const deadline = Date.now() + LOCK_TIMEOUT_MS
@@ -18,10 +18,12 @@ export async function nextLabBuildSequence(directory: string) {
     const next = current + 1
     if (!Number.isSafeInteger(next)) throw new Error(`Lab build sequence exceeded the safe integer limit: ${statePath}`)
 
+    // Keep the reservation exclusive until every requested build stage succeeds.
+    const result = await build(next)
     const temporaryPath = join(directory, `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`)
     await writeFile(temporaryPath, `${next}\n`, { encoding: "utf8", flag: "wx" })
     await rename(temporaryPath, statePath)
-    return next
+    return result
   } finally {
     await rm(lockPath, { recursive: true, force: false })
   }
