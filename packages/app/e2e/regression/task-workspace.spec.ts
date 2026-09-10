@@ -531,13 +531,23 @@ test("archives an idle task, preserves its identity and body, restores it, and b
   await archive.click()
   await expect(sidebar.locator('[data-session-id="ses-task-b"]')).toBeHidden()
 
-  await sidebar.locator('[data-action="workspace-archives"]').click()
+  const archiveToggle = sidebar.locator('[data-slot="workspace-footer"] [data-action="workspace-archives"]')
+  await expect(archiveToggle).toHaveAccessibleName("Archived")
+  await expect(archiveToggle.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-archive")
+  await expect(sidebar.getByRole("button", { name: "Home", exact: true }).locator("use")).toHaveAttribute(
+    "href",
+    "#opencode-v2-icon-grid-plus",
+  )
+  await archiveToggle.click()
   let archived = sidebar.locator('[data-session-id="ses-task-b"]')
   await expect(archived).toBeVisible()
   await expect(archived).toHaveAttribute("data-archived", "true")
-  const activeTasks = sidebar.locator('[data-action="workspace-active-tasks"]')
-  await expect(activeTasks.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-arrow-left")
-  await activeTasks.click()
+  await expect(archiveToggle).toHaveAccessibleName("All tasks")
+  await expect(archiveToggle.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-arrow-left")
+  await archiveToggle.click()
+  await expect(archiveToggle).toHaveAccessibleName("Archived")
+  await expect(archiveToggle.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-archive")
+  await expect(page).toHaveURL(/\/session\/ses-task-a$/)
   await expect(sidebar.locator('[data-session-id="ses-task-a"]')).toBeVisible()
   await expect(archived).toBeHidden()
 
@@ -557,7 +567,8 @@ test("archives an idle task, preserves its identity and body, restores it, and b
   await expect(composer).toHaveText(draft)
   await expect(page.getByText("Request failed", { exact: true })).toBeHidden()
 
-  await sidebar.locator('[data-action="workspace-active-tasks"]').click()
+  await archiveToggle.click()
+  await expect(page).toHaveURL(/\/session\/ses-task-b$/)
   const restored = sidebar.locator('[data-session-id="ses-task-b"]')
   await expect(restored).toBeVisible()
   await restored.click()

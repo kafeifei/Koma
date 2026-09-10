@@ -79,18 +79,16 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
         </button>
         <button
           type="button"
-          data-action="workspace-active-tasks"
           data-slot="workspace-action"
           aria-current={layout.route().type === "home" ? "page" : undefined}
           onClick={() => {
             const conn = focusedServer()
             if (conn) home.selection.set({ server: ServerConnection.key(conn) })
-            setState({ search: "", archived: false })
             navigate("/")
             props.onNavigate()
           }}
         >
-          <Icon name="arrow-left" />
+          <Icon name="grid-plus" />
           <span>{language.t("home.title")}</span>
         </button>
         <label data-slot="workspace-search">
@@ -133,10 +131,10 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
           data-slot="workspace-action"
           data-action="workspace-archives"
           aria-pressed={state.archived}
-          onClick={() => setState("archived", true)}
+          onClick={() => setState("archived", !state.archived)}
         >
-          <Icon name="archive" />
-          <span>{language.t("workspace.archived")}</span>
+          <Icon name={state.archived ? "arrow-left" : "archive"} />
+          <span>{language.t(state.archived ? "workspace.activeTasks" : "workspace.archived")}</span>
         </button>
         <button type="button" data-slot="workspace-action" onClick={projects.utility.settings}>
           <Icon name="settings-gear" />
