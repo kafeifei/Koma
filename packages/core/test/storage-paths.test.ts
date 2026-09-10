@@ -65,6 +65,20 @@ describe("storage paths", () => {
     })
   })
 
+  test("constructs a complete profile without reading migration metadata", async () => {
+    const dir = await root()
+    await Bun.write(path.join(dir, "storage.json"), "invalid metadata")
+
+    const profile = StoragePaths.profile(dir)
+    expect(profile.root).toBe(dir)
+    expect(profile.snapshot).toBe(path.join(dir, "data", "snapshots"))
+    expect(profile.worktree).toBe(path.join(dir, "worktrees"))
+    expect(profile.codex).toBe(path.join(dir, "engines", "codex"))
+    expect(profile).not.toHaveProperty("metadata")
+    expect((await fs.readdir(dir)).sort()).toEqual(["storage.json"])
+    expect(() => StoragePaths.profile("relative/profile")).toThrow("must be absolute")
+  })
+
   test("uses the fresh database when metadata is absent", async () => {
     const dir = await root()
     expect(StoragePaths.metadata(dir)).toBeUndefined()
@@ -114,6 +128,32 @@ describe("storage paths", () => {
     )
 
     expect(() => StoragePaths.database(dir)).toThrow("migration is incomplete")
+  })
+
+  test("preserves the shared backend requirement in version 2 metadata", async () => {
+    const dir = await root()
+    const manifest = {
+      version: 2,
+      backendProtocol: 1,
+      source: null,
+      status: "complete",
+      database: "opencode.db",
+    } as const
+    await Bun.write(path.join(dir, "storage.json"), JSON.stringify(manifest))
+
+    expect(StoragePaths.metadata(dir)).toEqual(manifest)
+    expect(StoragePaths.database(dir)).toBe(path.join(dir, "data", "opencode.db"))
+  })
+
+  test("rejects an absent or unsupported shared backend protocol", async () => {
+    const dir = await root()
+    for (const backendProtocol of [undefined, 0, 2, "1"]) {
+      await Bun.write(
+        path.join(dir, "storage.json"),
+        JSON.stringify({ version: 2, backendProtocol, source: null, status: "complete", database: "opencode.db" }),
+      )
+      expect(() => StoragePaths.metadata(dir)).toThrow("Unsupported OpenCode storage backend protocol")
+    }
   })
 
   test("rejects a pending atomic metadata write", async () => {

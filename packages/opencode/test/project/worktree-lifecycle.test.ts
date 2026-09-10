@@ -742,5 +742,48 @@ it.live("restores an archived checkout after completed-home identity repair and 
       .get()
       .pipe(Effect.orDie)
     expect(session?.directory).toBe(input.directory)
+
+    // Restoring through the compatibility link makes Git register the physical path.
+    const restored = yield* git(input.root, ["worktree", "list", "--porcelain", "-z"])
+    expect(restored.split("\0")).toContain(`worktree ${physical}`)
+    expect(restored.split("\0")).not.toContain(`worktree ${input.directory}`)
+    yield* git(input.root, ["worktree", "lock", "--reason", "preserve restored checkout", physical])
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    const failure = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
+    expect(failure.reason).toBe("git")
+    expect(failure.message).toContain("locked")
+    expect(yield* exists(physical)).toBe(true)
+    expect(yield* git(input.root, ["worktree", "list", "--porcelain", "-z"])).toContain(`worktree ${physical}\0`)
+    expect((yield* input.lifecycle.getDirectory(physical))?.phase).toBe("captured")
+    expect((yield* input.lifecycle.getDirectory(input.directory))?.lastError).toContain("locked")
+    expect(yield* Effect.promise(() => fs.readFile(path.join(physical, "tracked.txt"), "utf8"))).toBe(
+      "saved before migration\n",
+    )
+
+    yield* git(input.root, ["worktree", "unlock", physical])
+    yield* input.lifecycle.continueArchive(input.sessionID)
+    expect(yield* exists(physical)).toBe(false)
+    expect((yield* input.lifecycle.getDirectory(physical))?.phase).toBe("removed")
+    expect(yield* git(input.root, ["worktree", "list", "--porcelain", "-z"])).not.toContain(`worktree ${physical}\0`)
+    yield* input.lifecycle.prepareRestore(input.sessionID)
+    expect(yield* Effect.promise(() => fs.readFile(path.join(physical, "untracked.txt"), "utf8"))).toBe(
+      "untracked retained\n",
+    )
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: null })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* input.lifecycle.finalizeRestore(input.sessionID)
+    expect((yield* input.lifecycle.list({ projectID: input.projectID })).map((owner) => owner.directory)).toEqual([
+      input.directory,
+    ])
   }),
 )

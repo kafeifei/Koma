@@ -90,6 +90,7 @@ export function make(input: Partial<Interface> = {}): Interface {
     snapshot: Path.snapshot,
     codex: Path.codex,
     ...input,
+    ...StoragePaths.overrides(input, Path),
   }
 }
 

@@ -1,21 +1,7 @@
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
+import { LabEnvironment } from "@opencode-ai/core/lab-environment"
+import { StorageMigration } from "@opencode-ai/core/storage-migration"
 import { join } from "node:path"
-
-const bypassVariables = [
-  "OPENCODE_CONFIG",
-  "OPENCODE_CONFIG_DIR",
-  "OPENCODE_CONFIG_CONTENT",
-  "OPENCODE_AUTH_CONTENT",
-  "OPENCODE_DB",
-  "OPENCODE_MODELS_PATH",
-  "OPENCODE_MODELS_URL",
-  "OPENCODE_TEST_HOME",
-  "OPENCODE_TEST_MANAGED_CONFIG_DIR",
-  "OPENCODE_TUI_CONFIG",
-  "OPENCODE_PORT",
-  "OPENCODE_DISABLE_CHANNEL_DB",
-  "OPENCODE_CODEX_HOME",
-] as const
 
 export function labBackendEnvironment(root: string) {
   return { OPENCODE_HOME: StoragePaths.resolve(root).root }
@@ -35,12 +21,27 @@ export function legacyLabBackendEnvironment(root: string) {
 }
 
 export function prepareLabEnvironment(environment: NodeJS.ProcessEnv, root: string) {
-  const paths = labBackendEnvironment(root)
-  bypassVariables.forEach((key) => delete environment[key])
-  Object.assign(environment, paths, {
-    OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-    OPENCODE_DISABLE_AUTOUPDATE: "1",
-    OPENCODE_ENABLE_CODEX: "1",
-  })
-  return paths
+  return LabEnvironment.prepare(environment, root)
+}
+
+export async function prepareLabDesktopHome(input: {
+  root: string
+  legacyRoot: string
+  setUserData: (path: string) => void
+  acquireLock: () => boolean
+}) {
+  const root = StoragePaths.resolve(input.root).root
+  const paths = { root, legacyRoot: input.legacyRoot }
+  const lease = await StorageMigration.lock(root)
+  try {
+    const metadata = StoragePaths.metadata(root)
+    if (metadata?.status === "complete") {
+      input.setUserData(StoragePaths.resolve(root).desktop)
+      return input.acquireLock()
+    }
+    input.setUserData(StorageMigration.unifiedHomeLockPath(paths))
+    return Boolean(StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: input.acquireLock }))
+  } finally {
+    await lease.release()
+  }
 }

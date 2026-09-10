@@ -82,6 +82,7 @@ bundle identity, protocol, sessions and authentication remain unchanged.
 | `repos/`                         | Managed repository copies                                         |
 | `engines/codex/`                 | Native Codex runtime home, authentication and history             |
 | `bin/opencode-lab`               | This fork's terminal CLI                                          |
+| `bin/.lab-backend/`              | Backend ownership, startup locks and `service.log`                 |
 | `storage.json`                   | Migration state, database choice and existing worktree identities |
 
 Temporary runtime resources and IPC remain in the system temporary directory.
@@ -115,13 +116,38 @@ managed versions remain available to processes that are already using them. An e
 The installer also accepts the binary path from a verified Lab app bundle as
 its first argument, so local delivery can install the exact packaged executable.
 
-CLI binaries built with `OPENCODE_CHANNEL=lab` use the same launcher. Ordinary
-upstream CLI entrypoints retain their XDG defaults unless `OPENCODE_HOME` is set.
-The Lab launcher and desktop accept an absolute `OPENCODE_HOME` for isolated
-instances. Desktop disables project configuration as before; the CLI retains its
-normal project configuration behavior. Neither changes the parent XDG variables.
-The optional pinned V2 CLI receives compatibility XDG paths only in its child
-environment, with its database selected from the same manifest.
+CLI binaries built with `OPENCODE_CHANNEL=lab` use the same launcher. Lab clients
+discover one authenticated loopback backend per profile, starting it when needed.
+Desktop publishes its bundled binary at an immutable version path before starting
+`opencode-lab backend serve`; closing Desktop, a Web page or a CLI does not stop it.
+The existing HTTP server and Session engine remain the execution owners. Lab does
+not use the pinned V2 sidecar switch to start a second backend. Other channels
+retain their existing sidecar selection and upstream CLI defaults.
+
+Use `opencode-lab backend status` to inspect the actual PID, version and protocol;
+`opencode-lab backend stop` explicitly stops it. Installing another compatible
+binary does not replace a running backend. Neither client shutdown nor packaging
+automatically stops or upgrades that backend.
+
+The Lab CLI supports the full terminal UI, `run`, `session list/delete`, `export`,
+`models`, `debug paths/config`, and explicit `permission list/reply`. `run --no-wait`
+prints the admitted session ID and exits while execution continues on the backend.
+Permission requests remain pending until the user answers in a client; the CLI
+does not automatically allow or reject them. Commands without an HTTP adapter
+(including raw database operations, import, mini mode and upstream maintenance
+commands) fail explicitly instead of opening a local execution runtime. Use the
+existing Lab UI for provider and server configuration. The separate official
+`opencode` command retains its original command set and data.
+
+`opencode-lab uninstall --dry-run` previews removal; `uninstall` removes only the
+managed terminal links. Shared sessions, auth, configuration, worktrees and
+published binaries remain intact. CLI and HTTP self-upgrades cannot invoke the
+official installer for a Lab profile; update using a verified Lab candidate.
+
+The launcher and desktop accept an absolute `OPENCODE_HOME` for isolated instances.
+Both configure the same backend paths and disable project configuration. `--help`,
+`--version` and `debug paths` do not initialize or migrate a profile. Terminal UI
+configuration is loaded without rewriting the backend's legacy configuration.
 
 On macOS, the updated desktop migrates the former
 `~/Library/Application Support/OpenCode Lab` profile on first launch. It obtains
@@ -132,6 +158,15 @@ refuses to perform that migration. Renames keep SQLite
 files, WAL sidecars and directory inodes together; a durable manifest makes an
 interrupted migration resumable. Independent destination data or a different
 filesystem blocks migration instead of overwriting or partially copying it.
+
+Before activating the shared backend, existing v1 profiles are checked for open
+database handles (`lsof` is required for this compatibility check). Active older
+processes are preserved and startup is refused. The owner then atomically updates
+the manifest to v2 with `backendProtocol: 1`, retaining the entire migration record
+and all data files. Older Lab builds reject that format; current standalone core
+database entrypoints require the recorded backend owner. Incompatible protocols,
+invalid ownership records and live but unresponsive owners are never silently
+replaced. Do not downgrade the manifest to make an older application open it.
 
 Compatibility symlinks preserve old file paths. Existing managed worktrees also
 retain their logical directory identities in the backend so task ownership,

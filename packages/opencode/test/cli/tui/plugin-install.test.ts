@@ -85,3 +85,53 @@ test("installs plugin without loading it", async () => {
     delete process.env.OPENCODE_PLUGIN_META_FILE
   }
 })
+
+test("a client-only host installs the TUI entry without changing server plugin configuration", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "package.json"),
+        JSON.stringify({
+          name: "mixed-client-plugin",
+          type: "module",
+          exports: { "./server": "./server.ts", "./tui": "./tui.ts" },
+        }),
+      )
+      await Bun.write(path.join(dir, "server.ts"), 'throw new Error("server entry must not load")')
+      await Bun.write(path.join(dir, "tui.ts"), 'export default { id: "mixed.client", tui: async () => {} }')
+      await Bun.write(path.join(dir, ".opencode", "opencode.json"), '{"model":"kept/model"}\n')
+      return { spec: pathToFileURL(path.join(dir, "tui.ts")).href }
+    },
+  })
+  process.env.OPENCODE_PLUGIN_META_FILE = path.join(tmp.path, "plugin-meta.json")
+  const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
+  const api = createTuiPluginApi({
+    state: {
+      path: {
+        state: path.join(tmp.path, "state.json"),
+        config: path.join(tmp.path, "tui.json"),
+        worktree: tmp.path,
+        directory: tmp.path,
+      },
+    },
+  })
+  try {
+    await TuiPluginRuntime.init({
+      api,
+      config: createTuiResolvedConfig({ plugin: [], plugin_origins: [] }),
+      configOptions: { migrate: false },
+      serverPlugins: false,
+    })
+    expect(await TuiPluginRuntime.installPlugin(tmp.extra.spec)).toMatchObject({ ok: true, tui: true })
+    expect(await Bun.file(path.join(tmp.path, ".opencode", "opencode.json")).text()).toBe('{"model":"kept/model"}\n')
+    expect(await Bun.file(path.join(tmp.path, ".opencode", "tui.json")).json()).toMatchObject({
+      plugin: [tmp.extra.spec],
+    })
+    expect(await TuiPluginRuntime.addPlugin(tmp.extra.spec)).toBe(true)
+    expect(TuiPluginRuntime.list().find((plugin) => plugin.id === "mixed.client")?.active).toBe(true)
+  } finally {
+    await TuiPluginRuntime.dispose()
+    cwd.mockRestore()
+    delete process.env.OPENCODE_PLUGIN_META_FILE
+  }
+})

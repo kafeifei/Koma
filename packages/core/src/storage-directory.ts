@@ -18,6 +18,13 @@ export function resolve(directory: string, root = process.env.OPENCODE_HOME?.tri
   return directory
 }
 
+// Host directory boundaries use identity for persistence and comparison, and path for filesystem/Git operations.
+// Missing checkouts keep the same identity through their existing parent aliases. This is not a permission check.
+export function locate(directory: string, root = process.env.OPENCODE_HOME?.trim()) {
+  const physical = canonical(directory)
+  return { identity: resolve(physical, root), path: physical }
+}
+
 function canonical(directory: string): string {
   const absolute = path.resolve(directory)
   if (fs.existsSync(absolute)) return fs.realpathSync(absolute)

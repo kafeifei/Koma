@@ -87,6 +87,8 @@ Codex 可通过独立配置端口使用现有 XD 等 Responses 供应商的模�
 ## 5. 实验运行与用户数据的边界
 
 - Lab 保留应用身份 `ai.opencode.lab` 和协议 `opencode-lab`；桌面与本 fork 的 Lab CLI 共用 `~/.opencode`，按 desktop、data、config、cache、state、logs、worktrees、repos、engines 分目录。旧 Lab 数据由更新后的桌面端首次启动时迁移，保留原数据库文件名和旧路径兼容链接；官方渠道不主动迁入。入口、迁移和目录说明见 [Desktop README](./packages/desktop/README.md#lab-shared-storage)。
+- Lab 的桌面、Web 和 CLI 都连接同一 profile 的独立后端。执行、权限、归档恢复、删除和目录占用判定由后端完成；关闭客户端不停止后端。Lab 复用现有 HTTP 服务和 Session 引擎，启动入口与进程所有权集中在 Lab 模块，不修改上游执行循环。终端自己的显示配置与 UI 插件仍属于终端，不得因此迁移或改写服务端配置。
+- 共享后端首次接管前拒绝仍占用数据库的旧进程，接管后将原迁移清单提升为要求后端协议的 v2；旧 Lab 入口会拒绝打开，不能用旧包回退写入。普通上游入口也不能绕过已激活 profile 的后端直接打开数据库。CLI 卸载只移除受管命令链接，保留共享数据及运行中后端所需版本；维护和交付不得自动终止已有后端。
 - Lab 的隔离准备会清除代码列出的配置／数据库等环境覆盖项，禁用项目配置加载与自动更新；它不会自动继承官方 OpenCode 的全局配置和认证存储。不要为“方便测试”接管或迁移官方实例的数据、登录状态或后台服务。
 - 这是应用和后端状态隔离，不是文件系统沙箱。用户打开的代码目录仍是真实目录；不能据此宣称所有环境凭据、项目文件、外部工具和网络都已隔离。
 - 本地 Web 入口属于该 Desktop 实例，默认开启，可在设置中关闭；仅监听 `127.0.0.1`，代理到该实例的后端。网关检查 Host，对非页面导航请求检查来源，并在代理层加入后端认证；它没有独立的用户登录层，可访问该 loopback 端口的本地程序仍在可达范围内。不能擅自改成公网／局域网服务或新建第二套 Session 数据源。具体规则见 [web-entry-controller.ts](./packages/desktop/src/main/web-entry-controller.ts) 和 [web-entry.ts](./packages/desktop/src/main/web-entry.ts)。

@@ -1,100 +1,178 @@
-import { afterEach, expect, test } from "bun:test"
-import fs from "node:fs/promises"
-import os from "node:os"
-import path from "node:path"
+import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { LabBackend } from "@opencode-ai/core/lab-backend"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
-const roots: string[] = []
-
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
-})
+const cwd = join(import.meta.dir, "../..")
 
 async function fixture() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-lab-cli-"))
-  roots.push(root)
-  return path.join(root, "home")
-}
-
-async function launch(root: string) {
-  const env = { ...process.env }
-  for (const key of ["OPENCODE_DB", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_AUTH_CONTENT"])
-    delete env[key]
-  const proc = Bun.spawn([process.execPath, "run", "src/lab.ts", "debug", "paths"], {
-    cwd: path.join(import.meta.dir, "../.."),
-    env: { ...env, OPENCODE_HOME: root, OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_PROJECT_CONFIG: "1" },
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const [code, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ])
-  return { code, stdout, stderr }
-}
-
-test("Lab CLI creates one shared home and reuses its completed manifest", async () => {
-  const root = await fixture()
-  const first = await launch(root)
-  expect(first.code, first.stderr).toBe(0)
-  expect(first.stdout).toContain(path.join(root, "worktrees"))
-  expect(first.stdout).toContain(path.join(root, "config"))
-  const manifest = await Bun.file(path.join(root, "storage.json")).text()
-  expect(JSON.parse(manifest)).toMatchObject({ status: "complete", source: null, database: "opencode.db" })
-  const second = await launch(root)
-  expect(second.code, second.stderr).toBe(0)
-  expect(await Bun.file(path.join(root, "storage.json")).text()).toBe(manifest)
-})
-
-test("Lab CLI never moves an existing desktop profile", async () => {
-  const root = await fixture()
-  await fs.mkdir(`${root}.legacy`)
-  await Bun.write(path.join(`${root}.legacy`, "user-data"), "preserved")
-  const result = await launch(root)
-  expect(result.code).not.toBe(0)
-  expect(result.stderr).toContain("start the updated OpenCode Lab first")
-  expect(await Bun.file(path.join(`${root}.legacy`, "user-data")).text()).toBe("preserved")
-  expect(await Bun.file(path.join(root, "storage.json")).exists()).toBe(false)
-})
-
-test("Lab CLI rejects an interrupted migration before backend startup", async () => {
-  const root = await fixture()
-  await fs.mkdir(root)
-  await Bun.write(path.join(root, "storage.json.tmp"), "interrupted")
-  const result = await launch(root)
-  expect(result.code).not.toBe(0)
-  expect(result.stderr).toContain("migration is incomplete")
-  expect(await fs.readdir(root)).toEqual(["storage.json.tmp"])
-})
-
-test("Lab CLI upgrades a completed migration's archived identities and resumes only identity publication", async () => {
-  const root = await fixture()
+  const base = await realpath(await mkdtemp(join(tmpdir(), "opencode-lab-home-")))
+  const root = join(base, "profile")
   const legacyRoot = `${root}.legacy`
-  await fs.mkdir(legacyRoot)
-  StorageMigration.prepareUnifiedHome({ root, legacyRoot, acquireLock: () => true })
-  const file = path.join(root, "storage.json")
-  const before = await Bun.file(file).text()
-  const directory = path.join(legacyRoot, "backend/data/opencode/worktree/project/archived")
-  await Bun.write(
-    path.join(root, "data/storage/worktree_lifecycle", `${createHash("sha256").update(directory).digest("hex")}.json`),
+  const processes: Bun.Subprocess<"ignore", "pipe", "pipe">[] = []
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        !key.startsWith("OPENCODE_") &&
+        !key.startsWith("XDG_") &&
+        !key.startsWith("CODEX_") &&
+        !["HOME", "TMPDIR", "NODE_OPTIONS", "BUN_OPTIONS"].includes(key),
+    ),
+  )
+  for (const [key, name] of Object.entries({
+    HOME: "home",
+    XDG_DATA_HOME: "xdg-data",
+    XDG_CONFIG_HOME: "xdg-config",
+    XDG_CACHE_HOME: "xdg-cache",
+    XDG_STATE_HOME: "xdg-state",
+    TMPDIR: "tmp",
+  })) {
+    env[key] = join(base, name)
+    await mkdir(env[key]!, { recursive: true })
+  }
+  Object.assign(env, {
+    OPENCODE_HOME: root,
+    OPENCODE_DISABLE_MODELS_FETCH: "1",
+    OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+  })
+
+  const start = (args: string[]) => {
+    const child = Bun.spawn([process.execPath, "run", "src/lab.ts", ...args], {
+      cwd,
+      env,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    processes.push(child)
+    return child
+  }
+  const run = async (args: string[]) => {
+    const child = start(args)
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ])
+    return { code, stdout, stderr }
+  }
+  return {
+    base,
+    root,
+    legacyRoot,
+    start,
+    run,
+    async ready() {
+      const deadline = Date.now() + 20_000
+      while (Date.now() < deadline) {
+        const connection = await LabBackend.discover(root).catch(() => undefined)
+        if (connection) {
+          // owner.ready is immediately followed by signal handler registration.
+          await Bun.sleep(50)
+          return connection
+        }
+        const exited = processes.at(-1)?.exitCode
+        if (exited !== null) throw new Error(`Lab backend exited before readiness with code ${exited}`)
+        await Bun.sleep(20)
+      }
+      throw new Error("Lab backend did not become ready")
+    },
+    async stop(child: Bun.Subprocess<"ignore", "pipe", "pipe">) {
+      child.kill("SIGTERM")
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ])
+      return { code, stdout, stderr }
+    },
+    async [Symbol.asyncDispose]() {
+      for (const child of processes) if (child.exitCode === null) child.kill("SIGTERM")
+      await Promise.all(processes.map((child) => child.exited))
+      await rm(base, { recursive: true, force: true })
+    },
+  }
+}
+
+test("read-only Lab commands do not initialize a profile", async () => {
+  await using input = await fixture()
+  const paths = await input.run(["debug", "paths"])
+  expect(paths.code, paths.stderr).toBe(0)
+  expect(paths.stdout).toContain(join(input.root, "worktrees"))
+  expect(await stat(input.root).catch(() => undefined)).toBeUndefined()
+
+  const help = await input.run(["--help"])
+  expect(help.code, help.stderr).toBe(0)
+  expect(help.stdout).toContain("opencode-lab")
+  expect(await stat(input.root).catch(() => undefined)).toBeUndefined()
+
+  const version = await input.run(["--version"])
+  expect(version.code, version.stderr).toBe(0)
+  expect(version.stdout.trim()).not.toBe("")
+  expect(await stat(input.root).catch(() => undefined)).toBeUndefined()
+})
+
+test("backend serve alone initializes and activates a fresh profile", async () => {
+  await using input = await fixture()
+  const child = input.start(["backend", "serve"])
+  const connection = await input.ready()
+  expect(connection.pid).toBe(child.pid)
+  expect(await Bun.file(join(input.root, "storage.json")).json()).toMatchObject({
+    version: 2,
+    backendProtocol: 1,
+    source: null,
+    status: "complete",
+    database: "opencode.db",
+  })
+  const result = await input.stop(child)
+  expect(result.code, result.stderr).toBe(0)
+  expect(result.stdout).toContain("OpenCode Lab backend listening")
+  expect(await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).exists()).toBe(false)
+})
+
+test("backend serve refuses legacy migration and preserves it for Desktop", async () => {
+  await using input = await fixture()
+  await mkdir(input.legacyRoot)
+  await writeFile(join(input.legacyRoot, "user-data"), "preserved")
+  const result = await input.run(["backend", "serve"])
+  expect(result.code).not.toBe(0)
+  expect(result.stderr).toContain("start the updated Lab desktop first")
+  expect(await readFile(join(input.legacyRoot, "user-data"), "utf8")).toBe("preserved")
+  expect(await Bun.file(join(input.root, "storage.json")).exists()).toBe(false)
+  expect(await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).exists()).toBe(false)
+})
+
+test("backend serve recovers matching identity staging and rejects a version mismatch", async () => {
+  await using input = await fixture()
+  await mkdir(input.legacyRoot)
+  StorageMigration.prepareUnifiedHome({ root: input.root, legacyRoot: input.legacyRoot, acquireLock: () => true })
+  const file = join(input.root, "storage.json")
+  const current = await Bun.file(file).json()
+  const directory = join(input.legacyRoot, "backend/data/opencode/worktree/project/archived")
+  const mapping = { directory, path: join(input.root, "worktrees/project/archived") }
+  await mkdir(join(input.root, "data/storage/worktree_lifecycle"), { recursive: true })
+  await writeFile(
+    join(input.root, "data/storage/worktree_lifecycle", `${createHash("sha256").update(directory).digest("hex")}.json`),
     JSON.stringify({ version: 1, directory, phase: "removed", intent: "archive" }),
   )
-  const first = await launch(root)
-  expect(first.code, first.stderr).toBe(0)
-  const after = await Bun.file(file).text()
-  expect(JSON.parse(after).worktrees).toContainEqual({ directory, path: path.join(root, "worktrees/project/archived") })
-  expect(await fs.stat(directory).catch(() => undefined)).toBeUndefined()
-  await Bun.write(`${file}.tmp`, after)
-  await Bun.write(file, before)
-  const resumed = await launch(root)
-  expect(resumed.code, resumed.stderr).toBe(0)
-  expect(await Bun.file(file).text()).toBe(after)
-  expect(await Bun.file(`${file}.tmp`).exists()).toBe(false)
-  await Bun.write(`${file}.tmp`, JSON.stringify({ ...JSON.parse(after), database: "opencode-local.db" }))
-  const rejected = await launch(root)
+  const pending = { ...current, worktrees: [...current.worktrees, mapping] }
+  const mismatched = { ...pending, version: 2, backendProtocol: 1 }
+  await writeFile(`${file}.tmp`, JSON.stringify(mismatched))
+  const rejected = await input.run(["backend", "serve"])
   expect(rejected.code).not.toBe(0)
   expect(rejected.stderr).toContain("not a completed worktree identity update")
-  expect(await Bun.file(file).text()).toBe(after)
+  expect(await Bun.file(file).json()).toEqual(current)
+  expect(await Bun.file(`${file}.tmp`).json()).toEqual(mismatched)
+
+  await writeFile(`${file}.tmp`, JSON.stringify(pending))
+  const child = input.start(["backend", "serve"])
+  await input.ready()
+  expect(await Bun.file(file).json()).toEqual({ ...pending, version: 2, backendProtocol: 1 })
+  expect(await Bun.file(`${file}.tmp`).exists()).toBe(false)
+  expect(await stat(directory).catch(() => undefined)).toBeUndefined()
+  const result = await input.stop(child)
+  expect(result.code, result.stderr).toBe(0)
 })

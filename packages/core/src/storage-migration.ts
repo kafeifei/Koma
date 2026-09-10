@@ -25,7 +25,8 @@ const databases = ["opencode.db", "opencode-lab.db", "opencode-local.db"]
 
 type Operation = { from: string; to: string; ino: number; dev: number }
 export type HomeStorage = {
-  version: 1
+  version: 1 | 2
+  backendProtocol?: 1
   source: string | null
   status: "migrating" | "complete"
   database: string
@@ -364,7 +365,8 @@ function readManifest(root: string, legacyRoot: string, temporary = false): Home
   if (!value || typeof value !== "object") fail("invalid storage manifest", file)
   const manifest = value as Partial<HomeStorage>
   if (
-    manifest.version !== 1 ||
+    (manifest.version !== 1 && manifest.version !== 2) ||
+    (manifest.version === 2 ? manifest.backendProtocol !== 1 : manifest.backendProtocol !== undefined) ||
     !["migrating", "complete"].includes(manifest.status ?? "") ||
     (manifest.source !== null && manifest.source !== legacyRoot) ||
     !databases.includes(manifest.database ?? "") ||
@@ -406,6 +408,8 @@ function validateWorktreeStaging(root: string, legacyRoot: string, manifest: Hom
   const pending = readManifest(root, legacyRoot, true)
   if (
     !pending ||
+    pending.version !== manifest.version ||
+    pending.backendProtocol !== manifest.backendProtocol ||
     pending.status !== "complete" ||
     pending.database !== manifest.database ||
     pending.codexScope !== manifest.codexScope ||

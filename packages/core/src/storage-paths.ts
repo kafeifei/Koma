@@ -5,7 +5,8 @@ import path from "path"
 const databases = new Set(["opencode.db", "opencode-lab.db", "opencode-local.db"])
 
 export interface Metadata {
-  readonly version: 1
+  readonly version: 1 | 2
+  readonly backendProtocol?: 1
   readonly source: string | null
   readonly status: "migrating" | "complete"
   readonly database: string
@@ -40,13 +41,58 @@ export function resolve(root: string) {
   }
 }
 
+/** Pure path construction: this does not inspect a manifest or create a profile. */
+export function profile(root: string) {
+  const { metadata, ...paths } = resolve(root)
+  return paths
+}
+
+type Profile = ReturnType<typeof profile>
+
+/** Keep service overrides from retaining paths derived from another storage location. */
+export function overrides(input: Partial<Profile>, current: Pick<Profile, "data" | "cache">): Partial<Profile> {
+  if (input.root !== undefined) {
+    const paths = profile(input.root)
+    for (const key of Object.keys(paths) as (keyof Profile)[]) {
+      if (key === "tmp" || !(key in input)) continue
+      const value = input[key]
+      if (typeof value !== "string" || !path.isAbsolute(value) || path.normalize(value) !== paths[key]) {
+        throw new Error(`OpenCode storage ${key} must match the profile rooted at ${paths.root}`)
+      }
+    }
+    return { ...paths, tmp: input.tmp ?? paths.tmp }
+  }
+
+  return {
+    ...(input.data !== undefined && input.data !== current.data
+      ? {
+          root: undefined,
+          desktop: undefined,
+          codex: undefined,
+          log: input.log ?? path.join(input.data, "log"),
+          repos: input.repos ?? path.join(input.data, "repos"),
+          worktree: input.worktree ?? path.join(input.data, "worktree"),
+          snapshot: input.snapshot ?? path.join(input.data, "snapshot"),
+        }
+      : {}),
+    ...(input.cache !== undefined && input.cache !== current.cache
+      ? { bin: input.bin ?? path.join(input.cache, "bin") }
+      : {}),
+  }
+}
+
 export function metadata(root: string): Metadata | undefined {
   const file = resolve(root).metadata
   if (!fs.existsSync(file)) return
 
   const value: unknown = JSON.parse(fs.readFileSync(file, "utf8"))
   if (!isRecord(value)) throw new Error(`Invalid OpenCode storage metadata: ${file}`)
-  if (value.version !== 1) throw new Error(`Unsupported OpenCode storage metadata version: ${String(value.version)}`)
+  if (value.version !== 1 && value.version !== 2) {
+    throw new Error(`Unsupported OpenCode storage metadata version: ${String(value.version)}`)
+  }
+  if (value.version === 2 ? value.backendProtocol !== 1 : value.backendProtocol !== undefined) {
+    throw new Error(`Unsupported OpenCode storage backend protocol: ${String(value.backendProtocol)}`)
+  }
   if (value.source !== null && (typeof value.source !== "string" || !path.isAbsolute(value.source))) {
     throw new Error(`Invalid OpenCode storage metadata source: ${file}`)
   }
@@ -71,6 +117,7 @@ export function metadata(root: string): Metadata | undefined {
   }
   return {
     version: value.version,
+    ...(value.version === 2 ? { backendProtocol: 1 as const } : {}),
     source: value.source,
     status: value.status,
     database: value.database,

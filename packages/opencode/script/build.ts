@@ -170,7 +170,9 @@ for (const item of targets) {
     format: "esm",
     minify: true,
     sourcemap: sourcemapsFlag ? "linked" : "none",
-    splitting: true,
+    // Bun 1.3.14 emits colliding shared chunks for Lab's separate client/server
+    // lazy entrypoints. Keep its compiled workers and launcher self-contained.
+    splitting: Script.channel !== "lab",
     compile: {
       autoloadBunfig: false,
       autoloadDotenv: false,

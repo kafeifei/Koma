@@ -8,7 +8,6 @@ import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog } from "electron"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
-import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -51,10 +50,11 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { nativeT, setNativeTranslations } from "./native-translations"
-import { prepareLabEnvironment } from "./lab-environment"
+import { prepareLabDesktopHome, prepareLabEnvironment } from "./lab-environment"
 import { createRemoteAccess } from "./remote-access"
 import { createWebEntryController } from "./web-entry-controller"
 import { initializeRuntimeResources, runtimePath } from "./resources"
+import { ensureLabBackend } from "./lab-backend"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -151,15 +151,14 @@ const main = Effect.gen(function* () {
           legacyRoot:
             root === join(homedir(), ".opencode") ? join(app.getPath("appData"), "OpenCode Lab") : `${root}.legacy`,
         }
-        const lease = await StorageMigration.lock(root)
-        try {
-          app.setPath("userData", StorageMigration.unifiedHomeLockPath(paths))
-          if (!StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: () => app.requestSingleInstanceLock() })) {
-            return false
-          }
-        } finally {
-          await lease.release()
-        }
+        if (
+          !(await prepareLabDesktopHome({
+            ...paths,
+            setUserData: (path) => app.setPath("userData", path),
+            acquireLock: () => app.requestSingleInstanceLock(),
+          }))
+        )
+          return false
         prepareLabEnvironment(process.env, root)
         return true
       } catch (error) {
@@ -430,6 +429,33 @@ const main = Effect.gen(function* () {
 
     ensureLoopbackNoProxy()
     useEnvProxy()
+
+    if (CHANNEL === "lab" && labRoot) {
+      logger.log("connecting shared Lab backend")
+      const sidecar = yield* Effect.promise(() =>
+        ensureLabBackend({
+          root: labRoot,
+          source: join(
+            app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
+            process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab",
+          ),
+          logger,
+        }),
+      )
+      server = sidecar.listener
+      yield* Deferred.succeed(serverReady, {
+        url: sidecar.connection.url,
+        username: sidecar.connection.username,
+        password: sidecar.connection.password,
+      })
+
+      if (process.platform === "win32") {
+        void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
+      }
+
+      logger.log("loading task finished")
+      return
+    }
 
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")

@@ -265,7 +265,7 @@ describe("Snapshot", () => {
 function snapshotLayer(data: string, directory: string, storage?: { root: string; snapshot: string }) {
   return AppNodeBuilder.build(Snapshot.node, [
     [Location.node, Location.boundNode(Location.Ref.make({ directory: AbsolutePath.make(directory) }))],
-    [Global.node, Global.layerWith({ data, config: path.join(data, "config"), ...storage })],
+    [Global.node, Global.layerWith(storage ?? { data, config: path.join(data, "config") })],
   ])
 }
 

@@ -107,7 +107,9 @@ const ScopedKeymapMethods = new Set<PropertyKey>([
   "appendDisambiguationResolver",
 ])
 
-type RuntimeState = {
+export type HostOptions = { configOptions?: TuiConfig.LoadOptions; serverPlugins?: boolean }
+
+type RuntimeState = HostOptions & {
   directory: string
   api: Api
   view: PluginRuntime
@@ -856,10 +858,12 @@ async function addPluginBySpec(state: RuntimeState | undefined, raw: string) {
     state.pending.delete(spec)
     return true
   }
-  const ready = await resolveExternalPlugins([cfg], () => TuiConfig.waitForDependencies()).catch((error) => {
-    fail("failed to add tui plugin", { path: next, error })
-    return [] as PluginLoad[]
-  })
+  const ready = await resolveExternalPlugins([cfg], () => TuiConfig.waitForDependencies(state.configOptions)).catch(
+    (error) => {
+      fail("failed to add tui plugin", { path: next, error })
+      return [] as PluginLoad[]
+    },
+  )
   if (!ready.length) {
     return false
   }
@@ -941,9 +945,12 @@ async function installPluginBySpec(
     }
   }
 
+  const targets =
+    state.serverPlugins === false ? manifest.targets.filter((item) => item.kind === "tui") : manifest.targets
+  if (targets.length === 0) return { ok: false, message: "Server plugins must be installed through the backend." }
   const patch = await patchPluginConfig({
     spec,
-    targets: manifest.targets,
+    targets,
     global,
     vcs: dir.worktree && dir.worktree !== "/" ? "git" : undefined,
     worktree: dir.worktree,
@@ -985,13 +992,15 @@ let dir = ""
 let loaded: Promise<void> | undefined
 let runtime: RuntimeState | undefined
 
-export async function init(input: {
-  api: HostPluginApi
-  config: TuiConfig.Resolved & TuiConfig.HostMetadata
-  runtime?: PluginRuntime
-  dispose?: () => void
-  disposeTimeoutMs?: number
-}) {
+export async function init(
+  input: HostOptions & {
+    api: HostPluginApi
+    config: TuiConfig.Resolved & TuiConfig.HostMetadata
+    runtime?: PluginRuntime
+    dispose?: () => void
+    disposeTimeoutMs?: number
+  },
+) {
   const cwd = process.cwd()
   if (loaded) {
     if (dir !== cwd) {
@@ -1048,13 +1057,15 @@ export async function dispose() {
   }
 }
 
-async function load(input: {
-  api: Api
-  config: TuiConfig.Resolved & TuiConfig.HostMetadata
-  runtime: PluginRuntime
-  dispose?: () => void
-  disposeTimeoutMs?: number
-}) {
+async function load(
+  input: HostOptions & {
+    api: Api
+    config: TuiConfig.Resolved & TuiConfig.HostMetadata
+    runtime: PluginRuntime
+    dispose?: () => void
+    disposeTimeoutMs?: number
+  },
+) {
   const { api, config } = input
   const cwd = process.cwd()
   const slots = input.runtime.setupSlots(api)
@@ -1068,6 +1079,8 @@ async function load(input: {
     plugins_by_id: new Map(),
     pending: new Map(),
     dispose_timeout_ms: input.disposeTimeoutMs ?? DISPOSE_TIMEOUT_MS,
+    configOptions: input.configOptions,
+    serverPlugins: input.serverPlugins,
   }
   runtime = next
   next.view.update({
@@ -1085,7 +1098,7 @@ async function load(input: {
         return yield* RuntimeFlags.Service
       }).pipe(Effect.provide(AppNodeBuilder.build(RuntimeFlags.node))),
     )
-    const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins())
+    const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins(input.configOptions))
     const records = Flag.OPENCODE_PURE ? [] : pluginOrigins
     if (Flag.OPENCODE_PURE && pluginOrigins.length) {
     }
@@ -1103,7 +1116,7 @@ async function load(input: {
       })
     }
 
-    const ready = await resolveExternalPlugins(records, () => TuiConfig.waitForDependencies())
+    const ready = await resolveExternalPlugins(records, () => TuiConfig.waitForDependencies(input.configOptions))
     await addExternalPluginEntries(next, ready)
 
     applyInitialPluginEnabledState(next, config)
@@ -1121,9 +1134,9 @@ async function load(input: {
   }
 }
 
-export function createLegacyTuiPluginHost(): TuiPluginHost {
+export function createLegacyTuiPluginHost(options: HostOptions = {}): TuiPluginHost {
   return {
-    start: init,
+    start: (input) => init({ ...input, ...options }),
     dispose,
   }
 }

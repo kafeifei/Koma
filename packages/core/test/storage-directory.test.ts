@@ -36,6 +36,8 @@ test("migrated worktree aliases preserve identity through every old path compone
   expect(await fs.realpath(directory)).toBe(physical)
   expect(StorageDirectory.resolve(directory, root)).toBe(directory)
   expect(StorageDirectory.resolve(physical, root)).toBe(directory)
+  expect(StorageDirectory.locate(directory, root)).toEqual({ identity: directory, path: physical })
+  expect(StorageDirectory.locate(physical, root)).toEqual({ identity: directory, path: physical })
   expect(StorageDirectory.resolve(path.join(physical, "src"), root)).toBe(path.join(directory, "src"))
   expect(StorageDirectory.resolve(path.join(physical, "new-file"), root)).toBe(path.join(directory, "new-file"))
 
@@ -96,4 +98,21 @@ test("manifest paths under a symlinked storage parent match physical and missing
   await fs.rm(recorded, { recursive: true })
   expect(StorageDirectory.resolve(recorded, root)).toBe(logical)
   expect(StorageDirectory.resolve(physical, root)).toBe(logical)
+  expect(StorageDirectory.locate(recorded, root)).toEqual({ identity: logical, path: physical })
+  expect(StorageDirectory.locate(physical, root)).toEqual({ identity: logical, path: physical })
+})
+
+test("directory locations canonicalize unmigrated aliases without changing the compatibility resolver", async () => {
+  const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-directory-location-")))
+  roots.push(temp)
+  const physical = path.join(temp, "physical")
+  const alias = path.join(temp, "alias")
+  await fs.mkdir(physical)
+  await fs.symlink(physical, alias)
+  expect(StorageDirectory.resolve(alias, temp)).toBe(alias)
+  expect(StorageDirectory.locate(alias, temp)).toEqual({ identity: physical, path: physical })
+  expect(StorageDirectory.locate(path.join(alias, "missing", "file"), temp)).toEqual({
+    identity: path.join(physical, "missing", "file"),
+    path: path.join(physical, "missing", "file"),
+  })
 })

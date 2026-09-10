@@ -265,38 +265,63 @@ describe("unified home migration", () => {
     }
   })
 
-  test("completed-home reconciliation adds retained owners once and survives interrupted metadata publication", () => {
+  test.each([1, 2] as const)(
+    "version %i reconciliation retains its contract across metadata publication",
+    (version) => {
+      const options = populated().options
+      migrate(options)
+      const metadata = join(options.root, "storage.json")
+      if (version === 2) {
+        file(metadata, JSON.stringify({ ...JSON.parse(readFileSync(metadata, "utf8")), version, backendProtocol: 1 }))
+        expect(migrate(options)?.status).toBe("complete")
+      }
+      const directory = join(options.legacyRoot, "backend/data/opencode/worktree/project/archived-before-migration")
+      file(
+        join(
+          options.root,
+          "data/storage/worktree_lifecycle",
+          createHash("sha256").update(directory).digest("hex") + ".json",
+        ),
+        JSON.stringify({ version: 1, directory, phase: "removed", intent: "archive" }),
+      )
+      const before = readFileSync(metadata, "utf8")
+      expect(JSON.parse(before).worktrees.some((item: { directory: string }) => item.directory === directory)).toBe(
+        false,
+      )
+      reconcileWorktrees(options)
+      const after = readFileSync(metadata, "utf8")
+      expect(JSON.parse(after).version).toBe(version)
+      expect(JSON.parse(after).backendProtocol).toBe(version === 2 ? 1 : undefined)
+      expect(JSON.parse(after).status).toBe("complete")
+      expect(
+        JSON.parse(after).worktrees.filter((item: { directory: string }) => item.directory === directory),
+      ).toHaveLength(1)
+      expect(
+        StorageDirectory.resolve(join(options.root, "worktrees/project/archived-before-migration"), options.root),
+      ).toBe(directory)
+      reconcileWorktrees(options)
+      expect(readFileSync(metadata, "utf8")).toBe(after)
+      file(metadata + ".tmp", after)
+      file(metadata, before)
+      reconcileWorktrees(options)
+      expect(existsSync(metadata + ".tmp")).toBe(false)
+      expect(readFileSync(metadata, "utf8")).toBe(after)
+      expect(existsSync(directory)).toBe(false)
+    },
+  )
+
+  test("reconciliation rejects staging metadata that changes the backend contract", () => {
     const options = populated().options
     migrate(options)
-    const directory = join(options.legacyRoot, "backend/data/opencode/worktree/project/archived-before-migration")
-    file(
-      join(
-        options.root,
-        "data/storage/worktree_lifecycle",
-        createHash("sha256").update(directory).digest("hex") + ".json",
-      ),
-      JSON.stringify({ version: 1, directory, phase: "removed", intent: "archive" }),
-    )
     const metadata = join(options.root, "storage.json")
     const before = readFileSync(metadata, "utf8")
-    expect(JSON.parse(before).worktrees.some((item: { directory: string }) => item.directory === directory)).toBe(false)
-    reconcileWorktrees(options)
-    const after = readFileSync(metadata, "utf8")
-    expect(JSON.parse(after).status).toBe("complete")
-    expect(
-      JSON.parse(after).worktrees.filter((item: { directory: string }) => item.directory === directory),
-    ).toHaveLength(1)
-    expect(
-      StorageDirectory.resolve(join(options.root, "worktrees/project/archived-before-migration"), options.root),
-    ).toBe(directory)
-    reconcileWorktrees(options)
-    expect(readFileSync(metadata, "utf8")).toBe(after)
-    file(metadata + ".tmp", after)
-    file(metadata, before)
-    reconcileWorktrees(options)
-    expect(existsSync(metadata + ".tmp")).toBe(false)
-    expect(readFileSync(metadata, "utf8")).toBe(after)
-    expect(existsSync(directory)).toBe(false)
+    file(metadata, JSON.stringify({ ...JSON.parse(before), version: 2, backendProtocol: 1 }))
+    const upgraded = readFileSync(metadata, "utf8")
+    file(metadata + ".tmp", before)
+
+    expect(() => reconcileWorktrees(options)).toThrow("not a completed worktree identity update")
+    expect(readFileSync(metadata, "utf8")).toBe(upgraded)
+    expect(readFileSync(metadata + ".tmp", "utf8")).toBe(before)
   })
 
   test("completed identity reconciliation refuses a staging file that changes storage ownership", () => {

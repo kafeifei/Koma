@@ -112,7 +112,7 @@ const layer = Layer.effect(
     const git = yield* Git.Service
     const fs = yield* FSUtil.Service
     const resolveDirectory = (directory: string) =>
-      fs.resolve(directory).pipe(Effect.map((value) => StorageDirectory.resolve(value)))
+      fs.resolve(directory).pipe(Effect.map((value) => StorageDirectory.locate(value).identity))
     const archive = yield* WorktreeArchive.Service
     const disposal = yield* InstanceDisposal.Service
     const externalOwnership = yield* SessionExternalOwnership.Service
@@ -350,16 +350,18 @@ const layer = Layer.effect(
     const directoryExists = (owner: Owner) => fs.existsSafe(owner.directory)
 
     const removeCheckout = Effect.fnUntraced(function* (owner: Owner) {
-      const list = yield* gitRun(owner, ["worktree", "list", "--porcelain"])
+      const list = yield* gitRun(owner, ["worktree", "list", "--porcelain", "-z"])
       const entries = yield* Effect.forEach(
-        list.split(/\r?\n\r?\n/).filter(Boolean),
+        list.split("\0\0").filter(Boolean),
         (block) =>
           Effect.gen(function* () {
-            const lines = block.split(/\r?\n/)
+            const lines = block.split("\0")
             const worktree = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length)
             if (!worktree) return
+            const location = StorageDirectory.locate(worktree)
             return {
-              directory: yield* resolveDirectory(worktree),
+              directory: location.identity,
+              path: location.path,
               branch: lines.find((line) => line.startsWith("branch "))?.slice("branch refs/heads/".length),
             }
           }),
@@ -383,20 +385,13 @@ const layer = Layer.effect(
           )
       }
       if (registered) {
-        const result = yield* git.run(["worktree", "remove", "--force", owner.directory], { cwd: owner.root })
+        const result = yield* git.run(["worktree", "remove", "--force", registered.path], { cwd: owner.root })
         if (result.exitCode !== 0) {
-          const current = yield* gitRun(owner, ["worktree", "list", "--porcelain"])
-          if (current.split(/\r?\n/).some((line) => line === `worktree ${owner.directory}`)) {
-            const message = result.stderr.toString("utf8").trim() || result.text().trim()
-            return yield* fail("git", `failed to remove managed worktree: ${message}`, owner)
-          }
+          const message = result.stderr.toString("utf8").trim() || result.text().trim() || `exit ${result.exitCode}`
+          return yield* fail("git", `failed to remove managed worktree: ${message}`, owner)
         }
       }
-      if (yield* directoryExists(owner)) {
-        yield* fs
-          .remove(owner.directory, { recursive: true, force: true })
-          .pipe(Effect.mapError((error) => fail("unavailable", error.message, owner)))
-      }
+      // Git owns checkout removal. A refusal or a remaining directory never authorizes recursive filesystem deletion.
       if (yield* directoryExists(owner))
         return yield* fail("unavailable", "managed worktree directory still exists", owner)
     })

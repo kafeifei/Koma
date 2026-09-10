@@ -184,6 +184,30 @@ describe("installation", () => {
   describe("upgrade", () => {
     testEffect(
       testLayer(
+        () => {
+          throw new Error("Lab must not download an upstream installer")
+        },
+        () => {
+          throw new Error("Lab must not execute an upstream installer")
+        },
+      ),
+    ).effect("rejects shared-profile upgrades before downloading or executing installers", () =>
+      Effect.gen(function* () {
+        const previous = process.env.OPENCODE_HOME
+        process.env.OPENCODE_HOME = "/unused-lab-profile"
+        try {
+          const error = yield* Effect.flip(Installation.use.upgrade("curl", "9.9.9"))
+          expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+          expect(error.stderr).toBe("Update OpenCode Lab using a verified Lab build")
+        } finally {
+          if (previous === undefined) delete process.env.OPENCODE_HOME
+          else process.env.OPENCODE_HOME = previous
+        }
+      }),
+    )
+
+    testEffect(
+      testLayer(
         () => jsonResponse({}),
         (cmd) => {
           if (cmd === "npm") return { code: 1, stderr: "token=secret command output" }

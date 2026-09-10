@@ -38,6 +38,9 @@ export type HostMetadata = {
   plugin_origins?: ConfigPlugin.Origin[]
 }
 
+export type LoadOptions = { migrate?: boolean }
+const MigrateLegacyConfig = Context.Reference<boolean>("TuiConfig/MigrateLegacyConfig", { defaultValue: () => true })
+
 export interface Interface {
   readonly get: () => Effect.Effect<Resolved>
   readonly pluginOrigins: () => Effect.Effect<ConfigPlugin.Origin[]>
@@ -171,7 +174,7 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
   // Every config dir we may read from: global config dir, any `.opencode`
   // folders between cwd and home, and OPENCODE_CONFIG_DIR.
   const directories = yield* ConfigPaths.directories(ctx.directory)
-  yield* Effect.promise(() => migrateTuiConfig({ directories, cwd: ctx.directory }))
+  if (yield* MigrateLegacyConfig) yield* Effect.promise(() => migrateTuiConfig({ directories, cwd: ctx.directory }))
 
   const projectFiles = Flag.OPENCODE_DISABLE_PROJECT_CONFIG ? [] : yield* ConfigPaths.files("tui", ctx.directory)
 
@@ -261,16 +264,20 @@ const layer = Layer.effect(
 
 export const node = LayerNode.make({ service: Service, layer, deps: [Npm.node, FSUtil.node] })
 
-const { runPromise } = makeRuntime(Service, AppNodeBuilder.build(node))
+const runtime = makeRuntime(Service, AppNodeBuilder.build(node))
+const readOnlyRuntime = makeRuntime(
+  Service,
+  AppNodeBuilder.build(node).pipe(Layer.provide(Layer.succeed(MigrateLegacyConfig, false)), Layer.fresh),
+)
 
-export async function waitForDependencies() {
-  await runPromise((svc) => svc.waitForDependencies())
+export async function waitForDependencies(options?: LoadOptions) {
+  await (options?.migrate === false ? readOnlyRuntime : runtime).runPromise((svc) => svc.waitForDependencies())
 }
 
-export async function get() {
-  return runPromise((svc) => svc.get())
+export async function get(options?: LoadOptions) {
+  return (options?.migrate === false ? readOnlyRuntime : runtime).runPromise((svc) => svc.get())
 }
 
-export async function pluginOrigins() {
-  return runPromise((svc) => svc.pluginOrigins())
+export async function pluginOrigins(options?: LoadOptions) {
+  return (options?.migrate === false ? readOnlyRuntime : runtime).runPromise((svc) => svc.pluginOrigins())
 }

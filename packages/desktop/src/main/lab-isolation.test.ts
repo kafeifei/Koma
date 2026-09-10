@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { desktopIdentity, desktopUpdaterEnabled, resolveDesktopChannel } from "./channel"
-import { labBackendEnvironment, prepareLabEnvironment } from "./lab-environment"
+import { labBackendEnvironment, prepareLabDesktopHome, prepareLabEnvironment } from "./lab-environment"
 
 test("Lab has an independent desktop identity and no updater", () => {
   const channel = resolveDesktopChannel("lab")
@@ -46,4 +48,43 @@ test("Lab uses an explicit home without changing other tools' XDG directories", 
   expect(environment.XDG_CONFIG_HOME).toBe("/user/config")
   expect(environment.XDG_CACHE_HOME).toBe("/user/cache")
   expect(environment.XDG_STATE_HOME).toBe("/user/state")
+})
+
+test("prepares a fresh desktop around the Electron lock and leaves a completed manifest to the backend", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "opencode-lab-desktop-home-")))
+  try {
+    const root = join(directory, "profile")
+    const legacyRoot = join(directory, "legacy")
+    let userData = ""
+    const acquired = await prepareLabDesktopHome({
+      root,
+      legacyRoot,
+      setUserData: (path) => (userData = path),
+      acquireLock: () => {
+        mkdirSync(userData, { recursive: true })
+        writeFileSync(join(userData, "SingletonLock"), "electron")
+        return true
+      },
+    })
+    expect(acquired).toBe(true)
+    expect(await realpath(legacyRoot)).toBe(join(root, "desktop"))
+    expect(await readFile(join(root, "desktop", "SingletonLock"), "utf8")).toBe("electron")
+    const manifest = await readFile(join(root, "storage.json"), "utf8")
+
+    await writeFile(join(root, "storage.json.tmp"), "backend-owned staging")
+    userData = ""
+    expect(
+      await prepareLabDesktopHome({
+        root,
+        legacyRoot,
+        setUserData: (path) => (userData = path),
+        acquireLock: () => true,
+      }),
+    ).toBe(true)
+    expect(userData).toBe(join(root, "desktop"))
+    expect(await readFile(join(root, "storage.json"), "utf8")).toBe(manifest)
+    expect(await readFile(join(root, "storage.json.tmp"), "utf8")).toBe("backend-owned staging")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
