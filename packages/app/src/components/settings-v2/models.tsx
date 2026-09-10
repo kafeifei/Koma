@@ -150,6 +150,14 @@ export const SettingsModelsV2: Component = () => {
                           <span class="settings-v2-section-title">{group.items[0].provider.name}</span>
                         </span>
                       </button>
+                      <Switch
+                        class="ml-auto mr-6"
+                        checked={models.providerVisible(group.category)}
+                        onChange={(checked) => models.setProviderVisibility(group.category, checked)}
+                        hideLabel
+                      >
+                        {language.t("dialog.model.manage.provider.toggle", { provider: group.items[0].provider.name })}
+                      </Switch>
                     </h3>
                     <Show when={expanded()}>
                       <SettingsListV2>

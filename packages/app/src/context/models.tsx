@@ -1,5 +1,5 @@
-import { type Accessor, createMemo, createResource } from "solid-js"
-import { createStore } from "solid-js/store"
+import { type Accessor, type ParentProps, createContext, createMemo, createResource, useContext } from "solid-js"
+import { createStore, produce } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
@@ -22,20 +22,32 @@ function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
 }
 
-export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
+function createPreferences() {
+  return persisted(Persist.global("model", ["model.v1"]), createStore<Store>({ user: [], recent: [], variant: {} }))
+}
+
+const PreferencesContext = createContext<ReturnType<typeof createPreferences>>()
+
+export function ModelsProvider(props: ParentProps<{ directory?: Accessor<string | undefined> }>) {
+  // Settings and task directories have different catalogs, but edit the same
+  // persisted preferences. Nested catalogs must not create independent writers.
+  const preferences = useContext(PreferencesContext) ?? createPreferences()
+  return (
+    <PreferencesContext.Provider value={preferences}>
+      <ModelCatalogProvider directory={props.directory}>{props.children}</ModelCatalogProvider>
+    </PreferencesContext.Provider>
+  )
+}
+
+const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
   name: "Models",
   gate: false,
   init: (props: { directory?: Accessor<string | undefined> } = {}) => {
     const providers = useProviders(() => props.directory?.())
 
-    const [store, setStore, _, ready] = persisted(
-      Persist.global("model", ["model.v1"]),
-      createStore<Store>({
-        user: [],
-        recent: [],
-        variant: {},
-      }),
-    )
+    const preferences = useContext(PreferencesContext)
+    if (!preferences) throw new Error("Model preferences context is unavailable")
+    const [store, setStore, _, ready] = preferences
 
     const available = createMemo(() =>
       providers.connected().flatMap((p) =>
@@ -127,6 +139,23 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       update(model, state ? "show" : "hide")
     }
 
+    const providerModels = (providerID: string) => list().filter((model) => model.provider.id === providerID)
+    const providerVisible = (providerID: string) => {
+      const models = providerModels(providerID)
+      return models.length > 0 && models.every((model) => visible({ providerID, modelID: model.id }))
+    }
+    const setProviderVisibility = (providerID: string, state: boolean) =>
+      setStore(
+        "user",
+        produce((user) => {
+          providerModels(providerID).forEach((model) => {
+            const current = user.find((item) => item.providerID === providerID && item.modelID === model.id)
+            if (current) current.visibility = state ? "show" : "hide"
+            if (!current) user.push({ providerID, modelID: model.id, visibility: state ? "show" : "hide" })
+          })
+        }),
+      )
+
     const push = (model: ModelKey) => {
       const uniq = uniqueBy([model, ...store.recent], (x) => `${x.providerID}:${x.modelID}`)
       if (uniq.length > RECENT_LIMIT) uniq.pop()
@@ -160,6 +189,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       find,
       visible,
       setVisibility,
+      providerVisible,
+      setProviderVisibility,
       recent: {
         list: () => recentModels()!,
         push,
@@ -171,3 +202,5 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
   },
 })
+
+export { useModels }

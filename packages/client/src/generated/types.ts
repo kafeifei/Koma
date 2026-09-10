@@ -2915,6 +2915,8 @@ export type LabEnginesOutput = ReadonlyArray<{
   readonly models: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly provider?: { readonly id: string; readonly name: string }
+    readonly modelID?: string
     readonly default: boolean
     readonly efforts: ReadonlyArray<string>
     readonly defaultEffort?: string

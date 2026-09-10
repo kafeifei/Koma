@@ -60,16 +60,17 @@ listing.it.live("lists only configured API-key Responses providers and applies m
       disabled: new Auth.Api({ type: "api", key: "secret-disabled" }),
       chat: new Auth.Api({ type: "api", key: "secret-chat" }),
       local: new Auth.Api({ type: "api", key: "secret-local" }),
+      split: new Auth.Api({ type: "api", key: "secret-split" }),
       "not-enabled": new Auth.Api({ type: "api", key: "secret-not-enabled" }),
     }
     listing.state.config = {
-      enabled_providers: ["xd", "configured", "oauth", "disabled", "chat", "local"],
+      enabled_providers: ["xd", "configured", "oauth", "disabled", "chat", "local", "split"],
       disabled_providers: ["disabled"],
       provider: {
         xd: {
           name: "XD Gateway",
           npm: "@ai-sdk/openai",
-          whitelist: ["gpt", "alias", "chat", "blocked"],
+          whitelist: ["gpt", "gpt-alias", "alias", "chat", "blocked"],
           blacklist: ["blocked"],
           options: { baseURL: "https://xd.example.test/v1" },
           models: {
@@ -78,6 +79,7 @@ listing.it.live("lists only configured API-key Responses providers and applies m
               reasoning: true,
               limit: { context: 421_053, output: 32_000 },
               variants: {
+                default: { reasoningEffort: "low" },
                 high: { disabled: true },
                 extra: { reasoningEffort: "xhigh" },
                 invalid: { reasoningEffort: "extreme" },
@@ -106,7 +108,14 @@ listing.it.live("lists only configured API-key Responses providers and applies m
         local: {
           npm: "@ai-sdk/openai",
           options: { baseURL: "file:///tmp/models" },
-          models: { gpt: {} },
+          models: { gpt: { provider: { api: "https://must-not-fallback.example.test/v1" } } },
+        },
+        split: {
+          npm: "@ai-sdk/openai",
+          models: {
+            first: { provider: { api: "https://first.example.test/v1" } },
+            second: { provider: { api: "https://second.example.test/v1" } },
+          },
         },
         configured: {
           name: "Config key",
@@ -165,14 +174,17 @@ listing.it.live("lists only configured API-key Responses providers and applies m
         models: [
           {
             id: "gpt",
+            modelID: "gpt",
             name: "Configured GPT",
             efforts: ["none", "low", "xhigh"],
+            defaultEffort: "low",
             contextWindow: 421_053,
           },
           {
             id: "gpt-alias",
+            modelID: "alias",
             name: "alias",
-            efforts: [],
+            efforts: ["low", "medium"],
             contextWindow: 200_000,
           },
         ],
@@ -181,7 +193,7 @@ listing.it.live("lists only configured API-key Responses providers and applies m
         id: "configured",
         name: "Config key",
         baseURL: "http://configured.example.test/v1",
-        models: [{ id: "gpt", name: "Configured only", efforts: [] }],
+        models: [{ id: "gpt", modelID: "gpt", name: "Configured only", efforts: [] }],
       },
     ])
     expect(JSON.stringify(providers)).not.toContain("secret-xd")

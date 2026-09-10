@@ -13,6 +13,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { For, Show, type Component } from "solid-js"
 import { useLocal } from "@/context/local"
+import { useModels } from "@/context/models"
 import { popularProviders } from "@/hooks/use-providers"
 import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -26,6 +27,7 @@ type ModelItem = ReturnType<ReturnType<typeof useLocal>["model"]["list"]>[number
 
 export const DialogManageModels: Component = () => {
   const local = useLocal()
+  const models = useModels()
   const language = useLanguage()
   const dialog = useDialog()
   const directory = () => decode64(local.slug())
@@ -34,14 +36,6 @@ export const DialogManageModels: Component = () => {
     void dialog.show(() => <DialogConnectProvider directory={directory} />)
   }
   const providerRank = (id: string) => popularProviders.indexOf(id)
-  const providerList = (providerID: string) => local.model.list().filter((x) => x.provider.id === providerID)
-  const providerVisible = (providerID: string) =>
-    providerList(providerID).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
-  const setProviderVisibility = (providerID: string, checked: boolean) => {
-    providerList(providerID).forEach((x) => {
-      local.model.setVisibility({ modelID: x.id, providerID: x.provider.id }, checked)
-    })
-  }
 
   return (
     <Dialog
@@ -73,8 +67,8 @@ export const DialogManageModels: Component = () => {
               >
                 <Switch
                   class="-mr-1"
-                  checked={providerVisible(provider.id)}
-                  onChange={(checked) => setProviderVisibility(provider.id, checked)}
+                  checked={models.providerVisible(provider.id)}
+                  onChange={(checked) => models.setProviderVisibility(provider.id, checked)}
                   hideLabel
                 >
                   {provider.name}
@@ -118,20 +112,13 @@ export const DialogManageModels: Component = () => {
 
 export const DialogManageModelsV2: Component = () => {
   const local = useLocal()
+  const models = useModels()
   const language = useLanguage()
   const dialog = useDialog()
   const directory = () => decode64(local.slug())
 
   const handleConnectProvider = () => {
     void dialog.show(() => <DialogConnectProvider directory={directory} />)
-  }
-  const providerList = (providerID: string) => local.model.list().filter((x) => x.provider.id === providerID)
-  const providerVisible = (providerID: string) =>
-    providerList(providerID).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
-  const setProviderVisibility = (providerID: string, checked: boolean) => {
-    providerList(providerID).forEach((x) => {
-      local.model.setVisibility({ modelID: x.id, providerID: x.provider.id }, checked)
-    })
   }
   const setModelVisibility = (item: ModelItem, checked: boolean) => {
     local.model.setVisibility({ modelID: item.id, providerID: item.provider.id }, checked)
@@ -227,8 +214,8 @@ export const DialogManageModelsV2: Component = () => {
                         <div>
                           <SwitchV2
                             class="mr-6"
-                            checked={providerVisible(group.category)}
-                            onChange={(checked) => setProviderVisibility(group.category, checked)}
+                            checked={models.providerVisible(group.category)}
+                            onChange={(checked) => models.setProviderVisibility(group.category, checked)}
                             hideLabel
                           >
                             {group.items[0].provider.name}

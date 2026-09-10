@@ -248,6 +248,8 @@ export const Engine = Schema.Struct({
     Schema.Struct({
       id: Schema.String,
       name: Schema.String,
+      provider: Schema.Struct({ id: Schema.String, name: Schema.String }).pipe(optional),
+      modelID: Schema.String.pipe(optional),
       default: Schema.Boolean,
       efforts: Schema.Array(Schema.String),
       defaultEffort: Schema.String.pipe(optional),

@@ -7,6 +7,7 @@ import { createStore } from "solid-js/store"
 import type { PromptEngine, usePrompt } from "@/context/prompt"
 import { useLanguage } from "@/context/language"
 import { useServerSync } from "@/context/server-sync"
+import { useModels } from "@/context/models"
 import type { PromptPermissionMode } from "@/components/prompt-permission-select"
 import { showToast } from "@/utils/toast"
 
@@ -48,6 +49,7 @@ export function createCodexPromptController(input: {
   initializeDefaultPermission?: boolean
 }) {
   const serverSync = useServerSync()
+  const models = useModels()
   const language = useLanguage()
   const external = () => serverSync().external
   const [state, setState] = createStore({ busy: false })
@@ -58,16 +60,25 @@ export function createCodexPromptController(input: {
   const engine = () => input.sessionEngine() ?? input.prompt.engine.current()
   const codex = () => external().data.engines?.find((item) => item.id === "codex")
   const settings = () => desiredCodexSettings(descriptor(), input.prompt.codex.current())
+  const displayedModel = (model: CodexModel) => {
+    const shared =
+      model.provider && model.modelID
+        ? models.find({ providerID: model.provider.id, modelID: model.modelID })
+        : undefined
+    return shared
+      ? { ...model, name: shared.name, provider: { id: shared.provider.id, name: shared.provider.name } }
+      : model
+  }
   const model = (): CodexModel | undefined => {
     const modelID = settings().model
     if (!modelID) return input.sessionID() ? undefined : codex()?.models.find((item) => item.default)
-    return (
+    return displayedModel(
       codex()?.models.find((item) => item.id === modelID) ?? {
         id: modelID,
         name: modelID,
         default: false,
         efforts: [],
-      }
+      },
     )
   }
   const effort = () => settings().effort ?? model()?.defaultEffort
@@ -143,7 +154,15 @@ export function createCodexPromptController(input: {
       },
     },
     model: {
-      options: () => codex()?.models ?? [],
+      options: () =>
+        (codex()?.models ?? [])
+          .filter(
+            (model) =>
+              !model.provider ||
+              !model.modelID ||
+              models.visible({ providerID: model.provider.id, modelID: model.modelID }),
+          )
+          .map(displayedModel),
       current: model,
       select(value: CodexModel | undefined) {
         if (!value || value.id === model()?.id) return
@@ -219,6 +238,7 @@ export function CodexModelSelect(props: { controller: CodexPromptController }) {
       current={props.controller.model.current()}
       value={(value) => value.id}
       label={(value) => value.name}
+      groupBy={(value) => value.provider?.name ?? ""}
       placeholder={
         props.controller.session() ? language.t("codex.settings.nativeDefault") : language.t("codex.settings.model")
       }

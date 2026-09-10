@@ -617,7 +617,9 @@ const layer = Layer.effect(
         ...configured.flatMap((provider) =>
           provider.models.map((model) => ({
             id: CodexProviders.modelID(provider.id, model.id),
-            name: `${provider.name} · ${model.name}`,
+            name: model.name,
+            provider: { id: provider.id, name: provider.name },
+            modelID: model.modelID ?? model.id,
             default: false,
             efforts: model.efforts,
             defaultEffort: model.defaultEffort,

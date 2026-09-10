@@ -144,6 +144,184 @@ test("shows an advertised unavailable Codex engine without allowing it to replac
   await expect(page.getByText("Codex is unavailable", { exact: true })).toBeVisible()
 })
 
+test("groups provider models without rewriting names or conflating equal labels", async ({ page }, testInfo) => {
+  const models: LabEnginesOutput[number]["models"] = [
+    { id: "native-model", name: "Native Model", default: true, efforts: ["medium"] },
+    {
+      id: "xd/shared-model",
+      name: "Ignored XD model name",
+      provider: { id: "xd", name: "Ignored XD provider name" },
+      modelID: "shared-model",
+      default: false,
+      efforts: ["medium"],
+    },
+    {
+      id: "other/shared-model",
+      name: "Ignored other model name",
+      provider: { id: "other", name: "Ignored other provider name" },
+      modelID: "shared-model",
+      default: false,
+      efforts: ["medium"],
+    },
+  ]
+  await setup(page, {
+    protocol: "v1",
+    models,
+    provider: {
+      all: [
+        { id: "opencode", name: "OpenCode", models: { model: { id: "model", name: "OpenCode Model" } } },
+        {
+          id: "xd",
+          name: "XD",
+          models: {
+            "shared-model": { id: "shared-model", name: "Shared Model", family: "shared", variants: {} },
+          },
+        },
+        {
+          id: "other",
+          name: "Other Provider",
+          models: {
+            "shared-model": { id: "shared-model", name: "Shared Model", family: "shared", variants: {} },
+          },
+        },
+      ],
+      connected: ["opencode", "xd", "other"],
+      default: { providerID: "opencode", modelID: "model" },
+    },
+  })
+  await page.goto(draftHref(draftA))
+  await choose(page, "prompt-engine", "Codex")
+
+  const trigger = page.locator('[data-action="prompt-codex-model"]')
+  await expect(trigger).toHaveText("Native Model")
+  await trigger.click()
+  await expect(page.getByRole("option", { name: "Native Model", exact: true })).toBeVisible()
+  await expect(page.getByRole("option", { name: "Shared Model", exact: true })).toHaveCount(2)
+  await expect(page.getByRole("option", { name: "XD · Shared Model", exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-slot="select-section"]', { hasText: /^XD$/ })).toBeVisible()
+  await expect(page.locator('[data-slot="select-section"]', { hasText: /^Other Provider$/ })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath("codex-model-provider-groups.png"), animations: "disabled" })
+
+  await page
+    .getByRole("option", { name: "Shared Model", exact: true })
+    .and(page.locator('[data-key="xd/shared-model"]'))
+    .click()
+  await expect(trigger).toHaveText("Shared Model")
+  await expectSavedCodexModel(page, "xd/shared-model")
+
+  await trigger.click()
+  await page
+    .getByRole("option", { name: "Shared Model", exact: true })
+    .and(page.locator('[data-key="other/shared-model"]'))
+    .click()
+  await expect(trigger).toHaveText("Shared Model")
+  await expectSavedCodexModel(page, "other/shared-model")
+})
+
+test("toggles every model for one provider without changing another provider", async ({ page }) => {
+  await setup(page, {
+    protocol: "v1",
+    models: [
+      { id: "native-model", name: "Native Model", default: true, efforts: ["medium"] },
+      {
+        id: "xd/one",
+        name: "XD One",
+        provider: { id: "xd", name: "XD" },
+        modelID: "one",
+        default: false,
+        efforts: ["medium"],
+      },
+      {
+        id: "xd/two",
+        name: "XD Two",
+        provider: { id: "xd", name: "XD" },
+        modelID: "two",
+        default: false,
+        efforts: ["medium"],
+      },
+      {
+        id: "other/three",
+        name: "Other Three",
+        provider: { id: "other", name: "Other Provider" },
+        modelID: "three",
+        default: false,
+        efforts: ["medium"],
+      },
+    ],
+    provider: {
+      all: [
+        {
+          id: "xd",
+          name: "XD",
+          models: {
+            one: { id: "one", name: "XD One", family: "one", variants: {} },
+            two: { id: "two", name: "XD Two", family: "two", variants: {} },
+          },
+        },
+        {
+          id: "other",
+          name: "Other Provider",
+          models: { three: { id: "three", name: "Other Three", family: "three", variants: {} } },
+        },
+      ],
+      connected: ["xd", "other"],
+      default: { xd: "one", other: "three" },
+    },
+  })
+  await page.goto(draftHref(draftA))
+  await page.keyboard.press("Control+,")
+
+  const dialog = page.locator(".settings-v2-dialog")
+  await dialog.getByRole("tab", { name: "Models" }).click()
+  const xd = dialog.locator('[data-component="settings-models-provider"]', { hasText: "XD" })
+  const other = dialog.locator('[data-component="settings-models-provider"]', { hasText: "Other Provider" })
+  const xdAll = xd.getByRole("switch", { name: "Toggle all XD models" })
+  const xdAllControl = xdAll.locator("..").locator('[data-slot="switch-control"]')
+
+  await expect(xdAll).toBeChecked()
+  await expect(xd.getByRole("switch", { name: "XD One" })).toBeChecked()
+  await expect(xd.getByRole("switch", { name: "XD Two" })).toBeChecked()
+  await expect(other.getByRole("switch", { name: "Other Three" })).toBeChecked()
+
+  await dialog.getByRole("searchbox", { name: "Search models" }).fill("XD One")
+  await xdAllControl.click()
+  await expect(xdAll).not.toBeChecked()
+  await expect(xd.getByRole("switch", { name: "XD One" })).not.toBeChecked()
+  await dialog.getByRole("searchbox", { name: "Search models" }).fill("")
+  await expect(xd.getByRole("switch", { name: "XD Two" })).not.toBeChecked()
+  await expect(other.getByRole("switch", { name: "Other Three" })).toBeChecked()
+
+  await page.keyboard.press("Escape")
+  await choose(page, "prompt-engine", "Codex")
+  const trigger = page.locator('[data-action="prompt-codex-model"]')
+  await trigger.click()
+  await expect(page.getByRole("option", { name: "XD One", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("option", { name: "XD Two", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("option", { name: "Other Three", exact: true })).toBeVisible()
+  await page.keyboard.press("Escape")
+
+  await page.reload()
+  await trigger.click()
+  await expect(page.getByRole("option", { name: "XD One", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("option", { name: "XD Two", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("option", { name: "Other Three", exact: true })).toBeVisible()
+  await page.keyboard.press("Escape")
+
+  await page.keyboard.press("Control+,")
+  await dialog.getByRole("tab", { name: "Models" }).click()
+  await xdAllControl.click()
+  await expect(xdAll).toBeChecked()
+  await expect(xd.getByRole("switch", { name: "XD One" })).toBeChecked()
+  await expect(xd.getByRole("switch", { name: "XD Two" })).toBeChecked()
+  await expect(other.getByRole("switch", { name: "Other Three" })).toBeChecked()
+
+  await page.keyboard.press("Escape")
+  await trigger.click()
+  await expect(page.getByRole("option", { name: "XD One", exact: true })).toBeVisible()
+  await expect(page.getByRole("option", { name: "XD Two", exact: true })).toBeVisible()
+  await expect(page.getByRole("option", { name: "Other Three", exact: true })).toBeVisible()
+})
+
 test("routes the legacy composer through native Codex create without clearing a rejected input", async ({ page }) => {
   const backend = await setup(page, { newLayout: false })
   await page.goto(`/${base64Encode(directory)}/session`)
@@ -299,6 +477,19 @@ async function expectSavedCodexPermission(page: Page, permission: string) {
     .toBe(permission)
 }
 
+async function expectSavedCodexModel(page: Page, model: string) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem("opencode.global.dat:composer-preferences") ?? "{}") as {
+          target?: Record<string, { codex?: { model?: string } }>
+        }
+        return Object.values(saved.target ?? {}).find((item) => item.codex?.model)?.codex?.model
+      }),
+    )
+    .toBe(model)
+}
+
 async function setup(
   page: Page,
   options?: {
@@ -308,6 +499,9 @@ async function setup(
     runtimeStatus?: "idle" | "disconnected"
     sessionEngine?: "codex" | "opencode"
     acceptCreate?: boolean
+    models?: LabEnginesOutput[number]["models"]
+    provider?: unknown
+    protocol?: "v1" | "v2"
   },
 ) {
   const session = {
@@ -330,7 +524,7 @@ async function setup(
   let legacyPrompts = 0
 
   await mockOpenCodeServer(page, {
-    protocol: "v2",
+    protocol: options?.protocol ?? "v2",
     directory,
     project: {
       id: projectID,
@@ -355,13 +549,14 @@ async function setup(
           ]
         : []),
     ],
-    provider: {
+    provider: options?.provider ?? {
       all: [{ id: "opencode", name: "OpenCode", models: { model: { id: "model", name: "OpenCode Model" } } }],
       connected: ["opencode"],
       default: { providerID: "opencode", modelID: "model" },
     },
     pageMessages: () => ({ items: [] }),
   })
+  await page.route("**/pty/shells", (route) => json(route, []))
   await page.route("**/api/session", (route) => {
     if (route.request().method() !== "POST") return route.fallback()
     legacyCreates++
@@ -375,7 +570,10 @@ async function setup(
     const url = new URL(route.request().url())
     if (url.origin !== server) return route.fallback()
     if (url.pathname === "/lab/engines")
-      return json(route, options?.advertiseCodex === false ? [] : engines(options?.codexAvailable ?? true))
+      return json(
+        route,
+        options?.advertiseCodex === false ? [] : engines(options?.codexAvailable ?? true, options?.models),
+      )
     if (url.pathname === "/lab/sessions/describe") {
       const body = route.request().postDataJSON() as { sessionIDs: string[] }
       return json(
@@ -483,7 +681,7 @@ async function setup(
   }
 }
 
-function engines(available: boolean): LabEnginesOutput {
+function engines(available: boolean, models?: LabEnginesOutput[number]["models"]): LabEnginesOutput {
   return [
     {
       id: "codex",
@@ -492,7 +690,7 @@ function engines(available: boolean): LabEnginesOutput {
       version: "test",
       account: { authenticated: true, requiresAuth: false },
       capabilities,
-      models: [
+      models: models ?? [
         { id: "gpt-6-astra", name: "GPT-6-Astra", default: true, efforts: ["low", "medium", "high"] },
         {
           id: "gpt-5.6-luna",

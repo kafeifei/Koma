@@ -216,7 +216,7 @@ const customProviders: CodexProviders.Interface = {
       id: "xd",
       name: "XD",
       baseURL: "https://example.invalid/v1",
-      models: [{ id: "native-model", name: "Custom", efforts: ["low", "high"] }],
+      models: [{ id: "native-model", modelID: "configured-model", name: "Custom", efforts: ["low", "high"] }],
     },
   ],
   key: async () => "fixture-only-key",
@@ -241,7 +241,12 @@ describe("CodexHost native process boundaries", () => {
         async ({ host, home, sessions }) => {
           await configure(home, { authenticated: false, reflectProvider: true, reflectSettings: true })
           const engine = await run(host.engines()).then((engines) => engines.find((engine) => engine.id === "codex")!)
-          expect(engine.models?.find((model) => model.id === "xd/native-model")?.requiresAuth).toBe(false)
+          expect(engine.models?.find((model) => model.id === "xd/native-model")).toMatchObject({
+            name: "Custom",
+            provider: { id: "xd", name: "XD" },
+            modelID: "configured-model",
+            requiresAuth: false,
+          })
           await expect(
             run(
               host.create({

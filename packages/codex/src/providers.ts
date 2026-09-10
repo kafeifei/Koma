@@ -5,6 +5,7 @@ import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 
 export type Model = {
   id: string
+  modelID?: string
   name: string
   efforts: string[]
   defaultEffort?: string

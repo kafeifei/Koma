@@ -341,10 +341,18 @@ accessor，改用安全 memo；七项控件浏览器回归及类型检查通过�
 ### Codex 自定义供应商（2026-09-08）
 
 按“Codex 可以使用 XD 的模型”的追加授权，Desktop 所属后端通过独立 `CodexProviders`
-端口读取现有全局 Provider 配置与 Auth 凭据。配置了 Responses 协议（`@ai-sdk/openai`）、
+端口读取现有全局 Provider 配置与 Auth 凭据。使用 `@ai-sdk/openai` 或标准自定义
+`@ai-sdk/openai-compatible` 配置、网关支持 Responses 协议且具有
 有效 endpoint 与 API key 的模型，追加到原生模型目录，保留 `xd/<model>` 身份与供应商名称；
 订阅模型保留原生目录和账号要求，自定义模型不要求另外登录 ChatGPT。供应商与模型过滤仍生效。
 Standalone 未接通配置端口时继续使用原生目录，不从其他运行实例读取认证库。
+
+Provider 与模型名称、能力和 variants 由上游 Provider 的同一解析入口生成；Codex 适配器
+只筛选原生兼容项并转换调用参数，不另行解析名称或给模型名拼供应商前缀。供应商分组信息
+独立传给 UI，原有调用 ID 保持不变，另携带配置模型 ID 以复用现有模型显示偏好。
+设置页与管理模型弹窗支持按供应商批量显示／隐藏所有模型，操作不受当前搜索过滤影响。
+不同目录的模型目录仍各自解析，嵌套页面共用原有显示偏好存储；OpenCode 与 Codex 中的
+同一供应商模型使用相同开关。隐藏不改变任务已有模型选择或供应商认证状态。
 
 执行仍完全属于原生 Codex。Host 在 thread/start 或 idle unsubscribe/resume 时传入原生
 `modelProvider` 和 provider config；同一进程可以承载不同供应商。运行中切换供应商的输入

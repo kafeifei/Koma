@@ -1353,6 +1353,110 @@ function modeOptions(model: Model, body: Record<string, unknown> | undefined) {
   return { ...rest, reasoningMode: reasoning.mode }
 }
 
+export function applyConfiguredProviders(
+  database: Record<string, Info>,
+  providers: NonNullable<ConfigV1.Info["provider"]>,
+  modelsDev: Record<string, ModelsDev.Provider>,
+) {
+  for (const [providerID, provider] of Object.entries(providers)) {
+    const existing = database[providerID]
+    const parsed: Info = {
+      id: ProviderV2.ID.make(providerID),
+      name: provider.name ?? existing?.name ?? providerID,
+      env: provider.env ?? existing?.env ?? [],
+      options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
+      source: "config",
+      models: existing?.models ?? {},
+    }
+
+    for (const [modelID, model] of Object.entries(provider.models ?? {})) {
+      const existingModel = parsed.models[model.id ?? modelID]
+      const apiID = model.id ?? existingModel?.api.id ?? modelID
+      const apiNpm =
+        model.provider?.npm ??
+        provider.npm ??
+        existingModel?.api.npm ??
+        // Config-defined gateway models bypass fromModelsDevModel, so resolve the
+        // native passthrough npm here before falling back to the catalog default.
+        cloudflareGatewayNpm(providerID, apiID) ??
+        modelsDev[providerID]?.npm ??
+        "@ai-sdk/openai-compatible"
+      const name = iife(() => {
+        if (model.name) return model.name
+        if (model.id && model.id !== modelID) return modelID
+        return existingModel?.name ?? modelID
+      })
+      const parsedModel: Model = {
+        id: ModelV2.ID.make(modelID),
+        api: {
+          id: apiID,
+          npm: apiNpm,
+          url: model.provider?.api ?? provider.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api ?? "",
+        },
+        status: model.status ?? existingModel?.status ?? "active",
+        name,
+        providerID: ProviderV2.ID.make(providerID),
+        capabilities: {
+          temperature: model.temperature ?? existingModel?.capabilities.temperature ?? false,
+          reasoning: model.reasoning ?? existingModel?.capabilities.reasoning ?? false,
+          attachment: model.attachment ?? existingModel?.capabilities.attachment ?? false,
+          toolcall: model.tool_call ?? existingModel?.capabilities.toolcall ?? true,
+          input: {
+            text: model.modalities?.input?.includes("text") ?? existingModel?.capabilities.input.text ?? true,
+            audio: model.modalities?.input?.includes("audio") ?? existingModel?.capabilities.input.audio ?? false,
+            image: model.modalities?.input?.includes("image") ?? existingModel?.capabilities.input.image ?? false,
+            video: model.modalities?.input?.includes("video") ?? existingModel?.capabilities.input.video ?? false,
+            pdf: model.modalities?.input?.includes("pdf") ?? existingModel?.capabilities.input.pdf ?? false,
+          },
+          output: {
+            text: model.modalities?.output?.includes("text") ?? existingModel?.capabilities.output.text ?? true,
+            audio: model.modalities?.output?.includes("audio") ?? existingModel?.capabilities.output.audio ?? false,
+            image: model.modalities?.output?.includes("image") ?? existingModel?.capabilities.output.image ?? false,
+            video: model.modalities?.output?.includes("video") ?? existingModel?.capabilities.output.video ?? false,
+            pdf: model.modalities?.output?.includes("pdf") ?? existingModel?.capabilities.output.pdf ?? false,
+          },
+          interleaved:
+            (typeof model.interleaved === "string" ? { field: model.interleaved } : model.interleaved) ??
+            existingModel?.capabilities.interleaved ??
+            (!existingModel && apiNpm === "@ai-sdk/openai-compatible" && apiID.includes("deepseek")
+              ? { field: "reasoning_content" }
+              : false),
+        },
+        cost: {
+          input: model.cost?.input ?? existingModel?.cost.input ?? 0,
+          output: model.cost?.output ?? existingModel?.cost.output ?? 0,
+          cache: {
+            read: model.cost?.cache_read ?? existingModel?.cost.cache.read ?? 0,
+            write: model.cost?.cache_write ?? existingModel?.cost.cache.write ?? 0,
+          },
+        },
+        options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
+        limit: {
+          context: model.limit?.context ?? existingModel?.limit.context ?? 0,
+          input: model.limit?.input ?? existingModel?.limit.input,
+          output: model.limit?.output ?? existingModel?.limit.output ?? 0,
+        },
+        headers: mergeDeep(existingModel?.headers ?? {}, model.headers ?? {}),
+        family: model.family ?? existingModel?.family ?? "",
+        release_date: model.release_date ?? existingModel?.release_date ?? "",
+        variants: {},
+      }
+      const variants =
+        existingModel?.api.npm === parsedModel.api.npm
+          ? (existingModel.variants ?? ProviderTransform.variants(parsedModel))
+          : ProviderTransform.variants(parsedModel)
+      const merged = mergeDeep(variants, model.variants ?? {})
+      parsedModel.variants = mapValues(
+        pickBy(merged, (variant) => !variant.disabled),
+        (variant) => omit(variant, ["disabled"]),
+      )
+      parsed.models[modelID] = parsedModel
+    }
+    database[providerID] = parsed
+  }
+  return database
+}
+
 function modelSuggestions(provider: Info | undefined, modelID: ModelV2.ID, enableExperimentalModels: boolean) {
   const available = provider
     ? Object.keys(provider.models).filter((id) => {
@@ -1474,106 +1578,7 @@ const layer = Layer.effect(
           })
         }
 
-        // extend database from config
-        for (const [providerID, provider] of configProviders) {
-          const existing = database[providerID]
-          const parsed: Info = {
-            id: ProviderV2.ID.make(providerID),
-            name: provider.name ?? existing?.name ?? providerID,
-            env: provider.env ?? existing?.env ?? [],
-            options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
-            source: "config",
-            models: existing?.models ?? {},
-          }
-
-          for (const [modelID, model] of Object.entries(provider.models ?? {})) {
-            const existingModel = parsed.models[model.id ?? modelID]
-            const apiID = model.id ?? existingModel?.api.id ?? modelID
-            const apiNpm =
-              model.provider?.npm ??
-              provider.npm ??
-              existingModel?.api.npm ??
-              // Config-defined gateway models bypass fromModelsDevModel, so resolve the
-              // native passthrough npm here before falling back to the catalog default.
-              cloudflareGatewayNpm(providerID, apiID) ??
-              modelsDev[providerID]?.npm ??
-              "@ai-sdk/openai-compatible"
-            const name = iife(() => {
-              if (model.name) return model.name
-              if (model.id && model.id !== modelID) return modelID
-              return existingModel?.name ?? modelID
-            })
-            const parsedModel: Model = {
-              id: ModelV2.ID.make(modelID),
-              api: {
-                id: apiID,
-                npm: apiNpm,
-                url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api ?? "",
-              },
-              status: model.status ?? existingModel?.status ?? "active",
-              name,
-              providerID: ProviderV2.ID.make(providerID),
-              capabilities: {
-                temperature: model.temperature ?? existingModel?.capabilities.temperature ?? false,
-                reasoning: model.reasoning ?? existingModel?.capabilities.reasoning ?? false,
-                attachment: model.attachment ?? existingModel?.capabilities.attachment ?? false,
-                toolcall: model.tool_call ?? existingModel?.capabilities.toolcall ?? true,
-                input: {
-                  text: model.modalities?.input?.includes("text") ?? existingModel?.capabilities.input.text ?? true,
-                  audio: model.modalities?.input?.includes("audio") ?? existingModel?.capabilities.input.audio ?? false,
-                  image: model.modalities?.input?.includes("image") ?? existingModel?.capabilities.input.image ?? false,
-                  video: model.modalities?.input?.includes("video") ?? existingModel?.capabilities.input.video ?? false,
-                  pdf: model.modalities?.input?.includes("pdf") ?? existingModel?.capabilities.input.pdf ?? false,
-                },
-                output: {
-                  text: model.modalities?.output?.includes("text") ?? existingModel?.capabilities.output.text ?? true,
-                  audio:
-                    model.modalities?.output?.includes("audio") ?? existingModel?.capabilities.output.audio ?? false,
-                  image:
-                    model.modalities?.output?.includes("image") ?? existingModel?.capabilities.output.image ?? false,
-                  video:
-                    model.modalities?.output?.includes("video") ?? existingModel?.capabilities.output.video ?? false,
-                  pdf: model.modalities?.output?.includes("pdf") ?? existingModel?.capabilities.output.pdf ?? false,
-                },
-                interleaved:
-                  (typeof model.interleaved === "string" ? { field: model.interleaved } : model.interleaved) ??
-                  existingModel?.capabilities.interleaved ??
-                  (!existingModel && apiNpm === "@ai-sdk/openai-compatible" && apiID.includes("deepseek")
-                    ? { field: "reasoning_content" }
-                    : false),
-              },
-              cost: {
-                input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
-                output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
-                cache: {
-                  read: model?.cost?.cache_read ?? existingModel?.cost?.cache.read ?? 0,
-                  write: model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? 0,
-                },
-              },
-              options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
-              limit: {
-                context: model.limit?.context ?? existingModel?.limit?.context ?? 0,
-                input: model.limit?.input ?? existingModel?.limit?.input,
-                output: model.limit?.output ?? existingModel?.limit?.output ?? 0,
-              },
-              headers: mergeDeep(existingModel?.headers ?? {}, model.headers ?? {}),
-              family: model.family ?? existingModel?.family ?? "",
-              release_date: model.release_date ?? existingModel?.release_date ?? "",
-              variants: {},
-            }
-            const variants =
-              existingModel?.api.npm === parsedModel.api.npm
-                ? (existingModel.variants ?? ProviderTransform.variants(parsedModel))
-                : ProviderTransform.variants(parsedModel)
-            const merged = mergeDeep(variants, model.variants ?? {})
-            parsedModel.variants = mapValues(
-              pickBy(merged, (v) => !v.disabled),
-              (v) => omit(v, ["disabled"]),
-            )
-            parsed.models[modelID] = parsedModel
-          }
-          database[providerID] = parsed
-        }
+        applyConfiguredProviders(database, cfg.provider ?? {}, modelsDev)
 
         // load env
         const envs = yield* env.all()

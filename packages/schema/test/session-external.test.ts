@@ -37,10 +37,22 @@ describe("external engine model authentication", () => {
   test("preserves an explicit model authentication override", () => {
     const decoded = Schema.decodeUnknownSync(SessionExternal.Engine)({
       ...engine,
-      models: [{ id: "xd/gpt-5", name: "XD GPT-5", default: false, efforts: [], requiresAuth: false }],
+      models: [
+        {
+          id: "xd/gpt-5",
+          name: "GPT-5",
+          provider: { id: "xd", name: "XD" },
+          modelID: "configured-gpt",
+          default: false,
+          efforts: [],
+          requiresAuth: false,
+        },
+      ],
     })
 
     expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]?.requiresAuth).toBeFalse()
+    expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]?.provider).toEqual({ id: "xd", name: "XD" })
+    expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]?.modelID).toBe("configured-gpt")
   })
 
   test("omits model authentication when a provider does not specify it", () => {
@@ -50,5 +62,7 @@ describe("external engine model authentication", () => {
     })
 
     expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]).not.toHaveProperty("requiresAuth")
+    expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]).not.toHaveProperty("provider")
+    expect(Schema.encodeSync(SessionExternal.Engine)(decoded).models[0]).not.toHaveProperty("modelID")
   })
 })
