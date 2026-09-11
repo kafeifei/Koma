@@ -375,6 +375,11 @@ export type AssistantMessage = {
       write: number
     }
   }
+  context?: {
+    limit: number
+    used: number
+    ratio: number
+  }
   structured?: unknown
   variant?: string
   finish?: string
@@ -3306,6 +3311,16 @@ export type SessionExternalSettings = {
   permission?: SessionPermissionMode | "workspace" | "readOnly"
 }
 
+export type SessionExternalInputWaitReason =
+  | "earlierInput"
+  | "waitingApproval"
+  | "waitingInput"
+  | "waitingForIdle"
+  | "waitingForConfiguration"
+  | "paused"
+  | "nativeConfirmation"
+  | "deliveryUnknown"
+
 export type SessionExternalDescriptor = {
   sessionID: string
   engine: "opencode" | "codex"
@@ -3317,6 +3332,7 @@ export type SessionExternalDescriptor = {
   queuePaused: boolean
   settings: SessionExternalSettings
   pendingSettings?: SessionExternalSettings
+  inputWaitReason?: SessionExternalInputWaitReason
   error?: string
 }
 
@@ -6515,9 +6531,15 @@ export type SessionExternalEngine = {
   models: Array<{
     id: string
     name: string
+    provider?: {
+      id: string
+      name: string
+    }
+    modelID?: string
     default: boolean
     efforts: Array<string>
     defaultEffort?: string
+    requiresAuth?: boolean
   }>
 }
 
@@ -6542,11 +6564,12 @@ export type SessionExternalCreate = {
 export type SessionExternalDelivery = {
   sessionID: string
   requestID: string
-  state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+  state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
   delivery: "steer" | "queue"
   input: SessionExternalInput
   nativeTurnID?: string
   nativeItemID?: string
+  waitReason?: SessionExternalInputWaitReason
   error?: string
   createdAt: number
 }
@@ -12930,6 +12953,10 @@ export type V2SessionCompactErrors = {
    * SessionNotFoundError
    */
   404: SessionNotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
   /**
    * ServiceUnavailableError
    */

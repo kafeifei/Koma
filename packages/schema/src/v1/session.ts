@@ -481,6 +481,14 @@ export const Assistant = Schema.Struct({
       write: Schema.Finite,
     }),
   }),
+  // Server-computed context window usage. Omitted when the model has no known context limit.
+  context: optional(
+    Schema.Struct({
+      limit: Schema.Finite,
+      used: Schema.Finite,
+      ratio: Schema.Finite,
+    }),
+  ),
   structured: Schema.optional(Schema.Any),
   variant: Schema.optional(Schema.String),
   finish: Schema.optional(Schema.String),

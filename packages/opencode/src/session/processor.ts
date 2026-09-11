@@ -457,6 +457,7 @@ const layer = Layer.effect(
             ctx.assistantMessage.finish = value.reason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
+            ctx.assistantMessage.context = usage.context
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.reason,

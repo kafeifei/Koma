@@ -433,6 +433,10 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
   }
 
   const contextTokens = inputTokens
+  // Context window usage the clients display. Provider `totalTokens` is not comparable across
+  // providers, so use the raw input (cache included) plus raw output (reasoning included).
+  const contextLimit = safe(finite(input.model.limit?.context ?? 0))
+  const contextUsed = inputTokens + outputTokens
   const costInfo =
     input.model.cost?.tiers
       ?.filter((item) => item.tier.type === "context" && contextTokens > item.tier.size)
@@ -457,6 +461,8 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
               .toNumber(),
           ),
     tokens,
+    context:
+      contextLimit > 0 ? { limit: contextLimit, used: contextUsed, ratio: contextUsed / contextLimit } : undefined,
   }
 }
 

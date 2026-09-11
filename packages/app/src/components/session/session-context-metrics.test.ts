@@ -91,6 +91,19 @@ describe("getSessionContext", () => {
     expect(two?.message.id).toBe("a2")
   })
 
+  test("prefers server-computed context over the catalog limit", () => {
+    const message = {
+      ...assistant("a1", { input: 300, output: 100, reasoning: 50, read: 25, write: 25 }, 1.25),
+      context: { limit: 2000, used: 500, ratio: 0.25 },
+    } as Message
+    const providers = [{ id: "openai", models: { "gpt-4.1": { limit: { context: 1000 } } } }]
+
+    const ctx = getSessionContext([message], providers)
+
+    expect(ctx?.limit).toBe(2000)
+    expect(ctx?.usage).toBe(25)
+  })
+
   test("returns undefined when inputs are undefined", () => {
     const ctx = getSessionContext(undefined, undefined)
 

@@ -44,7 +44,9 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Context | 
 
   const provider = providers.find((item) => item.id === message.providerID)
   const model = provider?.models[message.modelID]
-  const limit = model?.limit.context
+  // The server computes context usage when it knows the model's limit; older messages fall back
+  // to the client-side math against the catalog.
+  const limit = message.context?.limit ?? model?.limit.context
   const total = tokenTotal(message)
 
   return {
@@ -56,7 +58,11 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Context | 
     limit,
     input: message.tokens.input,
     total,
-    usage: limit ? Math.round((total / limit) * 100) : null,
+    usage: message.context
+      ? Math.round(message.context.ratio * 100)
+      : limit
+        ? Math.round((total / limit) * 100)
+        : null,
   }
 }
 
