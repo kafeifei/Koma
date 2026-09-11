@@ -454,6 +454,44 @@ test("keeps an existing Codex engine immutable and submits the complete desired 
   expect(backend.legacyPrompts).toBe(0)
 })
 
+for (const newLayout of [false, true]) {
+  test(`shows pending settings separately from applied settings in composer ${newLayout ? "v2" : "v1"}`, async ({
+    page,
+  }, testInfo) => {
+    const backend = await setup(page, {
+      newLayout,
+      deliveries: [
+        {
+          sessionID,
+          requestID: "already-queued",
+          state: "pending",
+          delivery: "queue",
+          input: { prompt: { text: "Already queued with read-only permissions" }, settings: descriptor().settings },
+          createdAt: 1,
+        },
+      ],
+    })
+    await page.goto(sessionHref)
+    const badge = page.locator('[data-component="codex-pending-settings"]')
+    await expect(badge).toHaveCount(0)
+    await choosePermission(page, "Full Access")
+    await expect(badge).toHaveText("Pending settings")
+    await badge.hover()
+    await expect(page.getByRole("tooltip")).toContainText("gpt-6-astra · medium · Read only")
+    await expect(page.getByRole("tooltip")).toContainText("Inputs already submitted keep their settings")
+    await expect(page.getByRole("tooltip")).toContainText("any current approval still needs a response")
+    await testInfo.attach("pending-settings", { body: await page.screenshot(), contentType: "image/png" })
+
+    await page.reload()
+    await expect(badge).toBeVisible()
+    await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
+    backend.applySettings()
+    await page.reload()
+    await expect(badge).toHaveCount(0)
+    await expect(page.locator('[data-action="prompt-permission"]')).toContainText("Full Access")
+  })
+}
+
 async function choose(page: Page, action: string, option: string) {
   await page.locator(`[data-action="${action}"]`).click()
   await page.getByRole("option", { name: option, exact: true }).click()
@@ -502,6 +540,7 @@ async function setup(
     models?: LabEnginesOutput[number]["models"]
     provider?: unknown
     protocol?: "v1" | "v2"
+    deliveries?: LabSnapshotOutput["deliveries"]
   },
 ) {
   const session = {
@@ -586,7 +625,7 @@ async function setup(
       )
     }
     if (url.pathname === `/lab/sessions/${sessionID}` && route.request().method() === "GET")
-      return json(route, snapshot(current))
+      return json(route, { ...snapshot(current), deliveries: options?.deliveries ?? [] })
     if (url.pathname === `/lab/sessions/${createdSessionID}` && route.request().method() === "GET")
       return json(route, snapshot({ ...current, sessionID: createdSessionID }))
     if (url.pathname === "/lab/sessions" && route.request().method() === "POST") {
@@ -672,6 +711,14 @@ async function setup(
     nativeCreates,
     nativeSubmits,
     settings,
+    applySettings() {
+      current = {
+        ...current,
+        revision: current.revision + 1,
+        settings: { ...current.settings, ...current.pendingSettings },
+        pendingSettings: undefined,
+      }
+    },
     get legacyCreates() {
       return legacyCreates
     },

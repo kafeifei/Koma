@@ -524,6 +524,87 @@ test("keeps unconfirmed receipts and copies text only into an empty stopped comp
   await expect(editor).toHaveText(unconfirmed.input.prompt.text)
 })
 
+for (const state of ["paused", "returned"] as const) {
+  test(`resumes a ${state} immediate input only after an explicit action and preserves the draft`, async ({ page }) => {
+    const retained = delivery(`receipt-${state}`, "steer", state)
+    const uncertain = delivery("receipt-uncertain", "steer", "unknown")
+    const harness: Harness = {
+      current: snapshot(80, { queuePaused: true, deliveries: [retained, uncertain] }),
+      replies: [],
+      queue: [],
+      deliveryReads: [],
+      afterQueue: (body, current) =>
+        snapshot(81, {
+          queuePaused: false,
+          deliveries: current.deliveries.map((item) =>
+            item.requestID === body.requestID
+              ? { ...item, state: "accepted" as const, nativeItemID: "confirmed-resumed-item" }
+              : item,
+          ),
+        }),
+    }
+    await setup(page, harness)
+    const controls = await open(page)
+    const row = controls.locator(`[data-delivery-id="${retained.requestID}"]`)
+    const editor = page.locator('[data-component="prompt-input"][contenteditable="true"]')
+    await expect(row).toContainText(state === "paused" ? "Paused" : "Not delivered")
+    await expect(row.locator('[data-action="withdraw-delivery"]')).toBeVisible()
+    await expect(
+      controls.locator(`[data-delivery-id="${uncertain.requestID}"] [data-action="resume-queue"]`),
+    ).toHaveCount(0)
+    await editor.fill("Keep my new draft")
+    expect(harness.queue).toEqual([])
+    await row.locator('[data-action="resume-queue"]').click()
+    await expect.poll(() => harness.queue).toEqual([{ action: "resume", requestID: retained.requestID, revision: 80 }])
+    await expect(row).toHaveCount(0)
+    await expect(editor).toHaveText("Keep my new draft")
+  })
+}
+
+test("waits for backend-confirmed idle before allowing a paused queue to resume", async ({ page }) => {
+  const transport = await installSseTransport(page, { server, retry: 20 })
+  const queued = delivery("paused-queue", "queue", "paused")
+  const harness: Harness = {
+    current: snapshot(85, { runtimeStatus: "interrupting", queuePaused: true, deliveries: [queued] }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  const controls = await open(page)
+  await transport.waitForConnection()
+  const resume = controls.locator('[data-action="resume-queue"]')
+  await expect(resume).toBeDisabled()
+  harness.current = snapshot(86, { runtimeStatus: "idle", queuePaused: true, deliveries: [queued] })
+  await sendRefresh(transport, harness.current.descriptor)
+  await expect(resume).toBeEnabled()
+  expect(harness.queue).toEqual([])
+})
+
+test("projects backend input wait reasons into the existing delivery row", async ({ page }) => {
+  const reasons = [
+    ["earlierInput", "Waiting for an earlier input."],
+    ["waitingApproval", "Waiting for approval"],
+    ["waitingInput", "Waiting for input"],
+    ["waitingForIdle", "Waiting for the current turn to finish."],
+    ["waitingForConfiguration", "Waiting for the next turn to apply the selected settings."],
+  ] as const
+  const harness: Harness = {
+    current: snapshot(90, {
+      deliveries: reasons.map(([waitReason]) => ({ ...delivery(waitReason, "steer", "pending"), waitReason })),
+    }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  const controls = await open(page)
+  for (const [reason, label] of reasons) {
+    await expect(controls.locator(`[data-delivery-id="${reason}"]`)).toContainText(label)
+  }
+  expect(harness.queue).toEqual([])
+})
+
 async function setup(page: Page, harness: Harness) {
   await mockOpenCodeServer(page, {
     protocol: "v2",
@@ -771,7 +852,7 @@ function formInteraction(id: string, revision: number) {
 function delivery(
   requestID: string,
   mode: "steer" | "queue",
-  state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn",
+  state: LabSnapshotOutput["deliveries"][number]["state"],
 ): LabSnapshotOutput["deliveries"][number] {
   return {
     sessionID,

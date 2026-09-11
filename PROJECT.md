@@ -53,18 +53,18 @@ Codex 原生执行接入已单独评审并获准实施，方案见 [Codex 集成
 
 ## 4. 数据和代码归谁负责
 
-| 对象／层                                                                     | 事实源与边界                                                                                                                                                        |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 对象／层                                                                     | 事实源与边界                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 任务                                                                         | 工作台中的持久任务以现有 Session 表示，顶层列表以 root Session 为主；首次发送前只有所属目录的新建输入，不建立独立草稿任务。不要新增第二套 Task 数据库，也不要把一次模型调用或一个进程等同于任务 |
-| 项目、目录、worktree                                                         | 复用项目与工作区模型；按所属 server 和目录／项目身份归组，不用显示名称当唯一标识，不把 worktree 当独立执行引擎                                                      |
-| 会话标题、历史、归档状态                                                     | 标题与归档沿用后端 Session 元数据。OpenCode 历史沿用原执行存储；Codex 历史从绑定的原生 thread 读取，不写入 OpenCode 历史表。前端通过所属 API 同步；归档与恢复要反映持久状态                                                |
-| 列表、搜索与运行状态                                                         | 首页和侧栏共享所属 server 的索引与事件缓存，搜索通过后端查询；分页、重连、请求与事件竞态不能丢失旧任务或覆盖新状态                                                  |
-| 本地界面偏好                                                                 | 侧栏展开、置顶等可沿用前端持久化；当前置顶按 server scope 存在本地，不承诺跨设备／跨客户端同步，也不代表后端任务状态                                                |
-| 路由与当前任务                                                               | 复用现有 tabs、路由和输入持久化。新建页内部保留确定性 DraftTab 壳，每个 server scope 和规范化实际目录复用一个输入；已有会话保持原持久化 key。切换或关闭不删除输入，不隐式取消执行或删除会话 |
-| `packages/app`、`packages/session-ui`、`packages/ui`                         | 分别承担应用组合、会话 UI 与共享控件；优先复用已有组件和状态，不为侧栏复制一套会话渲染器                                                                            |
-| `packages/desktop`                                                           | 主进程管理平台能力、后端和 Web 入口；renderer 通过 preload／IPC 调用，不直接接管后端存储与进程                                                                      |
-| `packages/opencode`、`packages/core`、`packages/server`                      | 沿用现有 CLI／兼容接口、领域运行时、V2 服务边界；按调用链找到真正所有者后修改，不能因为旧包名就把逻辑集中回去                                                       |
-| `packages/schema`、`packages/protocol`、`packages/client`、`packages/sdk/js` | Schema、公开契约及客户端保持各自职责；生成代码不是手工修改入口，依赖方向和生成命令遵守 [AGENTS.md](./AGENTS.md)                                                     |
+| 项目、目录、worktree                                                         | 复用项目与工作区模型；按所属 server 和目录／项目身份归组，不用显示名称当唯一标识，不把 worktree 当独立执行引擎                                                                                  |
+| 会话标题、历史、归档状态                                                     | 标题与归档沿用后端 Session 元数据。OpenCode 历史沿用原执行存储；Codex 历史从绑定的原生 thread 读取，不写入 OpenCode 历史表。前端通过所属 API 同步；归档与恢复要反映持久状态                     |
+| 列表、搜索与运行状态                                                         | 首页和侧栏共享所属 server 的索引与事件缓存，搜索通过后端查询；分页、重连、请求与事件竞态不能丢失旧任务或覆盖新状态                                                                              |
+| 本地界面偏好                                                                 | 侧栏展开、置顶等可沿用前端持久化；当前置顶按 server scope 存在本地，不承诺跨设备／跨客户端同步，也不代表后端任务状态                                                                            |
+| 路由与当前任务                                                               | 复用现有 tabs、路由和输入持久化。新建页内部保留确定性 DraftTab 壳，每个 server scope 和规范化实际目录复用一个输入；已有会话保持原持久化 key。切换或关闭不删除输入，不隐式取消执行或删除会话     |
+| `packages/app`、`packages/session-ui`、`packages/ui`                         | 分别承担应用组合、会话 UI 与共享控件；优先复用已有组件和状态，不为侧栏复制一套会话渲染器                                                                                                        |
+| `packages/desktop`                                                           | 主进程管理平台能力、后端和 Web 入口；renderer 通过 preload／IPC 调用，不直接接管后端存储与进程                                                                                                  |
+| `packages/opencode`、`packages/core`、`packages/server`                      | 沿用现有 CLI／兼容接口、领域运行时、V2 服务边界；按调用链找到真正所有者后修改，不能因为旧包名就把逻辑集中回去                                                                                   |
+| `packages/schema`、`packages/protocol`、`packages/client`、`packages/sdk/js` | Schema、公开契约及客户端保持各自职责；生成代码不是手工修改入口，依赖方向和生成命令遵守 [AGENTS.md](./AGENTS.md)                                                                                 |
 
 Session 执行、持久输入、投影、Context Epoch 等具体不变量仍由 [CONTEXT.md](./CONTEXT.md)、[specs/v2/session.md](./specs/v2/session.md) 和根 `AGENTS.md` 的 V2 Session Core 约束。UI 中出现“任务”一词不构成新增一层执行身份或调度器的理由。
 
@@ -74,7 +74,9 @@ Session 执行、持久输入、投影、Context Epoch 等具体不变量仍由 
 
 新建输入按 server 和项目保存用户选择的模型、推理档位和权限档位，OpenCode 与 Codex 分别保留设置；同项目的新输入沿用已保存的选择。已有输入中的显式设置优先，正式会话仍以所属后端状态为准。模型目录暂未加载时不覆盖保存值；这些设置只表达新任务的提交意图，不改变权限判定或自动批准规则。
 
-已归档任务保留历史和未发送输入，列表使用灰色文字，打开后只读；继续聊天前须显式恢复。归档状态由后端 Session 持有，V1、V2 和 Codex 的新输入入口均须拒绝已归档任务，不能只依赖输入框禁用，也不因归档隐式中断已开始的执行。恢复受管 worktree 时，先完成目录重建、保存状态还原和恢复收尾，再解除归档；非受管目录不由恢复操作创建。界面等待恢复成功后再开放输入。
+已归档任务保留历史和未发送输入，列表使用灰色文字，打开后只读；继续聊天前须显式恢复。归档状态由后端 Session 持有，V1、V2 和 Codex 的新输入入口均须拒绝已归档任务，不能只依赖输入框禁用，也不因归档隐式中断已开始的执行。恢复受管 worktree 时，若目录仍驻留且 Git 身份匹配，撤销尚未完成的归档并保留终端、执行占用和现有文件；目录已回收时，先完成重建、保存状态还原和恢复收尾，再解除归档。非受管目录不由恢复操作创建。界面等待恢复成功后再开放输入。
+
+后台子任务的结果接收与模型继续执行分开处理。OpenCode 的内部完成通知先向现有父 Session 持久保存一次结果，不修改用户当前选择的模型、档位或权限；父任务已归档时只接收结果，不启动新的模型执行。相同完成通知重试不重复保存或唤醒，失败通过现有日志与 Session 错误事件报告。
 
 按已批准的旧数据策略，升级时在 tabs 持久化加载后只尝试一轮旧 UUID 草稿清理：通过现有 scoped 删除 API 确认对应保存文档删除完成后，才移除该条旧稿索引；失败索引保持隐藏，留待下次加载接续这次升级清理，不常驻重试。不提供旧稿恢复入口，正式会话输入和新目录单例输入保留。不扫描缺失 tab 元数据的孤立文档，也不承诺跨窗口实时合并。
 
@@ -107,7 +109,7 @@ Codex 可通过独立配置端口使用现有 XD 等 Responses 供应商的模�
 | 任务工作台   | [layout-new.tsx](./packages/app/src/pages/layout-new.tsx) 接入 [task-sidebar.tsx](./packages/app/src/pages/layout/task-sidebar.tsx)。新旧布局仍共存，实际界面由 `newLayoutDesigns` 等现有设置决定；改到新布局不等于旧布局同步改变                                                           |
 | 共享会话索引 | [home-session-query.ts](./packages/app/src/context/global-sync/home-session-query.ts) 与 [home-session-index.ts](./packages/app/src/context/global-sync/home-session-index.ts) 供首页、侧栏共用。现有 V2 列表适配会分页扫描全部会话，再转成列表摘要；不能把它描述成已优化好的服务端任务索引 |
 | 搜索         | [task-search.ts](./packages/app/src/pages/layout/task-search.ts) 调用本 fork 增加的 `/experimental/session/search`，服务端在 [session.ts](./packages/opencode/src/session/session.ts) 查询标题和可见文本。它不等于文件搜索或全部类型消息搜索；连接其他版本服务时需核对端点支持              |
-| 归档／恢复   | 侧栏及会话菜单按服务端 capabilities 门控，V1 沿用 Session 接口，V2 使用专用 archive／restore／delete；[projector.ts](./packages/core/src/session/projector.ts) 的本地改动涉及恢复归档时清空持久字段。本轮补齐宿主 V2 生命周期，未集成宿主的独立服务明确报告不支持                                                                                                              |
+| 归档／恢复   | 侧栏及会话菜单按服务端 capabilities 门控，V1 沿用 Session 接口，V2 使用专用 archive／restore／delete；[projector.ts](./packages/core/src/session/projector.ts) 的本地改动涉及恢复归档时清空持久字段。本轮补齐宿主 V2 生命周期，未集成宿主的独立服务明确报告不支持                           |
 | Lab 打包     | [Desktop package.json](./packages/desktop/package.json) 提供 `build:lab`、`package:lab`、`lab` 脚本；当前 `package:lab` 面向 macOS 目录包。脚本存在不代表已安装或其他平台已验证                                                                                                             |
 | 验证入口     | 任务工作台有 [task-workspace.spec.ts](./packages/app/e2e/regression/task-workspace.spec.ts)，索引、搜索、Session API 和 Lab 隔离各有聚焦测试；测试文件存在不代表本次已经运行或通过                                                                                                          |
 

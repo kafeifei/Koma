@@ -1,6 +1,7 @@
 import type { LabEnginesOutput } from "@opencode-ai/lab-client"
 import type { SessionExternal } from "@opencode-ai/schema/session-external"
 import { Select } from "@opencode-ai/ui/select"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { Accessor } from "solid-js"
 import { createEffect, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -136,6 +137,8 @@ export function createCodexPromptController(input: {
 
   return {
     busy: () => state.busy,
+    appliedSettings: () => descriptor()?.settings,
+    pendingSettings: () => descriptor()?.pendingSettings,
     catalog: codex,
     canSubmit,
     session: () => !!input.sessionID(),
@@ -267,6 +270,33 @@ export function CodexEffortSelect(props: { controller: CodexPromptController }) 
         triggerProps={{ "data-action": "prompt-codex-effort", "aria-label": language.t("codex.settings.effort") }}
         variant="ghost"
       />
+    </Show>
+  )
+}
+
+export function CodexPendingSettings(props: { controller: CodexPromptController }) {
+  const language = useLanguage()
+  const permission = () => {
+    const value = props.controller.appliedSettings()?.permission
+    if (value === "readOnly") return language.t("codex.permission.readOnly")
+    if (value === "workspace" || value === "default") return language.t("prompt.permission.default.label")
+    if (value === "auto") return language.t("prompt.permission.auto.label")
+    if (value === "full") return language.t("prompt.permission.full.label")
+    return language.t("codex.permission.nativeDefault")
+  }
+  return (
+    <Show when={Object.values(props.controller.pendingSettings() ?? {}).some((value) => value !== undefined)}>
+      <Tooltip
+        value={language.t("codex.pendingSettings.hint", {
+          model: props.controller.appliedSettings()?.model ?? language.t("codex.settings.nativeDefault"),
+          effort: props.controller.appliedSettings()?.effort ?? language.t("codex.settings.nativeDefault"),
+          permission: permission(),
+        })}
+      >
+        <span data-component="codex-pending-settings" tabIndex={0} class="px-1 text-11-regular text-text-weak">
+          {language.t("codex.pendingSettings.title")}
+        </span>
+      </Tooltip>
     </Show>
   )
 }

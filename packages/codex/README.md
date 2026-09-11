@@ -93,6 +93,21 @@ It feeds one queued input only at a confirmed idle boundary. Stop and process
 recovery pause unsubmitted inputs. Unknown delivery receipts prevent automatic
 resubmission; a native correlation ID is required to confirm acceptance.
 
+Input admission, native acknowledgement, and native history confirmation are
+separate boundaries. An `accepted` receipt without `nativeItemID` is awaiting
+history confirmation. Only a complete paginated history containing the terminal
+target turn can return an acknowledged input that never entered that turn to
+`returned`; an incomplete read cannot prove non-delivery. `paused` and `returned`
+inputs require an explicit resume of the same durable request. Unknown receipts
+remain non-replayable. New inputs do not implicitly resume older paused inputs.
+
+The Host projects a wait reason for inputs that cannot advance. Immediate inputs
+retain their order while active; queued inputs wait for a confirmed idle boundary.
+Settings are frozen when each input is admitted. Later settings changes describe
+the user's next input, while `settings` and `pendingSettings` distinguish applied
+configuration from that selection. They do not rewrite already admitted inputs
+or resolve an existing native approval request.
+
 Native V1 child tools use the `multi_agent_v1` namespace. In Code Mode they
 may be deferred: `ALL_TOOLS` exposes their normalized names even when the
 short tool description omits them. Native same-process wait uses `targets`;

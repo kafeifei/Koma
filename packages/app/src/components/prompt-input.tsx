@@ -76,6 +76,7 @@ import { createPromptSubmit } from "./prompt-input/submit"
 import { createPromptPermissionController, PromptPermissionSelect } from "./prompt-permission-select"
 import {
   CodexEffortSelect,
+  CodexPendingSettings,
   CodexModelSelect,
   createCodexPromptController,
   PromptEngineSelect,
@@ -1760,6 +1761,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     <Show when={engine() === "codex"}>
                       <CodexModelSelect controller={codex} />
                       <CodexEffortSelect controller={codex} />
+                      <CodexPendingSettings controller={codex} />
                     </Show>
                     <Show when={engine() === "opencode" && !providersLoading()}>
                       <Show when={store.mode !== "shell"}>

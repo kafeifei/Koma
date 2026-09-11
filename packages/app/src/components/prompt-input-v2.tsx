@@ -11,6 +11,7 @@ import { createEffect, createMemo, on, Show } from "solid-js"
 import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import {
   CodexEffortSelect,
+  CodexPendingSettings,
   CodexModelSelect,
   createCodexPromptController,
   type CodexPromptController,
@@ -143,6 +144,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
               >
                 <CodexModelSelect controller={props.controller.codex} />
                 <CodexEffortSelect controller={props.controller.codex} />
+                <CodexPendingSettings controller={props.controller.codex} />
               </Show>
             </div>
           }

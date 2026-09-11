@@ -29,6 +29,8 @@ describe("Codex conditional docks", () => {
   test("hides settled delivery receipts from the queue dock", () => {
     const deliveries = [
       { requestID: "pending", state: "pending" },
+      { requestID: "paused", state: "paused" },
+      { requestID: "returned", state: "returned" },
       { requestID: "accepted", state: "accepted", nativeItemID: "item-1" },
       { requestID: "unconfirmed", state: "accepted" },
       { requestID: "withdrawn", state: "withdrawn" },
@@ -37,6 +39,8 @@ describe("Codex conditional docks", () => {
 
     expect(actionableCodexDeliveries(deliveries).map((delivery) => delivery.requestID)).toEqual([
       "pending",
+      "paused",
+      "returned",
       "unconfirmed",
       "unknown",
     ])

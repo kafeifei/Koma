@@ -40,7 +40,7 @@ export function actionableCodexDeliveries(deliveries: readonly Delivery[]) {
   return deliveries.filter(
     (delivery) =>
       (delivery.state === "accepted" && !isConfirmedCodexDelivery(delivery)) ||
-      ["pending", "sending", "unknown", "rejected"].includes(delivery.state),
+      ["pending", "paused", "sending", "unknown", "returned", "rejected"].includes(delivery.state),
   )
 }
 
@@ -344,6 +344,8 @@ export function CodexSessionControls(props: {
 
   const deliveryState = (delivery: Delivery) => {
     if (delivery.state === "pending") return language.t("codex.delivery.pending")
+    if (delivery.state === "paused") return language.t("codex.queue.paused")
+    if (delivery.state === "returned") return language.t("codex.delivery.returned")
     if (delivery.state === "sending") return language.t("codex.delivery.sending")
     if (delivery.state === "accepted") return language.t("codex.delivery.accepted")
     if (delivery.state === "unknown") return language.t("codex.delivery.unknown")
@@ -352,6 +354,13 @@ export function CodexSessionControls(props: {
   }
 
   const deliveryHint = (delivery: Delivery) => {
+    if (delivery.state === "returned") return language.t("codex.delivery.returnedHint")
+    if (delivery.waitReason === "paused") return language.t("codex.delivery.pausedHint")
+    if (delivery.waitReason === "earlierInput") return language.t("codex.delivery.waitEarlier")
+    if (delivery.waitReason === "waitingApproval") return language.t("codex.runtime.waitingApproval")
+    if (delivery.waitReason === "waitingInput") return language.t("codex.runtime.waitingInput")
+    if (delivery.waitReason === "waitingForIdle") return language.t("codex.delivery.waitIdle")
+    if (delivery.waitReason === "waitingForConfiguration") return language.t("codex.delivery.waitSettings")
     if (!needsCodexDeliveryConfirmation(delivery)) return undefined
     const status = descriptor()?.runtimeStatus
     if (isCodexDeliveryActive(status) && status !== "interrupting")
@@ -755,7 +764,7 @@ export function CodexSessionControls(props: {
                         {language.t("codex.delivery.copyText")}
                       </Button>
                     </Show>
-                    <Show when={delivery.delivery === "queue" && delivery.state === "pending"}>
+                    <Show when={["pending", "paused", "returned"].includes(delivery.state)}>
                       <Button
                         data-action="withdraw-delivery"
                         size="small"
@@ -764,12 +773,21 @@ export function CodexSessionControls(props: {
                       >
                         {language.t("codex.queue.withdraw")}
                       </Button>
-                      <Show when={queuePaused() && pendingQueue()?.requestID === delivery.requestID}>
+                      <Show
+                        when={
+                          delivery.state === "paused" ||
+                          delivery.state === "returned" ||
+                          (queuePaused() && pendingQueue()?.requestID === delivery.requestID)
+                        }
+                      >
                         <Button
                           data-action="resume-queue"
                           size="small"
                           variant="primary"
-                          disabled={store.busy[`delivery:${delivery.requestID}`]}
+                          disabled={
+                            store.busy[`delivery:${delivery.requestID}`] ||
+                            (delivery.delivery === "queue" && descriptor()?.runtimeStatus !== "idle")
+                          }
                           onClick={() => queue("resume", delivery)}
                         >
                           {language.t("codex.queue.resume")}
