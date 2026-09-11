@@ -134,7 +134,7 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
           onClick={() => setState("archived", !state.archived)}
         >
           <Icon name={state.archived ? "arrow-left" : "archive"} />
-          <span>{language.t(state.archived ? "workspace.activeTasks" : "workspace.archived")}</span>
+          <span>{language.t(state.archived ? "common.goBack" : "workspace.archived")}</span>
         </button>
         <button type="button" data-slot="workspace-action" onClick={projects.utility.settings}>
           <Icon name="settings-gear" />

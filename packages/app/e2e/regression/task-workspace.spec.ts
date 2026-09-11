@@ -542,7 +542,7 @@ test("archives an idle task, preserves its identity and body, restores it, and b
   let archived = sidebar.locator('[data-session-id="ses-task-b"]')
   await expect(archived).toBeVisible()
   await expect(archived).toHaveAttribute("data-archived", "true")
-  await expect(archiveToggle).toHaveAccessibleName("All tasks")
+  await expect(archiveToggle).toHaveAccessibleName("Navigate back")
   await expect(archiveToggle.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-arrow-left")
   await archiveToggle.click()
   await expect(archiveToggle).toHaveAccessibleName("Archived")
@@ -575,6 +575,13 @@ test("archives an idle task, preserves its identity and body, restores it, and b
   await expect(page).toHaveURL(/\/session\/ses-task-b$/)
   await expect(page.getByText(betaBody, { exact: true })).toBeVisible()
   await expect(composer).toHaveText(draft)
+
+  await page.evaluate(() => localStorage.setItem("opencode.global.dat:language", JSON.stringify({ locale: "zh" })))
+  await page.reload()
+  await expect(archiveToggle).toHaveAccessibleName("已归档")
+  await archiveToggle.click()
+  await expect(archiveToggle).toHaveAccessibleName("返回")
+  await expect(archiveToggle.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-arrow-left")
 })
 
 test("archives remain read-only when restore fails", async ({ page }) => {
