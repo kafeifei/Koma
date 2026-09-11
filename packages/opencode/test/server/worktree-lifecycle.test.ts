@@ -1,4 +1,5 @@
 import fs from "node:fs/promises"
+import { $ } from "bun"
 import { describe, expect } from "bun:test"
 import { Effect, Layer, Schedule } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -123,13 +124,63 @@ describe("managed worktree V2 lifecycle", () => {
     }),
   )
 
+  it.live(
+    "restores an archived session after checkout removal fails",
+    () =>
+      Effect.gen(function* () {
+        const temp = yield* tmpdirScoped({ git: true })
+        const created = yield* requestInDirectory("/experimental/worktree", temp, json("POST", { wait: true }))
+        expect(created.status).toBe(200)
+        const worktree = (yield* created.json) as { directory: string }
+        yield* Effect.promise(() => fs.writeFile(`${worktree.directory}/draft.txt`, "keep after archive failure"))
+        const admitted = yield* requestInDirectory(
+          "/api/session",
+          temp,
+          json("POST", { location: { directory: worktree.directory } }),
+        )
+        expect(admitted.status).toBe(200)
+        const session = (yield* admitted.json) as { data: { id: string } }
+        const route = `/api/session/${session.data.id}`
+        yield* Effect.promise(() =>
+          $`git worktree lock --reason archive-failure-test ${worktree.directory}`.cwd(temp).quiet(),
+        )
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(() => $`git worktree unlock ${worktree.directory}`.cwd(temp).quiet().nothrow()).pipe(
+            Effect.ignore,
+          ),
+        )
+
+        expect((yield* requestInDirectory(`${route}/archive`, temp, { method: "POST" })).status).toBe(409)
+        expect(yield* Effect.promise(() => fs.readFile(`${worktree.directory}/draft.txt`, "utf8"))).toBe(
+          "keep after archive failure",
+        )
+        const failed = yield* requestInDirectory(`/experimental/session/${session.data.id}/worktree`, temp)
+        expect(yield* failed.json).toMatchObject({ managed: true, state: "failed", operation: "archive" })
+
+        expect((yield* requestInDirectory(`${route}/restore`, temp, { method: "POST" })).status).toBe(204)
+        expect(yield* Effect.promise(() => fs.readFile(`${worktree.directory}/draft.txt`, "utf8"))).toBe(
+          "keep after archive failure",
+        )
+        const restored = (yield* (yield* requestInDirectory(route, temp)).json) as {
+          data: { time: { archived?: number } }
+        }
+        expect(restored.data.time.archived).toBeUndefined()
+        const status = yield* requestInDirectory(`/experimental/session/${session.data.id}/worktree`, temp)
+        expect(yield* status.json).toMatchObject({ managed: true, state: "resident" })
+
+        yield* Effect.promise(() => $`git worktree unlock ${worktree.directory}`.cwd(temp).quiet())
+        expect((yield* requestInDirectory(route, temp, { method: "DELETE" })).status).toBe(204)
+      }),
+    15_000,
+  )
+
   for (const [api, sameLocation] of [
     ["/pty", false],
     ["/api/pty", false],
     ["/api/pty", true],
   ] as const) {
     it.live(
-      `keeps ${api} checkout usage (${sameLocation ? "own" : "other"} Location) and rejects new terminals during archive`,
+      `cancels ${api} checkout archive (${sameLocation ? "own" : "other"} Location) without closing its terminal`,
       () =>
         Effect.gen(function* () {
           const temp = yield* tmpdirScoped({ git: true })
@@ -170,8 +221,33 @@ describe("managed worktree V2 lifecycle", () => {
           expect(blocked.status).toBe(409)
           expect(yield* blocked.json).toMatchObject({ _tag: "ConflictError" })
           expect((yield* requestInDirectory(`${route}`, temp, { method: "DELETE" })).status).toBe(409)
+
+          const cancelled = yield* requestInDirectory(`${route}/restore`, temp, { method: "POST" })
+          expect(cancelled.status).toBe(204)
+          expect(
+            yield* Effect.promise(() =>
+              fs.access(worktree.directory).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(true)
+          const restoredStatus = yield* requestInDirectory(`/experimental/session/${session.data.id}/worktree`, temp)
+          expect(yield* restoredStatus.json).toMatchObject({ managed: true, state: "resident" })
+          expect((yield* requestInDirectory(`${api}/${ptyID}`, terminalDirectory)).status).toBe(200)
+
+          const reopened = yield* requestInDirectory(api, worktree.directory, json("POST", { command: "/bin/cat" }))
+          expect(reopened.status).toBe(200)
+          const reopenedBody = (yield* reopened.json) as { id?: string; data?: { id: string } }
+          const reopenedID = reopenedBody.data?.id ?? reopenedBody.id!
+          const reopenedRemoved = yield* requestInDirectory(`${api}/${reopenedID}`, worktree.directory, {
+            method: "DELETE",
+          })
+          expect(reopenedRemoved.status).toBe(api === "/pty" ? 200 : 204)
           const removed = yield* requestInDirectory(`${api}/${ptyID}`, terminalDirectory, { method: "DELETE" })
           expect(removed.status).toBe(api === "/pty" ? 200 : 204)
+
+          expect((yield* requestInDirectory(`${route}/archive`, temp, { method: "POST" })).status).toBe(204)
           yield* Effect.repeat(
             Effect.promise(() =>
               fs.access(worktree.directory).then(
@@ -187,6 +263,7 @@ describe("managed worktree V2 lifecycle", () => {
           expect((yield* requestInDirectory(`${route}/restore`, temp, { method: "POST" })).status).toBe(204)
           expect((yield* requestInDirectory(route, temp, { method: "DELETE" })).status).toBe(204)
         }),
+      15_000,
     )
   }
 })

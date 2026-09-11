@@ -354,7 +354,7 @@ const layer = Layer.effect(
 
     const directoryExists = (owner: Owner) => fs.existsSafe(owner.directory)
 
-    const removeCheckout = Effect.fnUntraced(function* (owner: Owner) {
+    const registeredCheckout = Effect.fnUntraced(function* (owner: Owner) {
       const list = yield* gitRun(owner, ["worktree", "list", "--porcelain", "-z"])
       const entries = yield* Effect.forEach(
         list.split("\0\0").filter(Boolean),
@@ -372,14 +372,38 @@ const layer = Layer.effect(
           }),
         { concurrency: "unbounded" },
       )
-      const registered = entries.find((entry) => entry?.directory === owner.directory)
-      const exists = yield* directoryExists(owner)
-      if (exists && !registered) {
+      return entries.find((entry) => entry?.directory === owner.directory)
+    })
+
+    const assertResidentCheckout = Effect.fnUntraced(function* (owner: Owner) {
+      const registered = yield* registeredCheckout(owner)
+      if (!registered) {
         return yield* fail("conflict", "managed worktree path is no longer registered; directory was preserved", owner)
       }
-      if (registered && registered.branch !== owner.branch) {
+      if (registered.branch !== owner.branch) {
         return yield* fail("conflict", "managed worktree branch identity changed; directory was preserved", owner)
       }
+      const branch = yield* git.run(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: owner.directory })
+      if (branch.exitCode !== 0 || branch.text().trim() !== owner.branch) {
+        return yield* fail("conflict", "managed worktree directory is no longer on its registered branch", owner)
+      }
+      const common = yield* git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        cwd: owner.directory,
+      })
+      const root = yield* git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: owner.root })
+      if (
+        common.exitCode !== 0 ||
+        root.exitCode !== 0 ||
+        (yield* fs.resolve(common.text().trim())) !== (yield* fs.resolve(root.text().trim()))
+      ) {
+        return yield* fail("conflict", "managed worktree directory belongs to a different Git repository", owner)
+      }
+      return registered
+    })
+
+    const removeCheckout = Effect.fnUntraced(function* (owner: Owner) {
+      const exists = yield* directoryExists(owner)
+      const registered = exists ? yield* assertResidentCheckout(owner) : yield* registeredCheckout(owner)
       if (registered || exists) {
         yield* disposal
           .disposeDirectory(owner.directory)
@@ -399,6 +423,25 @@ const layer = Layer.effect(
       // Git owns checkout removal. A refusal or a remaining directory never authorizes recursive filesystem deletion.
       if (yield* directoryExists(owner))
         return yield* fail("unavailable", "managed worktree directory still exists", owner)
+    })
+
+    const cancelArchive = Effect.fnUntraced(function* (owner: Owner) {
+      if (!(yield* directoryExists(owner))) return false
+      yield* assertResidentCheckout(owner)
+      if (!owner.sessionID) return yield* fail("conflict", "managed worktree has no owning session", owner)
+      // The live checkout remains authoritative when removal never completed. Discard only our private snapshot metadata.
+      const current = owner.oid
+        ? undefined
+        : yield* git.run(["rev-parse", "--verify", "--quiet", ref(owner)], { cwd: owner.root })
+      const oid = owner.oid ?? (current?.exitCode === 0 ? current.text().trim() : undefined)
+      if (oid) {
+        yield* archive
+          .clear({ directory: owner.root, sessionID: owner.sessionID, oid })
+          .pipe(Effect.mapError((error) => fail("git", error.message, owner)))
+      }
+      yield* write({ ...owner, intent: undefined, phase: "resident", oid: undefined, lastError: undefined })
+      yield* unblock(owner.directory)
+      return true
     })
 
     const capture = Effect.fnUntraced(function* (owner: Owner) {
@@ -624,7 +667,10 @@ const layer = Layer.effect(
             return yield* fail("busy", "worktree has a pending delete request", current)
           }
           if (current.intent === "archive" && current.phase !== "removed") {
-            return yield* fail("busy", "worktree archive has not finished removing the checkout", current)
+            if (yield* cancelArchive(current)) return { managed: true }
+            if (!current.oid) {
+              return yield* fail("conflict", "worktree archive snapshot is missing; checkout was preserved", current)
+            }
           }
           yield* block(current.directory)
           const planned = yield* write({ ...current, intent: "restore", lastError: undefined }).pipe(

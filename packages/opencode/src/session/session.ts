@@ -8,6 +8,7 @@ import { BackgroundJob } from "@/background/job"
 import { Decimal } from "decimal.js"
 import type { ProviderMetadata, Usage } from "@opencode-ai/llm"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { KeyedMutex } from "@opencode-ai/core/effect/keyed-mutex"
 import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionV2 } from "@opencode-ai/core/session"
@@ -555,6 +556,8 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const lifecycle = yield* WorktreeLifecycle.Service
+    // Keep lifecycle state and the archived timestamp in one per-Session order across directory-scoped requests.
+    const archiveMutations = KeyedMutex.makeUnsafe<SessionID>()
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -908,20 +911,24 @@ const layer = Layer.effect(
       yield* patch(input.sessionID, { title: input.title }).pipe(Effect.orDie)
     })
 
-    const setArchived = Effect.fn("Session.setArchived")(function* (input: { sessionID: SessionID; time?: number }) {
-      if (input.time !== undefined) {
-        const managed = yield* lifecycle.prepareArchive(input.sessionID)
-        yield* patch(input.sessionID, { time: { archived: input.time } }).pipe(
-          Effect.onError(() => lifecycle.abortArchive(input.sessionID)),
-          Effect.orDie,
-        )
-        if (managed.managed) yield* lifecycle.continueArchive(input.sessionID)
-        return
-      }
+    const setArchived = Effect.fn("Session.setArchived")((input: { sessionID: SessionID; time?: number }) => {
+      return archiveMutations.withLock(input.sessionID)(
+        Effect.gen(function* () {
+          if (input.time !== undefined) {
+            const managed = yield* lifecycle.prepareArchive(input.sessionID)
+            yield* patch(input.sessionID, { time: { archived: input.time } }).pipe(
+              Effect.onError(() => lifecycle.abortArchive(input.sessionID)),
+              Effect.orDie,
+            )
+            if (managed.managed) yield* lifecycle.continueArchive(input.sessionID)
+            return
+          }
 
-      const managed = yield* lifecycle.prepareRestore(input.sessionID)
-      if (managed.managed) yield* lifecycle.finalizeRestore(input.sessionID)
-      yield* patch(input.sessionID, { time: { archived: undefined } }).pipe(Effect.orDie)
+          const managed = yield* lifecycle.prepareRestore(input.sessionID)
+          if (managed.managed) yield* lifecycle.finalizeRestore(input.sessionID)
+          yield* patch(input.sessionID, { time: { archived: undefined } }).pipe(Effect.orDie)
+        }),
+      )
     })
 
     const setMetadata = Effect.fn("Session.setMetadata")(function* (input: typeof SetMetadataInput.Type) {
