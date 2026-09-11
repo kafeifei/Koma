@@ -600,6 +600,67 @@ describe("SessionExternal", () => {
     }),
   )
 
+  it.effect("pauses only the admitted boundary and resumes one exact retained input", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const created = yield* external.create(input)
+      yield* external.admit({
+        sessionID: created.session.id,
+        requestID: "before-stop",
+        payload: input.payload,
+        delivery: "steer",
+      })
+      yield* external.pause(created.session.id)
+      yield* external.admit({
+        sessionID: created.session.id,
+        requestID: "after-stop",
+        payload: input.payload,
+        delivery: "steer",
+      })
+      expect((yield* external.getDelivery({ sessionID: created.session.id, requestID: input.requestID }))?.state).toBe(
+        "paused",
+      )
+      expect((yield* external.getDelivery({ sessionID: created.session.id, requestID: "before-stop" }))?.state).toBe(
+        "paused",
+      )
+      expect((yield* external.getDelivery({ sessionID: created.session.id, requestID: "after-stop" }))?.state).toBe(
+        "pending",
+      )
+      const resumed = yield* external.resume({ sessionID: created.session.id, requestID: "before-stop" })
+      expect(resumed.state).toBe("pending")
+      expect(resumed.requestID).toBe("before-stop")
+      expect(resumed.sequence).toBe(2)
+      expect((yield* external.get(created.session.id)).binding.queuePaused).toBe(false)
+    }),
+  )
+
+  it.effect("returns an ACK-only input and requires explicit exact resume", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const created = yield* external.create(input)
+      const key = { sessionID: created.session.id, requestID: input.requestID }
+      yield* external.claimBinding({ sessionID: key.sessionID, generation: "host:1" })
+      yield* external.bind({ sessionID: key.sessionID, generation: "host:1", nativeThreadID: "native" })
+      yield* external.claim({ ...key, generation: "host:1" })
+      yield* external.settle({ ...key, generation: "host:1", state: "accepted", nativeTurnID: "turn-1" })
+      const returned = yield* external.settle({
+        ...key,
+        generation: "host:1",
+        state: "returned",
+        nativeTurnID: "turn-1",
+        error: "Native turn ended before this input entered history",
+      })
+      expect(returned.state).toBe("returned")
+      expect(returned.payload).toEqual(input.payload)
+      expect((yield* external.pending(key.sessionID)).map((item) => item.requestID)).not.toContain(key.requestID)
+      const resumed = yield* external.resume(key)
+      expect(resumed.state).toBe("pending")
+      expect(resumed.generation).toBeUndefined()
+      expect(resumed.nativeTurnID).toBeUndefined()
+      expect(resumed.error).toBeUndefined()
+    }),
+  )
+
   it.effect("atomically fences pending withdrawal against the native send claim", () =>
     Effect.gen(function* () {
       const external = yield* SessionExternal.Service
