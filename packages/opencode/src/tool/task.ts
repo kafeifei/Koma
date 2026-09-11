@@ -9,6 +9,7 @@ import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
 import type { SessionPrompt } from "../session/prompt"
+import type { SessionTaskResult } from "../session/task-result"
 import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { Effect, Exit, Option, Schema, Scope, Semaphore } from "effect"
@@ -20,6 +21,7 @@ export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<SessionV1.WithParts>
+  taskResult(input: SessionTaskResult.Input): Effect.Effect<SessionTaskResult.Receipt>
 }
 
 const id = "task"
@@ -303,29 +305,22 @@ export const TaskTool = Tool.define(
             state: "completed" | "error",
             text: string,
           ) {
-            const currentParent = yield* sessions.get(ctx.sessionID)
-            yield* ops
-              .prompt({
-                sessionID: ctx.sessionID,
-                agent: currentParent.agent ?? ctx.agent,
-                variant: parentVariant,
-                parts: [
-                  {
-                    type: "text",
-                    synthetic: true,
-                    text: renderOutput({
-                      sessionID: nextSession.id,
-                      state,
-                      summary:
-                        state === "completed"
-                          ? `Background task completed: ${params.description}`
-                          : `Background task failed: ${params.description}`,
-                      text,
-                    }),
-                  },
-                ],
-              })
-              .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+            yield* ops.taskResult({
+              sessionID: ctx.sessionID,
+              childSessionID: nextSession.id,
+              sourceMessageID: ctx.messageID,
+              callID: ctx.callID,
+              state,
+              text: renderOutput({
+                sessionID: nextSession.id,
+                state,
+                summary:
+                  state === "completed"
+                    ? `Background task completed: ${params.description}`
+                    : `Background task failed: ${params.description}`,
+                text,
+              }),
+            })
           })
 
           const notify = Effect.fn("TaskTool.notifyBackgroundResult")(function* (jobID: string) {

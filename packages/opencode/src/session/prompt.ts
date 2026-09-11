@@ -58,6 +58,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 import { WorktreeLifecycle } from "@/worktree/lifecycle"
+import { SessionTaskResult } from "./task-result"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -106,6 +107,7 @@ type PromptError = Image.Error | Session.BusyError | Session.ArchivedError
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
   readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, PromptError>
+  readonly taskResult: (input: SessionTaskResult.Input) => Effect.Effect<SessionTaskResult.Receipt>
   readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError | Session.ArchivedError>
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, PromptError>
@@ -151,6 +153,7 @@ const layer = Layer.effect(
         cancel: (sessionID: SessionID) => cancel(sessionID),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input).pipe(Effect.catch(Effect.die)),
+        taskResult: (input: SessionTaskResult.Input) => taskResult(input),
       } satisfies TaskPromptOps
     })
 
@@ -1096,6 +1099,55 @@ const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
+    const taskResult = Effect.fn("SessionPrompt.taskResult")(function* (input: SessionTaskResult.Input) {
+      const report = (phase: "admission" | "wake", cause: Cause.Cause<unknown>) =>
+        Effect.gen(function* () {
+          yield* Effect.logError("background task result delivery failed", {
+            sessionID: input.sessionID,
+            childSessionID: input.childSessionID,
+            sourceMessageID: input.sourceMessageID,
+            callID: input.callID,
+            phase,
+            accepted: phase === "wake",
+            cause: Cause.pretty(cause),
+          })
+          yield* events.publish(Session.Event.Error, {
+            sessionID: input.sessionID,
+            error: new NamedError.Unknown({
+              message:
+                phase === "wake"
+                  ? `Background task result was saved, but the parent could not resume: ${Cause.pretty(cause)}`
+                  : `Background task result could not be saved: ${Cause.pretty(cause)}`,
+            }).toObject(),
+          })
+        })
+      const receipt = yield* SessionTaskResult.record(input).pipe(
+        Effect.provideService(Database.Service, database),
+        Effect.provideService(Session.Service, sessions),
+        Effect.catchCause((cause) => report("admission", cause).pipe(Effect.andThen(Effect.failCause(cause)))),
+      )
+      if (!receipt.accepted) return receipt
+      const parent = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      if (parent.time.archived !== undefined) return receipt
+
+      // Joining an existing runner does not change its lifecycle. A new runner
+      // checks archive state at admission; archiving after that does not cancel it.
+      const work = Effect.gen(function* () {
+        const admitted = yield* db
+          .transaction(() =>
+            sessions.get(input.sessionID).pipe(Effect.map((value) => value.time.archived === undefined)),
+          )
+          .pipe(Effect.orDie)
+        if (!admitted) return yield* lastAssistant(input.sessionID)
+        return yield* runLoop(input.sessionID)
+      })
+      yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), work).pipe(
+        Effect.catchCause((cause) => report("wake", cause)),
+        Effect.forkIn(scope, { startImmediately: true }),
+      )
+      return receipt
+    })
+
     const runLoop: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
@@ -1525,6 +1577,7 @@ const layer = Layer.effect(
     return Service.of({
       cancel,
       prompt,
+      taskResult,
       loop,
       shell,
       command,

@@ -12,6 +12,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Session } from "@/session/session"
 import type { SessionPrompt } from "../../src/session/prompt"
+import type { SessionTaskResult } from "../../src/session/task-result"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
@@ -140,6 +141,7 @@ function stubOps(opts?: {
 }): TaskPromptOps {
   return {
     cancel: () => Effect.void,
+    taskResult: () => Effect.succeed({ messageID: MessageID.ascending(), accepted: true }),
     resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
     prompt: (input) =>
       Effect.sync(() => {
@@ -689,6 +691,7 @@ describe("tool.task", () => {
       const cancelled = defer<SessionID>()
       const abort = new AbortController()
       const promptOps: TaskPromptOps = {
+        ...stubOps(),
         cancel: (sessionID) =>
           Effect.sync(() => {
             cancelled.resolve(sessionID)
@@ -954,15 +957,15 @@ describe("tool.task", () => {
       const def = yield* tool.init()
       const ready = yield* Deferred.make<void>()
       const done = yield* Deferred.make<void>()
-      const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+      const injected = yield* Deferred.make<SessionTaskResult.Input>()
       let runs = 0
       const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        taskResult: (input) =>
+          Deferred.succeed(injected, input).pipe(Effect.as({ messageID: MessageID.ascending(), accepted: true })),
         cancel: () => Effect.void,
         resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
         prompt: (input) => {
-          if (input.sessionID === chat.id) {
-            return Deferred.succeed(injected, input).pipe(Effect.as(reply(input, "injected")))
-          }
           return Effect.gen(function* () {
             runs += 1
             yield* Deferred.succeed(ready, undefined)
@@ -1007,7 +1010,7 @@ describe("tool.task", () => {
 
       yield* Deferred.succeed(done, undefined)
       expect((yield* jobs.wait({ id: result.metadata.sessionId })).info?.output).toBe("background done")
-      expect((yield* Deferred.await(injected)).parts[0]?.type).toBe("text")
+      expect((yield* Deferred.await(injected)).text).toContain("background done")
       expect(runs).toBe(1)
     }),
   )
@@ -1358,15 +1361,16 @@ describe("tool.task", () => {
         const first = defer<void>()
         const second = defer<void>()
         const updated = defer<SessionPrompt.PromptInput>()
-        const injected = defer<SessionPrompt.PromptInput>()
+        const injected = defer<SessionTaskResult.Input>()
         let prompts = 0
         const promptOps: TaskPromptOps = {
           ...stubOps(),
-          prompt: (input) => {
-            if (input.sessionID === chat.id) {
+          taskResult: (input) =>
+            Effect.sync(() => {
               injected.resolve(input)
-              return Effect.succeed(reply(input, "done"))
-            }
+              return { messageID: MessageID.ascending(), accepted: true }
+            }),
+          prompt: (input) => {
             prompts++
             if (prompts === 1) return Effect.promise(() => first.promise).pipe(Effect.as(reply(input, "first done")))
             updated.resolve(input)
@@ -1420,9 +1424,9 @@ describe("tool.task", () => {
         expect(waited.info?.status).toBe("completed")
         expect(waited.info?.output).toBe("second done")
         const notification = yield* Effect.promise(() => injected.promise)
-        expect(notification.variant).toBe("xhigh")
-        expect(notification.parts[0]?.type).toBe("text")
-        if (notification.parts[0]?.type === "text") expect(notification.parts[0].text).toContain("second done")
+        expect(notification).not.toHaveProperty("variant")
+        expect(notification.sourceMessageID).toBe(assistant.id)
+        expect(notification.text).toContain("second done")
       }),
     { config: modelConfig },
   )
@@ -1460,7 +1464,7 @@ describe("tool.task", () => {
     }),
   )
 
-  background.instance("background task completion does not wait for the parent async prompt", () =>
+  background.instance("background task completion does not wait for parent result delivery", () =>
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
       const { chat, assistant } = yield* seed()
@@ -1482,8 +1486,7 @@ describe("tool.task", () => {
           extra: {
             promptOps: {
               ...stubOps({ text: "background done" }),
-              prompt: (input) =>
-                input.sessionID === chat.id ? Effect.never : Effect.succeed(reply(input, "background done")),
+              taskResult: () => Effect.never,
             } satisfies TaskPromptOps,
           },
           messages: [],
