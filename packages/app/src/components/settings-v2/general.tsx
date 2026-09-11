@@ -211,9 +211,23 @@ const SoundsSection: Component<{ controller: SoundSettingsController }> = (props
     <div class="settings-v2-section">
       <h3 class="settings-v2-section-title">{language.t("settings.general.section.sounds")}</h3>
       <SettingsListV2>
-        <SoundSetting kind="agent" channel={props.controller.agent} />
-        <SoundSetting kind="permissions" channel={props.controller.permissions} />
-        <SoundSetting kind="errors" channel={props.controller.errors} />
+        <SettingsRowV2
+          title={language.t("settings.general.sounds.enabled.title")}
+          description={language.t("settings.general.sounds.enabled.description")}
+        >
+          <div data-action="settings-sounds-enabled">
+            <Switch checked={props.controller.enabled()} onChange={props.controller.setEnabled} hideLabel>
+              {language.t("settings.general.sounds.enabled.title")}
+            </Switch>
+          </div>
+        </SettingsRowV2>
+        <SoundSetting kind="agent" channel={props.controller.agent} disabled={!props.controller.enabled()} />
+        <SoundSetting
+          kind="permissions"
+          channel={props.controller.permissions}
+          disabled={!props.controller.enabled()}
+        />
+        <SoundSetting kind="errors" channel={props.controller.errors} disabled={!props.controller.enabled()} />
       </SettingsListV2>
     </div>
   )
@@ -222,6 +236,7 @@ const SoundsSection: Component<{ controller: SoundSettingsController }> = (props
 const SoundSetting: Component<{
   kind: "agent" | "permissions" | "errors"
   channel: SoundSettingsController["agent"]
+  disabled: boolean
 }> = (props) => {
   const language = useLanguage()
   const config = () => soundSettings[props.kind]
@@ -230,6 +245,7 @@ const SoundSetting: Component<{
       <SelectV2
         appearance="inline"
         data-action={config().action}
+        disabled={props.disabled}
         options={soundOptions}
         current={props.channel.current()}
         value={(option) => option.id}

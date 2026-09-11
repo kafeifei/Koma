@@ -1,4 +1,4 @@
-import { createMemo, createResource, onMount, type Accessor } from "solid-js"
+import { createEffect, createMemo, createResource, onMount, type Accessor } from "solid-js"
 import type { ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { usePermission } from "@/context/permission"
@@ -125,6 +125,9 @@ export type SoundSelectOption = (typeof soundOptions)[number]
 export function createSoundSettingsController() {
   const settings = useSettings()
   const preview = createSoundPreviewController(playSoundById)
+  createEffect(() => {
+    if (!settings.sounds.enabled()) preview.stop()
+  })
   const channel = (
     enabled: Accessor<boolean>,
     current: Accessor<string>,
@@ -152,6 +155,8 @@ export function createSoundSettingsController() {
   })
 
   return {
+    enabled: settings.sounds.enabled,
+    setEnabled: settings.sounds.setEnabled,
     agent: channel(
       settings.sounds.agentEnabled,
       settings.sounds.agent,

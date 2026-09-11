@@ -1081,6 +1081,8 @@ export const dict = {
   "settings.general.notifications.errors.title": "錯誤",
   "settings.general.notifications.errors.description": "發生錯誤時顯示系統通知",
 
+  "settings.general.sounds.enabled.title": "音效總開關",
+  "settings.general.sounds.enabled.description": "開啟或關閉所有音效，並保留各類音效的設定。",
   "settings.general.sounds.agent.title": "代理程式",
   "settings.general.sounds.agent.description": "當代理程式完成或需要注意時播放聲音",
   "settings.general.sounds.permissions.title": "權限",

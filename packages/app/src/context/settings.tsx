@@ -3,6 +3,7 @@ import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
 import { usePlatform } from "@/context/platform"
+import { setSoundEnabled } from "@/utils/sound"
 
 export interface NotificationSettings {
   agent: boolean
@@ -11,6 +12,7 @@ export interface NotificationSettings {
 }
 
 export interface SoundSettings {
+  enabled: boolean
   agentEnabled: boolean
   agent: string
   permissionsEnabled: boolean
@@ -212,6 +214,7 @@ const defaultSettings: Settings = {
     errors: false,
   },
   sounds: {
+    enabled: true,
     agentEnabled: true,
     agent: "staplebops-01",
     permissionsEnabled: true,
@@ -231,6 +234,8 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
   init: () => {
     const platform = usePlatform()
     const [store, setStore, settingsInit, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
+    const soundsEnabled = withFallback(() => store.sounds?.enabled, defaultSettings.sounds.enabled)
+    createEffect(() => setSoundEnabled(ready() && soundsEnabled()))
     const [launch, setLaunch, , launchReady] = persisted(
       "app-version.v1",
       createStore<{ version?: string }>({ version: undefined }),
@@ -514,6 +519,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
       },
       sounds: {
+        enabled: soundsEnabled,
+        setEnabled(value: boolean) {
+          setStore("sounds", "enabled", value)
+        },
         agentEnabled: withFallback(() => store.sounds?.agentEnabled, defaultSettings.sounds.agentEnabled),
         setAgentEnabled(value: boolean) {
           setStore("sounds", "agentEnabled", value)

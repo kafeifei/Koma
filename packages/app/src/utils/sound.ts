@@ -1,5 +1,21 @@
 let files: Record<string, () => Promise<string>> | undefined
 let loads: Record<SoundID, () => Promise<string>> | undefined
+const playback = {
+  enabled: true,
+  generation: 0,
+  active: new Set<HTMLAudioElement>(),
+}
+
+export function setSoundEnabled(enabled: boolean) {
+  playback.enabled = enabled
+  if (enabled) return
+  playback.generation += 1
+  for (const audio of playback.active) {
+    audio.pause()
+    audio.currentTime = 0
+  }
+  playback.active.clear()
+}
 
 function getFiles() {
   if (files) return files
@@ -87,16 +103,28 @@ export function soundSrc(id: string | undefined) {
 }
 
 export function playSound(src: string | undefined) {
+  if (!playback.enabled) return
   if (typeof Audio === "undefined") return
   if (!src) return
   const audio = new Audio(src)
-  audio.play().catch(() => undefined)
+  playback.active.add(audio)
+  const release = () => playback.active.delete(audio)
+  audio.addEventListener("ended", release, { once: true })
+  audio.addEventListener("error", release, { once: true })
+  audio.play().catch(release)
   return () => {
     audio.pause()
     audio.currentTime = 0
+    release()
   }
 }
 
 export function playSoundById(id: string | undefined) {
-  return soundSrc(id).then((src) => playSound(src))
+  if (!playback.enabled) return Promise.resolve(undefined)
+  const generation = playback.generation
+  return soundSrc(id).then((src) => {
+    // Muting also cancels sounds whose assets are still loading.
+    if (generation !== playback.generation) return
+    return playSound(src)
+  })
 }

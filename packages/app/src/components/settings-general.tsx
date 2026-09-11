@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { Component, Show, createEffect, createMemo, createResource, onCleanup, onMount, type JSX } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
@@ -92,6 +92,10 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const dialog = useDialog()
   const settings = useSettings()
+  createEffect(() => {
+    if (!settings.sounds.enabled()) stopDemoSound()
+  })
+  onCleanup(stopDemoSound)
   const serverSync = useServerSync()
   const serverSdk = useServerSDK()
 
@@ -624,11 +628,23 @@ export const SettingsGeneral: Component = () => {
 
       <SettingsList>
         <SettingsRow
+          title={language.t("settings.general.sounds.enabled.title")}
+          description={language.t("settings.general.sounds.enabled.description")}
+        >
+          <div data-action="settings-sounds-enabled">
+            <Switch checked={settings.sounds.enabled()} onChange={settings.sounds.setEnabled} hideLabel>
+              {language.t("settings.general.sounds.enabled.title")}
+            </Switch>
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.sounds.agent.title")}
           description={language.t("settings.general.sounds.agent.description")}
         >
           <Select
             data-action="settings-sounds-agent"
+            disabled={!settings.sounds.enabled()}
             {...soundSelectProps(
               () => settings.sounds.agentEnabled(),
               () => settings.sounds.agent(),
@@ -644,6 +660,7 @@ export const SettingsGeneral: Component = () => {
         >
           <Select
             data-action="settings-sounds-permissions"
+            disabled={!settings.sounds.enabled()}
             {...soundSelectProps(
               () => settings.sounds.permissionsEnabled(),
               () => settings.sounds.permissions(),
@@ -659,6 +676,7 @@ export const SettingsGeneral: Component = () => {
         >
           <Select
             data-action="settings-sounds-errors"
+            disabled={!settings.sounds.enabled()}
             {...soundSelectProps(
               () => settings.sounds.errorsEnabled(),
               () => settings.sounds.errors(),

@@ -1210,6 +1210,9 @@ export const dict = {
   "settings.general.notifications.errors.title": "Errors",
   "settings.general.notifications.errors.description": "Show system notification when an error occurs",
 
+  "settings.general.sounds.enabled.title": "Enable sounds",
+  "settings.general.sounds.enabled.description":
+    "Turn all sound effects on or off while keeping your individual sound settings.",
   "settings.general.sounds.agent.title": "Agent",
   "settings.general.sounds.agent.description": "Play sound when the agent is complete or needs attention",
   "settings.general.sounds.permissions.title": "Permissions",
