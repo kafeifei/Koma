@@ -57,6 +57,7 @@ import { initializeRuntimeResources, runtimePath } from "./resources"
 import { ensureLabBackend } from "./lab-backend"
 import { createShutdownController } from "./shutdown-controller"
 import { createBackendExperiments } from "./backend-experiments"
+import { confirmBackendShutdown } from "./shutdown-confirmation"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -245,18 +246,25 @@ const main = Effect.gen(function* () {
   logger.log("runtime resources prepared", { renderer: runtimePath("renderer") })
   let initialized = false
   const shutdown = createShutdownController({
+    confirm: () =>
+      confirmBackendShutdown({
+        backend: async () => (startingLabBackend ? (await startingLabBackend).connection : undefined),
+        showDialog: (options) => dialog.showMessageBox(options),
+        warn: (error) => logger.warn("failed to check Lab tasks before quitting", error),
+      }),
     stop: stopSidecars,
     quit: () => app.quit(),
-    setQuitting: () => setAppQuitting(),
+    setQuitting: setAppQuitting,
     log: (message, meta) => logger.log(message, meta),
     warn: (message, error) => logger.warn(message, error),
   })
   const relaunch = () => {
-    shutdown.markQuitting()
-    void stopSidecars().finally(() => {
-      app.relaunch()
-      setImmediate(() => app.quit())
-    })
+    void shutdown
+      .requestQuit(() => {
+        app.relaunch()
+        app.quit()
+      })
+      .catch(() => undefined)
   }
   // Cleanup is scoped to this process and happens after windows and sidecars stop.
   // A crash may leave its temp snapshot; another instance must not remove it.
@@ -310,8 +318,7 @@ const main = Effect.gen(function* () {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      shutdown.markQuitting()
-      void stopSidecars().finally(() => setImmediate(() => app.quit()))
+      shutdown.forceQuit()
     })
   }
 
@@ -354,7 +361,7 @@ const main = Effect.gen(function* () {
   app.setAsDefaultProtocolClient(APP_PROTOCOL)
   registerRendererProtocol()
   setDockIcon()
-  const updater = setupAutoUpdater(stopSidecars)
+  const updater = setupAutoUpdater(shutdown.requestQuit)
   const menuDeps = {
     trigger: (id: string) => {
       const win = getLastFocusedWindow()

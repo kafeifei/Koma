@@ -93,6 +93,8 @@ import {
   serverAuthorizationLayer,
 } from "./middleware/authorization"
 import { EventApi } from "./groups/event"
+import { LabShutdownApi } from "./groups/lab-shutdown"
+import { labShutdownHandlers } from "./handlers/lab-shutdown"
 import { PtyConnectApi } from "./groups/pty"
 import { eventHandlers } from "./handlers/event"
 import { configHandlers } from "./handlers/config"
@@ -215,6 +217,11 @@ const uiRoute = HttpRouter.use((router) =>
   }),
 ).pipe(Layer.provide(authOnlyRouterLayer))
 
+const shutdownStateRoute = HttpApiBuilder.layer(LabShutdownApi).pipe(
+  Layer.provide(labShutdownHandlers),
+  Layer.provide(httpApiAuthLayer),
+)
+
 type RouteRequirements =
   | HttpRouter.HttpRouter
   | HttpRouter.Request<"Error", unknown>
@@ -301,6 +308,7 @@ export function createRoutes(
         ptyConnectApiRoutes,
         instanceRoutes,
         serverRoutes,
+        shutdownStateRoute,
         docRoute,
         uiRoute,
       ).pipe(

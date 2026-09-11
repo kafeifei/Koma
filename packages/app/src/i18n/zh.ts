@@ -3,6 +3,14 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "desktop.shutdown.title": "退出 OpenCode Lab？",
+  "desktop.shutdown.active.message": "仍有任务正在运行。",
+  "desktop.shutdown.active.detail": "退出将停止所有窗口，以及连接到此应用本地后端的网页和终端客户端中的任务。",
+  "desktop.shutdown.unknown.message": "无法检查任务状态。",
+  "desktop.shutdown.unknown.detail": "退出可能停止所有窗口，以及连接到此应用本地后端的网页和终端客户端中的任务。",
+  "desktop.shutdown.cancel": "取消",
+  "desktop.shutdown.stopAndQuit": "停止任务并退出",
+  "desktop.shutdown.quitAnyway": "仍然退出",
   "settings.experiments.title": "实验功能",
   "settings.experiments.scope":
     "作用于此 App 的本地 Lab 后端及连接它的所有客户端。更改将在完整退出并重新打开 App 后生效。退出也会停止该后端正在执行的任务，包括 CLI 任务。",
