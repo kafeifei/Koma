@@ -138,6 +138,16 @@ test("a stale owner PID can be replaced by a healthy backend", async () => {
   expect(await input.spawned()).toEqual([{ pid: replacement.pid }])
 }, 20_000)
 
+test("stop rejects a different owner and preserves the running backend", async () => {
+  await using input = await fixture()
+  const connection = await input.run("ensure")
+  expect(connection.ok).toBe(true)
+  await expect(LabBackend.stop(input.root, { pid: connection.pid, password: "another-owner" })).rejects.toThrow(
+    "ownership changed",
+  )
+  expect((await LabBackend.discover(input.root))?.pid).toBe(connection.pid)
+})
+
 test("failed health never replaces a live owner and reconnects when it recovers", async () => {
   await using input = await fixture()
   const first = await input.run("ensure")

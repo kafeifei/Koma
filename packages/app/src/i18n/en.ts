@@ -1,6 +1,16 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
+  "settings.experiments.title": "Experimental features",
+  "settings.experiments.scope":
+    "Applies to this app's local Lab backend and all clients connected to it. Changes take effect after fully quitting and reopening the app. Quitting also stops that backend's running tasks, including CLI tasks.",
+  "settings.experiments.background.title": "Background subagents",
+  "settings.experiments.background.description":
+    "Allows agents to launch subagents with background: true and receive completion notifications. Foreground execution remains available; enabling this does not change the tool's default mode.",
+  "settings.experiments.enabled": "Currently active: enabled",
+  "settings.experiments.disabled": "Currently active: disabled",
+  "settings.experiments.unknown": "The current backend state is unavailable.",
+  "settings.experiments.restart": "Saved. Fully quit and reopen the app to apply this change.",
   "session.panel.workspace": "Side workspace",
   "session.panel.allTabs": "All tabs",
   "session.panel.add": "Open panel",

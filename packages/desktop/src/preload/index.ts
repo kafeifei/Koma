@@ -13,6 +13,10 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
 }
 
 const api: ElectronAPI = {
+  backendExperiments: {
+    getState: () => ipcRenderer.invoke("backend-experiments-get-state"),
+    setBackgroundSubagents: (enabled) => ipcRenderer.invoke("backend-experiments-set-background-subagents", enabled),
+  },
   remoteAccess: {
     getState: () => ipcRenderer.invoke("remote-access-getState"),
     signIn: () => ipcRenderer.invoke("remote-access-signIn"),

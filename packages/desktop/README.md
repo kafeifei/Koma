@@ -119,15 +119,26 @@ its first argument, so local delivery can install the exact packaged executable.
 CLI binaries built with `OPENCODE_CHANNEL=lab` use the same launcher. Lab clients
 discover one authenticated loopback backend per profile, starting it when needed.
 Desktop publishes its bundled binary at an immutable version path before starting
-`opencode-lab backend serve`; closing Desktop, a Web page or a CLI does not stop it.
+`opencode-lab backend serve`. Closing a window, Web page or CLI does not stop it.
+Fully quitting or relaunching Desktop stops its authenticated local backend and
+all work on it, including CLI tasks, then waits for the profile to be released.
 The existing HTTP server and Session engine remain the execution owners. Lab does
 not use the pinned V2 sidecar switch to start a second backend. Other channels
 retain their existing sidecar selection and upstream CLI defaults.
 
 Use `opencode-lab backend status` to inspect the actual PID, version and protocol;
 `opencode-lab backend stop` explicitly stops it. Installing another compatible
-binary does not replace a running backend. Neither client shutdown nor packaging
-automatically stops or upgrades that backend.
+binary does not replace a running backend. Packaging does not stop or upgrade it.
+After a full Desktop quit, the next backend launch uses the installed executable.
+When upgrading from an older Desktop that kept its backend alive, explicitly stop
+that old backend before launching the updated application.
+
+Settings > Experimental features controls the local backend's startup preferences,
+stored in `config/experiments.json`. The background-subagent setting maps to the
+upstream `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS` environment flag. The UI shows
+saved and active state separately; apply changes by fully quitting and reopening
+the app. It does not restart work automatically or change Task's default mode.
+Without a saved preference, the original environment flag behavior is preserved.
 
 The Lab CLI supports the full terminal UI, `run`, `session list/delete`, `export`,
 `models`, `debug paths/config`, and explicit `permission list/reply`. `run --no-wait`

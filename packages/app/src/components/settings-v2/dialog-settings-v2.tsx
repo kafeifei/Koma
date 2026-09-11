@@ -16,6 +16,7 @@ import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { BuildInfo } from "../build-info"
 import { SettingsRemoteV2 } from "./remote"
+import { SettingsExperiments } from "../settings-experiments"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -91,6 +92,12 @@ export const DialogSettings: Component<{
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </TabsV2.Trigger>
+                    <Show when={platform.backendExperiments}>
+                      <TabsV2.Trigger value="experiments">
+                        <Icon name="sliders" />
+                        {language.t("settings.experiments.title")}
+                      </TabsV2.Trigger>
+                    </Show>
                   </div>
                 </div>
               </div>
@@ -127,6 +134,13 @@ export const DialogSettings: Component<{
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 />
         </TabsV2.Content>
+        <Show when={platform.backendExperiments}>
+          {(experiments) => (
+            <TabsV2.Content value="experiments" class="settings-v2-panel">
+              <SettingsExperiments experiments={experiments()} />
+            </TabsV2.Content>
+          )}
+        </Show>
       </TabsV2>
     </Dialog>
   )

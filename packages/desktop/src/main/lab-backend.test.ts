@@ -3,37 +3,38 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { LabBackend } from "@opencode-ai/core/lab-backend"
-import { StorageMigration } from "@opencode-ai/core/storage-migration"
 import { ensureLabBackend } from "./lab-backend"
 
 const logger = { log() {}, error() {} }
 
-test("attaches to a healthy Lab backend without requiring a bundled executable", async () => {
+test("full App shutdown stops its authenticated backend and permits a fresh backend", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-desktop-backend-"))
   const root = join(directory, "home")
-  const owner = await (async () => {
-    StorageMigration.prepareUnifiedHome({ root, legacyRoot: join(directory, "legacy"), acquireLock: () => true })
-    return LabBackend.claim(root)
-  })()
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch(request) {
-      if (request.headers.get("authorization") !== LabBackend.headers(owner).Authorization) {
-        return new Response("unauthorized", { status: 401 })
-      }
-      return Response.json({ healthy: new URL(request.url).pathname === "/global/health" })
-    },
-  })
+  const children: Bun.Subprocess[] = []
+  const start = async () => {
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "../../../core/test/fixture/lab-backend-worker.ts"), "server", root],
+      { cwd: directory, stdout: "ignore", stderr: "inherit" },
+    )
+    children.push(child)
+    return child.pid
+  }
   try {
-    await owner.ready(server.url.href)
+    const first = await LabBackend.ensure(root, start)
     const backend = await ensureLabBackend({ root, source: join(directory, "missing"), logger })
-    expect(backend.connection.pid).toBe(process.pid)
-    await backend.listener.stop()
-    expect((await LabBackend.discover(root))?.pid).toBe(process.pid)
+    expect(backend.connection.pid).toBe(first.pid)
+    const stopping = backend.listener.stop()
+    expect(backend.listener.stop()).toBe(stopping)
+    await stopping
+    expect(await children[0]!.exited).toBe(0)
+    expect(await LabBackend.discover(root)).toBeUndefined()
+    const second = await LabBackend.ensure(root, start)
+    expect(second.pid).not.toBe(first.pid)
+    await LabBackend.stop(root, second)
+    expect(await children[1]!.exited).toBe(0)
   } finally {
-    await server.stop(true)
-    await owner.release()
+    for (const child of children) if (child.exitCode === null) child.kill("SIGTERM")
+    await Promise.all(children.map((child) => child.exited))
     await rm(directory, { recursive: true, force: true })
   }
 })

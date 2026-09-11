@@ -32,6 +32,10 @@ export async function ensureLabBackend(input: { root: string; source: string; lo
       stdio: ["ignore", output.fd, output.fd],
       windowsHide: true,
     })
+    // Cover quitting during startup, before a healthy backend can be attached and stopped normally.
+    const stopOnExit = () => child.kill("SIGTERM")
+    process.once("exit", stopOnExit)
+    child.once("exit", () => process.removeListener("exit", stopOnExit))
     void output
       .close()
       .catch((error) => input.logger.error("failed to close Lab backend log handle", { error: error.message }))
@@ -63,10 +67,10 @@ export async function ensureLabBackend(input: { root: string; source: string; lo
     version: connection.version,
     url: connection.url,
   })
+  let stopping: Promise<void> | undefined
   return {
     connection,
-    // Desktop is only a client. Closing its windows must not cancel CLI work
-    // still running in the shared backend.
-    listener: { stop: () => Promise.resolve() },
+    // Window closure does not call stop; full App quit and relaunch do.
+    listener: { stop: () => (stopping ??= LabBackend.stop(input.root, connection)) },
   }
 }

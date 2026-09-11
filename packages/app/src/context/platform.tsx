@@ -9,6 +9,7 @@ import type { DraftStore } from "@/utils/draft-store"
 import type { BuildInfo } from "../build-info"
 import type { WebEntryPlatform } from "../web-entry"
 import type { RemoteAccessPlatform } from "../remote-access"
+import type { BackendExperimentsPlatform } from "../backend-experiments"
 
 type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
@@ -46,6 +47,9 @@ type PlatformBase = {
 
   /** Account-backed access to this desktop and the user's other devices. */
   remoteAccess?: RemoteAccessPlatform
+
+  /** Startup settings for this desktop's local Lab backend, independent of the selected server. */
+  backendExperiments?: BackendExperimentsPlatform
 
   /** Open a web or mail URL in the default system application */
   openExternal(url: string): void

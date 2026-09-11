@@ -7,6 +7,7 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import type { RemoteAccessPlatform } from "@opencode-ai/app/remote-access"
 import type { WebEntryPlatform } from "@opencode-ai/app/web-entry"
+import type { BackendExperimentsPlatform } from "@opencode-ai/app/backend-experiments"
 import { parseDesktopNativeBundle, type DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 
 import type { FatalRendererError, ServerReadyData, TitlebarTheme } from "../preload/types"
@@ -38,6 +39,7 @@ const pickerFilters = (ext?: string[]) => {
 const pickedFiles = createPickedFileAuthorizations()
 
 type Deps = {
+  backendExperiments?: BackendExperimentsPlatform
   remoteAccess: Omit<RemoteAccessPlatform, "subscribe">
   webEntry: Pick<WebEntryPlatform, "getState" | "setEnabled">
   killSidecar: () => Promise<void> | void
@@ -62,6 +64,15 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  ipcMain.handle("backend-experiments-get-state", () => {
+    if (!deps.backendExperiments) throw new Error("LAB_EXPERIMENTS_UNAVAILABLE")
+    return deps.backendExperiments.getState()
+  })
+  ipcMain.handle("backend-experiments-set-background-subagents", (_event, enabled: unknown) => {
+    if (!deps.backendExperiments) throw new Error("LAB_EXPERIMENTS_UNAVAILABLE")
+    if (typeof enabled !== "boolean") throw new Error("Invalid background subagent preference")
+    return deps.backendExperiments.setBackgroundSubagents(enabled)
+  })
   ipcMain.handle("install-cli", () => {
     if (CHANNEL !== "lab" || !process.env.OPENCODE_HOME) throw new Error("LAB_CLI_UNAVAILABLE")
     return installLabCli({

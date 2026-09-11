@@ -173,6 +173,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     debugTools: ["dev", "lab"].includes(import.meta.env.OPENCODE_BUILD.channel),
     webEntry: window.api.webEntry,
     remoteAccess: window.api.remoteAccess,
+    backendExperiments: import.meta.env.OPENCODE_BUILD.channel === "lab" ? window.api.backendExperiments : undefined,
     windowID: windowState.id,
 
     async openDirectoryPickerDialog(opts) {

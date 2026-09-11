@@ -56,6 +56,7 @@ import { createWebEntryController } from "./web-entry-controller"
 import { initializeRuntimeResources, runtimePath } from "./resources"
 import { ensureLabBackend } from "./lab-backend"
 import { createShutdownController } from "./shutdown-controller"
+import { createBackendExperiments } from "./backend-experiments"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -206,10 +207,12 @@ const main = Effect.gen(function* () {
       },
     },
   )
+  let startingLabBackend: ReturnType<typeof ensureLabBackend> | undefined
   let stopping: Promise<void> | undefined
   const stopSidecars = () => {
     return (stopping ??= (async () => {
       wslServers.stopAll()
+      if (startingLabBackend) await startingLabBackend.then((backend) => backend.listener.stop())
       await Promise.all([webEntry?.stop(), remoteAccess?.stop(), killSidecar()])
     })())
   }
@@ -361,6 +364,9 @@ const main = Effect.gen(function* () {
     relaunch,
   }
   registerIpcHandlers({
+    backendExperiments: labRoot
+      ? createBackendExperiments({ root: labRoot, backend: () => Effect.runPromise(Deferred.await(serverReady)) })
+      : undefined,
     webEntry,
     remoteAccess,
     killSidecar: () => killSidecar(),
@@ -414,15 +420,16 @@ const main = Effect.gen(function* () {
 
     if (CHANNEL === "lab" && labRoot) {
       logger.log("connecting shared Lab backend")
-      const sidecar = yield* Effect.promise(() =>
-        ensureLabBackend({
-          root: labRoot,
-          source: join(
-            app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
-            process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab",
-          ),
-          logger,
-        }),
+      const sidecar = yield* Effect.promise(
+        () =>
+          (startingLabBackend = ensureLabBackend({
+            root: labRoot,
+            source: join(
+              app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
+              process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab",
+            ),
+            logger,
+          })),
       )
       server = sidecar.listener
       yield* Deferred.succeed(serverReady, {

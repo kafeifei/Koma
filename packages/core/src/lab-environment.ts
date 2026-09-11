@@ -1,4 +1,5 @@
 import { StoragePaths } from "./storage-paths"
+import { LabExperiments } from "./lab-experiments"
 
 // Both launchers configure the same backend profile. These overrides used to
 // let a CLI and Desktop with the same OPENCODE_HOME open different databases.
@@ -26,6 +27,9 @@ export function prepare(environment: NodeJS.ProcessEnv, root: string) {
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     OPENCODE_ENABLE_CODEX: "1",
   })
+  const experiments = LabExperiments.read(root)
+  if (experiments.backgroundSubagents !== undefined)
+    environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS = String(experiments.backgroundSubagents)
   return { OPENCODE_HOME: paths.root }
 }
 

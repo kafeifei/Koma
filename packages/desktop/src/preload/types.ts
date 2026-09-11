@@ -4,6 +4,7 @@ import type { UpdaterState } from "@opencode-ai/app/updater"
 import type { DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 import type { RemoteAccessPlatform } from "@opencode-ai/app/remote-access"
 import type { WebEntryPlatform } from "@opencode-ai/app/web-entry"
+import type { BackendExperimentsPlatform } from "@opencode-ai/app/backend-experiments"
 export type {
   WslDistroProbe,
   WslInstalledDistro,
@@ -45,6 +46,7 @@ export type FatalRendererError = {
 }
 
 export type ElectronAPI = {
+  backendExperiments: BackendExperimentsPlatform
   remoteAccess: RemoteAccessPlatform
   webEntry: WebEntryPlatform
   killSidecar: () => Promise<void>

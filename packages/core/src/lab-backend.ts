@@ -153,11 +153,24 @@ export function assertWriter(root: string) {
   }
 }
 
-export async function stop(root: string) {
+export async function stop(root: string, expected?: Pick<Connection, "pid" | "password">) {
   const connection = await discover(root)
-  if (!connection) throw new Error("No healthy OpenCode Lab backend is running")
-  // Explicit backend stop is distinct from a client disconnect or window close.
+  if (!connection) {
+    const owner = await read(root)
+    if (expected && (!owner || !alive(owner.pid))) return
+    throw new Error("No healthy OpenCode Lab backend is running")
+  }
+  if (expected && (connection.pid !== expected.pid || connection.password !== expected.password))
+    throw new Error("OpenCode Lab backend ownership changed; refusing to stop another backend")
+  // Stop only the authenticated backend, and wait for it to release the profile before relaunch.
   process.kill(connection.pid, "SIGTERM")
+  const deadline = Date.now() + 5_000
+  while (alive(connection.pid)) {
+    const owner = await read(root)
+    if (!owner || owner.pid !== connection.pid || owner.password !== connection.password) return
+    if (Date.now() >= deadline) throw new Error("OpenCode Lab backend did not stop in time")
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
 }
 
 async function read(root: string): Promise<Owner | undefined> {

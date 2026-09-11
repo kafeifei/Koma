@@ -3,6 +3,16 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "settings.experiments.title": "实验功能",
+  "settings.experiments.scope":
+    "作用于此 App 的本地 Lab 后端及连接它的所有客户端。更改将在完整退出并重新打开 App 后生效。退出也会停止该后端正在执行的任务，包括 CLI 任务。",
+  "settings.experiments.background.title": "后台子代理",
+  "settings.experiments.background.description":
+    "允许代理通过 background: true 在后台启动子代理，并接收完成通知。前台执行仍然可用；开启此项不会改变工具的默认模式。",
+  "settings.experiments.enabled": "当前生效：已开启",
+  "settings.experiments.disabled": "当前生效：已关闭",
+  "settings.experiments.unknown": "无法获取当前后端状态。",
+  "settings.experiments.restart": "已保存。完整退出并重新打开 App 后生效。",
   "session.panel.workspace": "右侧工作区",
   "session.panel.allTabs": "所有标签页",
   "session.panel.add": "打开面板",

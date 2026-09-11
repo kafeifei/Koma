@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./build-info": "./src/build-info.ts",
+    "./backend-experiments": "./src/backend-experiments.ts",
     "./remote-access": "./src/remote-access.ts",
     "./web-entry": "./src/web-entry.ts",
     "./web-entrypoint": "./src/entry.tsx",
