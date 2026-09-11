@@ -8,7 +8,7 @@ import { useServerSDK } from "./server-sdk"
 import { RECENTLY_CLOSED_DISPLAY_LIMIT, ServerConnection, useServer } from "./server"
 import { usePlatform } from "./platform"
 import { Project } from "@opencode-ai/sdk/v2"
-import { normalizeProjectInfo } from "./global-sync/utils"
+import { createOpenedProjectResolver, dedupeOpenedProjects, normalizeProjectInfo } from "./global-sync/utils"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { decode64 } from "@/utils/base64"
@@ -462,78 +462,34 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       return available[Math.floor(Math.random() * available.length)]
     }
 
+    const resolveProject = createMemo(() => createOpenedProjectResolver(serverSync().data.project))
+
+    createEffect(() => {
+      if (!server.ready() || !serverSync().ready) return
+      server.projects.normalize(resolveProject())
+    })
+
     function enrich(project: { worktree: string; expanded: boolean }) {
       const [childStore] = serverSync().child(project.worktree, { bootstrap: false })
       const projectID = childStore.project
+      const worktree = resolveProject()(project.worktree)
       const metadata = projectID
         ? serverSync().data.project.find((x) => x.id === projectID)
-        : serverSync().data.project.find((x) => x.worktree === project.worktree)
+        : serverSync().data.project.find((x) => pathKey(x.worktree) === pathKey(worktree))
+      const [projectStore] =
+        worktree === project.worktree ? [childStore] : serverSync().child(worktree, { bootstrap: false })
 
-      // Preserve local icon override from per-workspace localStorage cache (childStore.icon).
+      // Preserve local icon override from the canonical project's per-workspace localStorage cache.
       // Without this, different subdirectories of the same git repo would share the same
       // icon from the database instead of using their individual overrides.
-      const base = { ...metadata, ...project }
-      if (childStore.icon) {
-        return { ...base, icon: { ...base.icon, override: childStore.icon } }
+      const base = { ...metadata, ...project, worktree }
+      if (projectStore.icon) {
+        return { ...base, icon: { ...base.icon, override: projectStore.icon } }
       }
       return base
     }
 
-    const roots = createMemo(() => {
-      const map = new Map<string, string>()
-      for (const project of serverSync().data.project) {
-        const sandboxes = project.sandboxes ?? []
-        for (const sandbox of sandboxes) {
-          map.set(sandbox, project.worktree)
-        }
-      }
-      return map
-    })
-
-    const rootFor = (directory: string) => {
-      const map = roots()
-      if (map.size === 0) return directory
-
-      const visited = new Set<string>()
-      const chain = [directory]
-
-      while (chain.length) {
-        const current = chain[chain.length - 1]
-        if (!current) return directory
-
-        const next = map.get(current)
-        if (!next) return current
-
-        if (visited.has(next)) return directory
-        visited.add(next)
-        chain.push(next)
-      }
-
-      return directory
-    }
-
-    createEffect(() => {
-      const projects = server.projects.list()
-      const seen = new Set(projects.map((project) => project.worktree))
-
-      batch(() => {
-        for (const project of projects) {
-          const root = rootFor(project.worktree)
-          if (root === project.worktree) continue
-
-          server.projects.remove(project.worktree)
-
-          if (!seen.has(root)) {
-            server.projects.open(root)
-            seen.add(root)
-          }
-
-          if (project.expanded) server.projects.expand(root)
-        }
-      })
-    })
-
-    const enriched = createMemo(() => server.projects.list().map(enrich))
+    const enriched = createMemo(() => dedupeOpenedProjects(server.projects.list().map(enrich)))
     const list = createMemo(() => {
       const projects = enriched()
       return projects.map((project) => {
@@ -661,22 +617,22 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             .map((worktree) => enrich({ worktree, expanded: false }))
         }),
         open(directory: string) {
-          const root = rootFor(directory)
+          const root = resolveProject()(directory)
           if (server.projects.list().find((x) => x.worktree === root)) return
           void serverSync().project.loadSessions(root)
           server.projects.open(root)
         },
         close(directory: string) {
-          server.projects.close(directory)
+          server.projects.close(resolveProject()(directory))
         },
         expand(directory: string) {
-          server.projects.expand(directory)
+          server.projects.expand(resolveProject()(directory))
         },
         collapse(directory: string) {
-          server.projects.collapse(directory)
+          server.projects.collapse(resolveProject()(directory))
         },
         move(directory: string, toIndex: number) {
-          server.projects.move(directory, toIndex)
+          server.projects.move(resolveProject()(directory), toIndex)
         },
       },
       sidebar: {

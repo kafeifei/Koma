@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { filterPromptProjectTargets, promptProjectTargets, type PromptProject } from "./prompt-project-selector"
+import {
+  filterPromptProjectTargets,
+  promptProjectTarget,
+  promptProjectTargets,
+  type PromptProject,
+} from "./prompt-project-selector"
 
 const projects: PromptProject[] = [
   {
@@ -12,26 +17,25 @@ const projects: PromptProject[] = [
 ]
 
 describe("prompt project targets", () => {
-  test("exposes existing worktrees as directory entries under their project", () => {
-    expect(promptProjectTargets(projects).map((target) => target.directory)).toEqual([
+  test("exposes one canonical directory for each project", () => {
+    expect(promptProjectTargets(projects).map((target) => target.directory)).toEqual(["/code/opencode", "/code/other"])
+  })
+
+  test("finds the canonical project by an existing worktree name", () => {
+    expect(filterPromptProjectTargets(projects, "quiet-engine").map((target) => target.directory)).toEqual([
       "/code/opencode",
-      "/data/worktree/kind-wolf",
-      "/data/worktree/quiet-engine",
-      "/code/other",
     ])
   })
 
-  test("finds an existing worktree by its directory name", () => {
-    expect(filterPromptProjectTargets(projects, "kind-wolf").map((target) => target.directory)).toEqual([
-      "/data/worktree/kind-wolf",
-    ])
+  test("maps the current worktree to its canonical project target", () => {
+    expect(promptProjectTarget(projects, "/data/worktree/quiet-engine")?.directory).toBe("/code/opencode")
   })
 
-  test("shows a directory only once when project records overlap", () => {
-    expect(promptProjectTargets(projects).filter((target) => target.directory.endsWith("kind-wolf"))).toHaveLength(1)
+  test("keeps one project entry when its project name matches", () => {
+    expect(filterPromptProjectTargets(projects, "OpenCode Lab")).toHaveLength(1)
   })
 
-  test("keeps all of a project's directory entries when its project name matches", () => {
-    expect(filterPromptProjectTargets(projects, "OpenCode Lab")).toHaveLength(3)
+  test("does not map an arbitrary subdirectory to a project", () => {
+    expect(promptProjectTarget(projects, "/code/opencode/packages/app")).toBeUndefined()
   })
 })

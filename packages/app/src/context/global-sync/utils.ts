@@ -8,7 +8,9 @@ import type {
 import type { Agent, PermissionRequest, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import type { Project as CurrentProject } from "@opencode-ai/client/promise"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
-export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
+import { pathKey, type PathKey } from "@/utils/path-key"
+
+export { pathKey as directoryKey, type PathKey as DirectoryKey }
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -169,4 +171,38 @@ export function normalizeProjectInfo(project: Project | CurrentProject): Project
     ...project,
     vcs: project.vcs === "git" ? "git" : undefined,
   }
+}
+
+export function createOpenedProjectResolver(projects: Pick<Project, "worktree" | "sandboxes">[]) {
+  const roots = new Map<PathKey, string>()
+  const canonical = new Map(projects.map((project) => [pathKey(project.worktree), project.worktree]))
+  projects.forEach((project) => {
+    project.sandboxes?.forEach((sandbox) => {
+      const key = pathKey(sandbox)
+      if (!roots.has(key)) roots.set(key, project.worktree)
+    })
+  })
+
+  return (directory: string) => {
+    const visited = new Set<PathKey>()
+    const resolve = (current: string): string => {
+      const key = pathKey(current)
+      if (visited.has(key)) return directory
+      visited.add(key)
+      const root = roots.get(key)
+      if (!root) return canonical.get(key) ?? current
+      if (pathKey(root) === key) return canonical.get(key) ?? current
+      return resolve(root)
+    }
+    return resolve(directory)
+  }
+}
+
+export function dedupeOpenedProjects<T extends { worktree: string; expanded: boolean }>(projects: T[]) {
+  return projects.reduce<T[]>((result, project) => {
+    const index = result.findIndex((item) => pathKey(item.worktree) === pathKey(project.worktree))
+    if (index === -1) return [...result, project]
+    if (!project.expanded || result[index]?.expanded) return result
+    return result.map((item, current) => (current === index ? { ...item, expanded: true } : item))
+  }, [])
 }

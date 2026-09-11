@@ -5,7 +5,14 @@ import type {
   ModelListOutput,
   ProviderListOutput,
 } from "@opencode-ai/client/promise"
-import { directoryKey, normalizeAgentList, normalizePermissionRequest, normalizeProviderList } from "./utils"
+import {
+  createOpenedProjectResolver,
+  dedupeOpenedProjects,
+  directoryKey,
+  normalizeAgentList,
+  normalizePermissionRequest,
+  normalizeProviderList,
+} from "./utils"
 
 describe("normalizeAgentList", () => {
   test("adapts current agents to the app agent shape", () => {
@@ -135,4 +142,47 @@ describe("directoryKey", () => {
     expect(String(directoryKey("C:/"))).toBe("C:/")
     expect(String(directoryKey("/"))).toBe("/")
   })
+})
+
+describe("createOpenedProjectResolver", () => {
+  test("maps only exact registered sandboxes to their canonical project", () => {
+    const resolve = createOpenedProjectResolver([
+      { worktree: "/code/repo", sandboxes: ["/worktrees/feature"] },
+      { worktree: "/code/global", sandboxes: [] },
+    ])
+
+    expect(resolve("/worktrees/feature/")).toBe("/code/repo")
+    expect(resolve("/code/repo/")).toBe("/code/repo")
+    expect(resolve("/code/repo/packages/app")).toBe("/code/repo/packages/app")
+    expect(resolve("/worktrees/unknown")).toBe("/worktrees/unknown")
+    expect(resolve("/code/global")).toBe("/code/global")
+  })
+
+  test("resolves metadata chains and leaves cycles unchanged", () => {
+    const chain = createOpenedProjectResolver([
+      { worktree: "/code/repo", sandboxes: ["/worktrees/parent"] },
+      { worktree: "/worktrees/parent", sandboxes: ["/worktrees/child"] },
+    ])
+    expect(chain("/worktrees/child")).toBe("/code/repo")
+
+    const cycle = createOpenedProjectResolver([
+      { worktree: "/worktrees/a", sandboxes: ["/worktrees/b"] },
+      { worktree: "/worktrees/b", sandboxes: ["/worktrees/a"] },
+    ])
+    expect(cycle("/worktrees/a")).toBe("/worktrees/a")
+    expect(cycle("/worktrees/b")).toBe("/worktrees/b")
+  })
+})
+
+test("dedupeOpenedProjects preserves first position and expanded state", () => {
+  expect(
+    dedupeOpenedProjects([
+      { worktree: "/code/repo", expanded: false },
+      { worktree: "/code/repo/", expanded: true },
+      { worktree: "/code/other", expanded: false },
+    ]),
+  ).toEqual([
+    { worktree: "/code/repo", expanded: true },
+    { worktree: "/code/other", expanded: false },
+  ])
 })

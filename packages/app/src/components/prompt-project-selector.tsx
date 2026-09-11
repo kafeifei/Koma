@@ -47,9 +47,7 @@ const actionPrefix = "action:"
 const projectPrefix = "project:"
 
 export function promptProjectTargets(projects: PromptProject[]) {
-  const targets = projects.flatMap((project) =>
-    [project.worktree, ...(project.sandboxes ?? [])].map((directory) => ({ project, directory })),
-  )
+  const targets = projects.map((project) => ({ project, directory: project.worktree }))
   return targets.filter(
     (target, index) =>
       targets.findIndex(
@@ -67,8 +65,19 @@ export function filterPromptProjectTargets(projects: PromptProject[], search: st
   return targets.filter(
     (target) =>
       displayName(target.project).toLowerCase().includes(query) ||
-      getFilename(target.directory).toLowerCase().includes(query) ||
-      target.directory.toLowerCase().includes(query),
+      [target.project.worktree, ...(target.project.sandboxes ?? [])].some(
+        (directory) => getFilename(directory).toLowerCase().includes(query) || directory.toLowerCase().includes(query),
+      ),
+  )
+}
+
+export function promptProjectTarget(projects: PromptProject[], directory: string, server?: string) {
+  const key = pathKey(directory)
+  return promptProjectTargets(projects).find(
+    (target) =>
+      (!target.project.server || target.project.server.key === server) &&
+      (pathKey(target.project.worktree) === key ||
+        target.project.sandboxes?.some((sandbox) => pathKey(sandbox) === key)),
   )
 }
 
@@ -89,12 +98,7 @@ export function createPromptProjectController(input: {
   let searchRef: HTMLInputElement | undefined
 
   const current = () => {
-    const key = pathKey(input.controls().directory)
-    return promptProjectTargets(input.controls().available).find(
-      (target) =>
-        (!target.project.server || target.project.server.key === input.controls().server) &&
-        pathKey(target.directory) === key,
-    )
+    return promptProjectTarget(input.controls().available, input.controls().directory, input.controls().server)
   }
   const selectedTarget = () => current() ?? promptProjectTargets(input.controls().available)[0]
   const selected = () => selectedTarget()?.project
@@ -128,10 +132,8 @@ export function createPromptProjectController(input: {
     input.onDone()
   }
   const select = (target: PromptProjectTarget) => {
-    if (
-      pathKey(target.directory) !== pathKey(current()?.directory ?? "") ||
-      target.project.server?.key !== current()?.project.server?.key
-    ) {
+    const selected = current()
+    if (!selected || projectKey(target) !== projectKey(selected)) {
       input.controls().select(target.directory, target.project.server?.key)
     }
     close()
@@ -486,7 +488,6 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
   const [local, rest] = splitProps(props, ["controller", "class", "classList", "onClick", "onKeyDown"])
   const target = () => local.controller.selectedTarget()
   const project = () => target()?.project
-  const sandbox = () => target()?.directory !== project()?.worktree
   return (
     <button
       {...rest}
@@ -514,26 +515,15 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
         fallback={<Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />}
       >
         {(item) => (
-          <Show
-            when={sandbox()}
-            fallback={
-              <ProjectAvatar
-                fallback={displayName(item())}
-                src={getProjectAvatarSource(item().id, item().icon)}
-                variant={getProjectAvatarVariant(item().icon?.color)}
-              />
-            }
-          >
-            <IconV2 name="workspace-isolated" class="shrink-0 text-v2-icon-icon-muted" />
-          </Show>
+          <ProjectAvatar
+            fallback={displayName(item())}
+            src={getProjectAvatarSource(item().id, item().icon)}
+            variant={getProjectAvatarVariant(item().icon?.color)}
+          />
         )}
       </Show>
       <span class="min-w-0 truncate leading-5">
-        {target()
-          ? sandbox()
-            ? getFilename(target()!.directory)
-            : displayName(project()!)
-          : local.controller.labels.new()}
+        {target() ? displayName(project()!) : local.controller.labels.new()}
       </span>
       <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
     </button>
@@ -546,7 +536,6 @@ function ProjectItem(props: {
   onSelect: (target: PromptProjectTarget) => void
 }) {
   const key = () => props.controller.projectKey(props.target)
-  const sandbox = () => props.target.directory !== props.target.project.worktree
   return (
     <DropdownMenu.RadioItem
       id={key()}
@@ -571,20 +560,13 @@ function ProjectItem(props: {
       }}
       onSelect={() => props.onSelect(props.target)}
     >
-      <Show
-        when={sandbox()}
-        fallback={
-          <ProjectAvatar
-            fallback={displayName(props.target.project)}
-            src={getProjectAvatarSource(props.target.project.id, props.target.project.icon)}
-            variant={getProjectAvatarVariant(props.target.project.icon?.color)}
-          />
-        }
-      >
-        <IconV2 name="workspace-isolated" class="shrink-0 text-v2-icon-icon-muted" />
-      </Show>
+      <ProjectAvatar
+        fallback={displayName(props.target.project)}
+        src={getProjectAvatarSource(props.target.project.id, props.target.project.icon)}
+        variant={getProjectAvatarVariant(props.target.project.icon?.color)}
+      />
       <DropdownMenu.ItemLabel class="min-w-0 truncate leading-5">
-        {sandbox() ? getFilename(props.target.directory) : displayName(props.target.project)}
+        {displayName(props.target.project)}
       </DropdownMenu.ItemLabel>
       <DropdownMenu.ItemIndicator style={{ width: "14px", height: "14px", right: "12px" }}>
         <IconV2 name="check" size="small" class="shrink-0 text-v2-icon-icon-base" />

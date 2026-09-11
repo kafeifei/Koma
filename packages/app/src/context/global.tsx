@@ -10,6 +10,7 @@ import { getOwner } from "solid-js/web"
 import { QueryClient } from "@tanstack/solid-query"
 import type { ServerScope } from "@/utils/server-scope"
 import { Persist, persisted } from "@/utils/persist"
+import { createOpenedProjectResolver, dedupeOpenedProjects } from "./global-sync/utils"
 
 export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext({
   name: "Global",
@@ -48,7 +49,7 @@ export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext(
       const existing = serverCtxs.get(key)
       if (existing) return existing.serverCtx
       const root = createRoot((dispose) => {
-        const serverCtx = createServerCtx(conn, server.scope(key), server.projects.forServer(key))
+        const serverCtx = createServerCtx(conn, server.scope(key), server.projects.forServer(key), server.ready)
         return { dispose, serverCtx }
       }, owner as any)
       serverCtxs.set(key, root)
@@ -98,6 +99,7 @@ function createServerCtx(
   conn: ServerConnection.Any,
   scope: ServerScope,
   projects: ReturnType<typeof createServerProjects>,
+  serverReady: () => boolean,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -115,24 +117,33 @@ function createServerCtx(
     createStore({ pinned: [] as string[] }),
   )
 
+  const resolveProject = createMemo(() => createOpenedProjectResolver(sync.data.project))
+
+  createEffect(() => {
+    if (!serverReady() || !sync.ready) return
+    projects.normalize(resolveProject())
+  })
+
   function enrich(project: { worktree: string; expanded: boolean }) {
     const [childStore] = sync.child(project.worktree, { bootstrap: false })
     const projectID = childStore.project
+    const worktree = resolveProject()(project.worktree)
     const metadata = projectID
       ? sync.data.project.find((x) => x.id === projectID)
-      : sync.data.project.find((x) => x.worktree === project.worktree)
+      : sync.data.project.find((x) => pathKey(x.worktree) === pathKey(worktree))
+    const [projectStore] = worktree === project.worktree ? [childStore] : sync.child(worktree, { bootstrap: false })
 
-    // Preserve local icon override from per-workspace localStorage cache (childStore.icon).
+    // Preserve local icon override from the canonical project's per-workspace localStorage cache.
     // Without this, different subdirectories of the same git repo would share the same
     // icon from the database instead of using their individual overrides.
-    const base = { ...metadata, ...project }
-    if (childStore.icon) {
-      return { ...base, icon: { ...base.icon, override: childStore.icon } }
+    const base = { ...metadata, ...project, worktree }
+    if (projectStore.icon) {
+      return { ...base, icon: { ...base.icon, override: projectStore.icon } }
     }
     return base
   }
 
-  const projectsList = createMemo(() => projects.list().map(enrich))
+  const projectsList = createMemo(() => dedupeOpenedProjects(projects.list().map(enrich)))
   const recentlyClosedList = createMemo(() => {
     const known = new Set(sync.data.project.map((project) => pathKey(project.worktree)))
     return projects
@@ -164,6 +175,27 @@ function createServerCtx(
       ...projects,
       list: projectsList,
       recentlyClosed: recentlyClosedList,
+      remove(directory: string) {
+        projects.remove(resolveProject()(directory))
+      },
+      open(directory: string) {
+        projects.open(resolveProject()(directory))
+      },
+      close(directory: string) {
+        projects.close(resolveProject()(directory))
+      },
+      expand(directory: string) {
+        projects.expand(resolveProject()(directory))
+      },
+      collapse(directory: string) {
+        projects.collapse(resolveProject()(directory))
+      },
+      move(directory: string, toIndex: number) {
+        projects.move(resolveProject()(directory), toIndex)
+      },
+      touch(directory: string) {
+        projects.touch(resolveProject()(directory))
+      },
     },
   }
 }

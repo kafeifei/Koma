@@ -19,6 +19,71 @@ const openProject = async (page: Page, dir: string) => {
   await expect(page).toHaveURL(new URL(inputHref(dir), page.url()).href)
   await expect(editor(page)).toBeEditable()
 }
+const openExistingWorktree = async (page: Page) => {
+  await page.route("**/experimental/worktree/managed**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          directory,
+          branch: "main",
+          primary: true,
+          registered: true,
+          managed: false,
+          orphan: false,
+          shared: false,
+          missing: false,
+          canAdopt: false,
+          sessions: [],
+          usage: { ownerIDs: [], blocked: false },
+        },
+        {
+          directory: feature,
+          branch: "feature",
+          primary: false,
+          registered: true,
+          managed: true,
+          orphan: false,
+          shared: false,
+          missing: false,
+          canAdopt: false,
+          sessions: [],
+          usage: { ownerIDs: [], blocked: false },
+        },
+      ],
+    }),
+  )
+  await page.route("**/experimental/worktree/details**", (route) =>
+    route.fulfill({
+      json: {
+        entry: {
+          directory: feature,
+          branch: "feature",
+          primary: false,
+          registered: true,
+          managed: true,
+          orphan: false,
+          shared: false,
+          missing: false,
+          canAdopt: false,
+          sessions: [],
+          usage: { ownerIDs: [], blocked: false },
+        },
+        space: { bytes: 0, files: 0, directories: 0, symlinks: 0, errors: 0 },
+        ignored: { mode: "local", preserved: [], skipped: [], unsupported: [] },
+      },
+    }),
+  )
+  await sidebar(page)
+    .locator(`[data-slot="workspace-project"][data-directory="${directory}"]`)
+    .locator('[data-action="project-remove"]')
+    .click()
+  await page.getByRole("menuitem", { name: "Worktree management", exact: true }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.locator('[data-slot="worktree-manager-entry"]').filter({ hasText: "feature" }).click()
+  await dialog.getByRole("button", { name: "Open directory", exact: true }).click()
+  await expect(page).toHaveURL(new URL(inputHref(feature), page.url()).href)
+  await expect(editor(page)).toBeEditable()
+}
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 800 })
@@ -105,6 +170,15 @@ test.beforeEach(async ({ page }) => {
     const path = new URL(route.request().url()).pathname
     if (!(path in catalog)) return route.fallback()
     return route.fulfill({ json: { location: { directory }, data: catalog[path] } })
+  })
+  await page.route("**/api/location**", (route) => {
+    const selected = new URL(route.request().url()).searchParams.get("location[directory]") ?? directory
+    return route.fulfill({
+      json: {
+        directory: selected,
+        project: { id: selected === other ? "proj-other" : "proj-retention", directory: selected },
+      },
+    })
   })
   await page.route("**/experimental/worktree/options**", (route) =>
     route.fulfill({ json: { hasHead: false, branches: [] } }),
@@ -279,9 +353,7 @@ test("restores model, variant and permission for new inputs in the same project"
   await expect(variant).toContainText("high")
   await expect(permission).toContainText("Full Access")
 
-  await page.locator('[data-action="prompt-project"]').click()
-  await page.getByRole("menuitemradio", { name: "feature", exact: true }).click()
-  await expect(page).toHaveURL(new URL(inputHref(feature), page.url()).href)
+  await openExistingWorktree(page)
   await expect(model).toContainText("Remembered Model")
   await expect(variant).toContainText("high")
   await expect(permission).toContainText("Full Access")
@@ -389,16 +461,21 @@ test("project selection and existing worktrees open independent inputs", async (
   await expect(page).toHaveURL(rootURL)
   await expect(editor(page)).toHaveText("Root input")
   await expect(worktree).not.toBeChecked()
-  await page.locator('[data-action="prompt-project"]').click()
-  await page.getByRole("menuitemradio", { name: "feature", exact: true }).click()
-  await expect(page).toHaveURL(new URL(inputHref(feature), page.url()).href)
+  await openExistingWorktree(page)
   await expect(editor(page)).toBeEmpty()
   await editor(page).fill("Feature input")
   const featureURL = page.url()
+  const projectControl = page.locator('[data-action="prompt-project"]')
+  await expect(projectControl).toContainText("InputRetention")
+  await projectControl.click()
+  await expect(page.getByRole("menuitemradio", { name: "feature", exact: true })).toHaveCount(0)
+  await page.getByRole("menuitemradio", { name: "InputRetention", exact: true }).click()
+  await expect(page).toHaveURL(featureURL)
+  await expect(editor(page)).toHaveText("Feature input")
   await newTask(page).click()
   await expect(page).toHaveURL(featureURL)
   await expect(editor(page)).toHaveText("Feature input")
-  await expect(page.locator('[data-action="prompt-project"]')).toContainText("feature")
+  await expect(projectControl).toContainText("InputRetention")
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("main")
   await worktreeControl.click()
   await expect(page).toHaveURL(featureURL)
@@ -413,8 +490,7 @@ test("project selection and existing worktrees open independent inputs", async (
   await page.locator('[data-action="prompt-base-branch"]').click()
   await page.getByRole("menuitem", { name: "release", exact: true }).click()
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
-  await page.locator('[data-action="prompt-project"]').click()
-  await page.locator(`[role="menuitemradio"][data-directory="${directory}"]`).click()
+  await openProject(page, directory)
   await expect(page).toHaveURL(rootURL)
   await expect(editor(page)).toHaveText("Root input")
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
@@ -436,6 +512,45 @@ test("project selection and existing worktrees open independent inputs", async (
   const modifier = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"))
   await page.keyboard.press(`${modifier}+1`)
   await expect(page.getByRole("heading", { name: "Existing conversation", exact: true })).toBeVisible()
+})
+
+test("a manager-opened worktree keeps root identity while sending from its actual directory", async ({ page }) => {
+  await openProject(page, directory)
+  await openExistingWorktree(page)
+  const href = page.url()
+  const projectControl = page.locator('[data-action="prompt-project"]')
+  await expect(projectControl).toContainText("InputRetention")
+  await projectControl.click()
+  await expect(page.getByRole("menuitemradio", { name: "feature", exact: true })).toHaveCount(0)
+  await page.getByRole("menuitemradio", { name: "InputRetention", exact: true }).click()
+  await expect(page).toHaveURL(href)
+
+  await editor(page).fill("Run from existing worktree")
+  const created = currentSession(
+    { id: "ses-existing-worktree", title: "Existing worktree task", directory: feature, permissionMode: "default" },
+    feature,
+  )
+  let sessionBody: Record<string, unknown> | undefined
+  await page.route("**/api/session", (route) => {
+    if (route.request().method() !== "POST") return route.fallback()
+    sessionBody = route.request().postDataJSON()
+    return route.fulfill({ json: { data: created } })
+  })
+  await page.route("**/api/session/ses-existing-worktree", (route) => route.fulfill({ json: { data: created } }))
+  await page.route("**/api/session/ses-existing-worktree/prompt", (route) => route.fulfill({ status: 204 }))
+  const sent = page.waitForRequest("**/api/session/ses-existing-worktree/prompt")
+  await editor(page).press("Enter")
+  await sent
+
+  expect(sessionBody).toMatchObject({ location: { directory: feature } })
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const stored = JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}")
+        return stored.projects?.local?.map((project: { worktree: string }) => project.worktree)
+      }),
+    )
+    .toEqual([directory, other])
 })
 
 test("worktree options failure preserves input and supports retry without changing either choice", async ({ page }) => {

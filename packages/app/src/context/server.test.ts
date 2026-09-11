@@ -197,6 +197,79 @@ describe("createServerProjects", () => {
       dispose()
     })
   })
+
+  test("normalizes persisted aliases atomically while preserving order and expansion", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore({
+        projects: {
+          local: [
+            { worktree: "/worktrees/feature", expanded: false },
+            { worktree: "/code/other", expanded: false },
+            { worktree: "/code/repo", expanded: true },
+          ],
+        },
+        lastProject: { local: "/worktrees/feature" },
+        recentlyClosed: { local: ["/worktrees/feature", "/code/repo", "/code/closed"] },
+      })
+      const projects = createServerProjects({ scope: () => ServerScope.local, store, setStore })
+
+      projects.normalize((directory) => (directory === "/worktrees/feature" ? "/code/repo" : directory))
+
+      expect(projects.list()).toEqual([
+        { worktree: "/code/repo", expanded: true },
+        { worktree: "/code/other", expanded: false },
+      ])
+      expect(projects.last()).toBe("/code/repo")
+      expect(projects.recentlyClosed()).toEqual(["/code/repo", "/code/closed"])
+      dispose()
+    })
+  })
+
+  test("keeps project actions stable after normalizing aliases beside a formatted root", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore({
+        projects: {
+          local: [{ worktree: "/code/other", expanded: true }],
+          remote: [
+            { worktree: "/code/repo/", expanded: false },
+            { worktree: "/worktrees/feature", expanded: false },
+          ],
+        },
+        lastProject: { remote: "/worktrees/feature" },
+        recentlyClosed: { remote: ["/worktrees/closed"] },
+      })
+      const projects = createServerProjects({ scope: () => "remote" as ServerScope, store, setStore })
+      const resolve = (directory: string) =>
+        directory === "/worktrees/feature"
+          ? "/code/repo"
+          : directory === "/worktrees/closed"
+            ? "/code/closed"
+            : directory
+
+      projects.normalize(resolve)
+      projects.normalize(resolve)
+      projects.expand("/code/repo")
+      projects.collapse("/code/repo")
+      expect(projects.list()[0]).toEqual({ worktree: "/code/repo/", expanded: false })
+      projects.expand("/code/repo")
+      projects.open("/code/new")
+      projects.move("/code/repo", 0)
+      expect(projects.list().map((project) => project.worktree)).toEqual(["/code/repo/", "/code/new"])
+      projects.touch("/code/repo")
+      projects.close("/code/repo")
+      expect(projects.list()).toEqual([{ worktree: "/code/new", expanded: true }])
+      projects.open("/code/repo")
+
+      expect(projects.list()).toEqual([
+        { worktree: "/code/repo", expanded: true },
+        { worktree: "/code/new", expanded: true },
+      ])
+      expect(projects.last()).toBe("/code/repo")
+      expect(projects.recentlyClosed()).toEqual(["/code/closed"])
+      expect(store.projects.local).toEqual([{ worktree: "/code/other", expanded: true }])
+      dispose()
+    })
+  })
 })
 
 describe("migrateCanonicalLocalServerState", () => {
