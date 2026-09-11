@@ -133,6 +133,7 @@ type Entry = {
   refreshTimer?: ReturnType<typeof setTimeout>
   refreshPending: boolean
   refreshing?: Promise<void>
+  activating?: Promise<void>
   deletionChecks: number
   idleConfirmed: boolean
   appliedSettings: Settings
@@ -148,6 +149,7 @@ type Entry = {
   activeTurnID?: string
   generation?: number
   resumed: boolean
+  observedOnly: boolean
   lease: boolean
   leaseTarget?: { directory: string; sessionID: SessionSchema.ID }
   error?: string
@@ -335,6 +337,7 @@ const layer = Layer.effect(
         desiredSettings: decodeSettings(record.binding.settings),
         settingsSequence: 0,
         resumed: false,
+        observedOnly: false,
         lease: false,
         controlSequence: 0,
         operations: Promise.resolve(),
@@ -424,6 +427,7 @@ const layer = Layer.effect(
       entry.generation = connected.generation
       entry.executionObserved = !entry.record.binding.executionPending
       entry.resumed = false
+      entry.observedOnly = false
       entry.idleConfirmed = false
       entry.activeTurnID = undefined
       entry.appliedSettings = {}
@@ -810,14 +814,23 @@ const layer = Layer.effect(
 
     function scheduleRefresh(entry: Entry) {
       const connected = state.runtime
-      if (!connected || !current(connected) || entry.refreshTimer || entry.refreshPending || entry.deletionChecks)
+      if (
+        !connected ||
+        !current(connected) ||
+        entry.refreshTimer ||
+        entry.refreshPending ||
+        entry.activating ||
+        entry.deletionChecks
+      )
         return
       // No native cursor exists. Coalesce uncertain deltas into at most one read
       // every 200 ms; established new items still use the constant-size delta path.
       entry.refreshTimer = setTimeout(() => {
         entry.refreshTimer = undefined
-        void refresh(entry).then(
+        const observe = entry.observedOnly
+        void refresh(entry, false, !observe, observe).then(
           (again) => {
+            if (observe && !again && entry.native) scheduleActivation(entry)
             if (again) scheduleRefresh(entry)
           },
           (error) => {
@@ -829,14 +842,18 @@ const layer = Layer.effect(
       }, 200)
     }
 
-    async function refresh(entry: Entry, resume = false, dispatchReady = true): Promise<boolean> {
+    async function refresh(entry: Entry, resume = false, dispatchReady = true, observe = false): Promise<boolean> {
+      if (entry.activating && !observe) {
+        await entry.activating
+        if (resume && !entry.resumed) return refresh(entry, true, dispatchReady)
+      }
       if (entry.refreshing) {
         await entry.refreshing
         if (resume && !entry.resumed) return refresh(entry, true, dispatchReady)
         return entry.dirty
       }
       entry.refreshPending = true
-      const operation = load(entry, resume)
+      const operation = load(entry, resume, observe)
       entry.refreshing = operation
       try {
         await operation
@@ -844,9 +861,69 @@ const layer = Layer.effect(
         if (entry.refreshing === operation) entry.refreshing = undefined
         entry.refreshPending = false
       }
-      if (dispatchReady && !entry.deletionChecks && ["idle", "active"].includes(entry.status)) dispatch(entry)
+      if (!observe && dispatchReady && !entry.deletionChecks && ["idle", "active"].includes(entry.status))
+        dispatch(entry)
       if (entry.dirty) scheduleRefresh(entry)
       return entry.dirty
+    }
+
+    function scheduleActivation(entry: Entry) {
+      const connected = state.runtime
+      if (
+        !connected ||
+        !current(connected) ||
+        entry.generation !== connected.generation ||
+        entry.activating ||
+        entry.resumed ||
+        !entry.native ||
+        entry.deletionChecks ||
+        entry.record.binding.deletionState !== undefined ||
+        entry.record.session.time.archived !== undefined ||
+        entry.record.binding.state !== "bound"
+      )
+        return
+      const operation = (async () => {
+        entry.record = await run(sessions.get(entry.record.session.id))
+        if (
+          entry.record.session.time.archived !== undefined ||
+          entry.record.binding.deletionState !== undefined ||
+          entry.deletionChecks
+        )
+          return
+        entry.refreshPending = true
+        try {
+          await load(entry, true, false, connected)
+        } finally {
+          entry.refreshPending = false
+        }
+        if (!entry.deletionChecks && ["idle", "active"].includes(entry.status)) dispatch(entry)
+      })()
+      entry.activating = operation
+      void operation
+        .then(
+          () => {
+            if (entry.activating === operation) entry.activating = undefined
+            if (entries.get(entry.record.session.id) === entry && current(connected) && entry.dirty)
+              scheduleRefresh(entry)
+          },
+          async (error) => {
+            await serialize(entry, async () => {
+              if (entry.activating !== operation) return
+              entry.activating = undefined
+              if (
+                entries.get(entry.record.session.id) !== entry ||
+                !current(connected) ||
+                entry.generation !== connected.generation
+              )
+                return
+              entry.status = state.runtime ? "bindingUnavailable" : "disconnected"
+              entry.error = errorMessage(error)
+              entry.dirty = true
+              await emit(entry)
+            })
+          },
+        )
+        .catch(() => undefined)
     }
 
     async function resumeModel(entry: Entry) {
@@ -864,14 +941,17 @@ const layer = Layer.effect(
       return initial?.model ? selectedModel(initial) : undefined
     }
 
-    async function load(entry: Entry, resume = false) {
-      const connected = await runtime()
+    async function load(entry: Entry, resume = false, observe = false, existing?: CodexRuntime) {
+      const connected = existing ?? (await runtime())
+      if (!current(connected)) return fail("unavailable", "Codex connection changed before loading")
       attach(entry, connected)
+      entry.observedOnly = observe
       const threadID = entry.record.binding.nativeThreadID
       if (!threadID) return
       const observedAt = receiveSequence
       if (resume && !entry.resumed) {
         const selected = await resumeModel(entry)
+        if (entry.deletionChecks) return
         const response = await connected.resumeThread(
           threadID,
           {
@@ -882,6 +962,7 @@ const layer = Layer.effect(
           },
           { timeoutMs: 15_000 },
         )
+        if (entry.deletionChecks) return
         if (!current(connected)) return fail("unavailable", "Codex connection changed while resuming")
         if (
           response.thread.id !== threadID ||
@@ -953,25 +1034,27 @@ const layer = Layer.effect(
         if (history.thread.id !== threadID) return fail("conflict", "Codex returned history for another thread")
         entry.native = history.thread
         entry.fallback = undefined
-        for (const turn of history.thread.turns) {
+        for (const turn of history.thread.turns)
           for (const item of turn.items) {
             entry.blockedDeltas.add(itemKey(turn.id, item.id))
-            if (runningTool(item))
-              entry.activeTools.set(
-                itemKey(turn.id, item.id),
-                entry.activeTools.get(itemKey(turn.id, item.id)) ?? {
-                  turnID: turn.id,
-                  generation: connected.generation,
-                },
-              )
-            else if ("status" in item) entry.activeTools.delete(itemKey(turn.id, item.id))
+            if (!observe) {
+              if (runningTool(item))
+                entry.activeTools.set(
+                  itemKey(turn.id, item.id),
+                  entry.activeTools.get(itemKey(turn.id, item.id)) ?? {
+                    turnID: turn.id,
+                    generation: connected.generation,
+                  },
+                )
+              else if ("status" in item) entry.activeTools.delete(itemKey(turn.id, item.id))
+            }
           }
-        }
-        await reconcile(entry, history.thread)
+        if (!observe) await reconcile(entry, history.thread)
         // Paginated history persists the real item IDs and execution states.
         // Legacy hydration omits Code Mode commands, so it is never evidence
         // that an execution interrupted across a host restart has quiesced.
         if (
+          !observe &&
           unconfirmedExecution(entry) &&
           history.thread.historyMode === "paginated" &&
           history.thread.status.type === "idle" &&
@@ -1016,6 +1099,15 @@ const layer = Layer.effect(
         return
       }
       updateView(entry)
+      if (observe) {
+        entry.status =
+          entry.record.session.time.archived === undefined
+            ? "resolving"
+            : executionStatus(entry, nativeStatus(entry.native.status))
+        entry.dirty = false
+        await emit(entry, { refresh: true })
+        return
+      }
       const native = entry.native
       const active = native.turns.filter((turn) => turn.status === "inProgress")
       entry.activeTurnID = native.status.type === "active" && active.length === 1 ? active[0].id : undefined
@@ -2084,18 +2176,32 @@ const layer = Layer.effect(
       snapshot: (sessionID) =>
         result(async () => {
           const entry = await getEntry(sessionID)
-          const shouldRefresh = await serialize(entry, async () => {
+          const mode = await serialize(entry, async () => {
             entry.record = await run(sessions.get(sessionID))
-            return (
-              entry.record.binding.state === "bound" &&
-              (!entry.native ||
-                !entry.resumed ||
-                entry.generation !== state.runtime?.generation ||
-                (entry.dirty && !entry.refreshTimer && !entry.refreshPending))
-            )
+            if (entry.record.binding.state !== "bound" || entry.record.binding.deletionState || entry.activating) return
+            const stale =
+              !entry.native ||
+              entry.generation !== state.runtime?.generation ||
+              (entry.dirty && !entry.refreshTimer && !entry.refreshPending)
+            if (!stale) return
+            return entry.resumed ? ("refresh" as const) : ("observe" as const)
           })
-          if (shouldRefresh)
-            await refresh(entry, true).catch(async (error) => {
+          const hydrated =
+            mode === "observe"
+              ? await refresh(entry, false, false, true)
+                  .then((dirty) => !dirty)
+                  .catch(async (error) => {
+                    await serialize(entry, async () => {
+                      entry.status = state.runtime ? "bindingUnavailable" : "disconnected"
+                      entry.error = errorMessage(error)
+                      entry.dirty = true
+                      await emit(entry)
+                    })
+                    return false
+                  })
+              : false
+          if (mode === "refresh")
+            await refresh(entry).catch(async (error) => {
               await serialize(entry, async () => {
                 entry.status = state.runtime ? "bindingUnavailable" : "disconnected"
                 entry.error = errorMessage(error)
@@ -2103,6 +2209,7 @@ const layer = Layer.effect(
                 await emit(entry)
               })
             })
+          if (hydrated || entry.native) scheduleActivation(entry)
           return serialize(entry, () => snapshot(entry))
         }),
       delivery: (sessionID, requestID) =>
@@ -2230,7 +2337,11 @@ const layer = Layer.effect(
                 if (entry.record.binding.nativeThreadID) await refresh(entry, false, false)
               }
             }
-            await Promise.all(entriesInFamily.flatMap((entry) => (entry.refreshing ? [entry.refreshing] : [])))
+            await Promise.all(
+              entriesInFamily.flatMap((entry) =>
+                [entry.refreshing, entry.activating].filter((value) => value !== undefined),
+              ),
+            )
             return await serializeFamily(entriesInFamily, async () => {
               const latest = await run(sessions.family(sessionID))
               if (!sameSessionIDs(family.records, latest.records))

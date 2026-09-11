@@ -94,6 +94,8 @@ Backend 管理它创建的 app-server 进程、投递回执、审批和执行租
 Codex 可通过独立配置端口使用现有 XD 等 Responses 供应商的模型与凭据；该端口只提供模型目录
 和原生 provider 配置，模型调用和工具执行仍由 Codex 持有，订阅模型继续保留。
 
+启动恢复 Codex 会话时，后端先校验绑定身份并读取原生历史，再为未归档会话接入执行状态；接入较慢或失败时保留已读历史。仅展示历史不确认执行结束、不释放目录占用、不处理审批或投递队列。冷加载已归档会话不触发原生 resume，已经接入的活动会话仍保留原有状态订阅。正文请求等待期间显示局部加载提示，保留会话页顶部。
+
 ## 5. 实验运行与用户数据的边界
 
 - Lab 保留应用身份 `ai.opencode.lab` 和协议 `opencode-lab`；桌面与本 fork 的 Lab CLI 共用 `~/.opencode`，按 desktop、data、config、cache、state、logs、worktrees、repos、engines 分目录。旧 Lab 数据由更新后的桌面端首次启动时迁移，保留原数据库文件名和旧路径兼容链接；官方渠道不主动迁入。入口、迁移和目录说明见 [Desktop README](./packages/desktop/README.md#lab-shared-storage)。

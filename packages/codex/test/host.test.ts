@@ -13,6 +13,7 @@ import { ProjectV2 } from "@opencode-ai/core/project"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
+import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { CodexHost } from "../src/host"
 import { CodexWorktreeAccess } from "../src/worktree-access"
@@ -74,6 +75,35 @@ function thread(): v2.Thread {
     gitInfo: null,
     name: null,
     turns: [],
+  }
+}
+
+function historyThread(text = "restored history"): v2.Thread {
+  return {
+    ...thread(),
+    historyMode: "paginated",
+    turns: [
+      {
+        id: "restored-turn",
+        items: [
+          {
+            type: "agentMessage",
+            id: "restored-message",
+            text,
+            phase: null,
+            memoryCitation: null,
+            delivery: null,
+            questions: null,
+          },
+        ],
+        itemsView: "full",
+        status: "completed",
+        error: null,
+        startedAt: 1,
+        completedAt: 2,
+        durationMs: 1,
+      },
+    ],
   }
 }
 
@@ -159,8 +189,8 @@ const configure = async (home: string, patch: object) => {
   const file = path.join(home, "fixture.json")
   await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), ...patch }))
 }
-const command = (home: string, messages: unknown[]) =>
-  writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages }))
+const command = (home: string, messages: unknown[], patch?: object) =>
+  writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages, patch }))
 async function until<A>(read: () => Promise<A>, check: (value: A) => boolean): Promise<A> {
   const deadline = Date.now() + 5_000
   while (true) {
@@ -170,6 +200,12 @@ async function until<A>(read: () => Promise<A>, check: (value: A) => boolean): P
     await Bun.sleep(10)
   }
 }
+
+const activatedSnapshot = (host: CodexHost.Interface, sessionID: SessionSchema.ID) =>
+  until(
+    () => run(host.snapshot(sessionID)),
+    (snapshot) => snapshot.descriptor.runtimeStatus !== "resolving",
+  )
 
 async function within<A>(operation: Promise<A>, timeout = 500): Promise<A> {
   return Promise.race([
@@ -251,8 +287,9 @@ async function complete(home: string) {
   turn.status = "completed"
   turn.completedAt = Date.now()
   config.thread.status = { type: "idle" }
-  await configure(home, config)
-  await command(home, [{ method: "turn/completed", params: { threadId: config.thread.id, turn } }])
+  await command(home, [{ method: "turn/completed", params: { threadId: config.thread.id, turn } }], {
+    thread: config.thread,
+  })
 }
 
 describe("CodexHost native process boundaries", () => {
@@ -377,7 +414,7 @@ describe("CodexHost native process boundaries", () => {
             (value) => value[0]?.runtimeStatus === "disconnected",
           )
           await command(home, [])
-          const restored = await run(host.snapshot(id))
+          const restored = await activatedSnapshot(host, id)
           expect(restored.descriptor.settings.model).toBe("native-model")
           expect(restored.descriptor.pendingSettings?.model).toBe("xd/native-model")
           expect((await run(sessions.get(id))).binding.nativeThreadID).toBe("native-thread")
@@ -409,7 +446,7 @@ describe("CodexHost native process boundaries", () => {
             (value) => value[0]?.runtimeStatus === "disconnected",
           )
           await command(home, [])
-          const customRestored = await run(host.snapshot(id))
+          const customRestored = await activatedSnapshot(host, id)
           expect(customRestored.descriptor.settings.model).toBe("xd/native-model")
           expect(customRestored.descriptor.pendingSettings?.model).toBe("native-model")
         },
@@ -456,7 +493,7 @@ describe("CodexHost native process boundaries", () => {
   test("native workspace confirmation enables auto before a readOnly turn/start reply", () =>
     harness(async ({ host, home, sessions, scope }) => {
       const id = await seed(sessions, scope)
-      await run(host.snapshot(id))
+      await activatedSnapshot(host, id)
       const pending = await run(host.settings(id, { permission: "auto" }))
       expect(pending.settings.permission).toBe("readOnly")
       expect(pending.pendingSettings?.permission).toBe("auto")
@@ -572,7 +609,7 @@ describe("CodexHost native process boundaries", () => {
                   ? workspacePolicy([path.join(directory, "extra")])
                   : { ...policy, approvalsReviewer: "auto_review" },
         })
-        const snapshot = await run(host.snapshot(id))
+        const snapshot = await activatedSnapshot(host, id)
         expect(snapshot.descriptor.settings.permission).toBe(variant === "readOnly" ? "readOnly" : undefined)
         expect(snapshot.descriptor.pendingSettings?.permission).toBe("auto")
         await command(home, [approval("old")])
@@ -593,7 +630,7 @@ describe("CodexHost native process boundaries", () => {
       const id = await seed(sessions, scope)
       await run(sessions.setSettings(id, { permission: "workspace" }))
       await configure(home, { nativeSettings: workspacePolicy([]) })
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await activatedSnapshot(host, id)
       expect(snapshot.descriptor.settings.permission).toBe("default")
       expect(snapshot.descriptor.pendingSettings).toBeUndefined()
       expect((await run(sessions.get(id))).binding.settings).toEqual({ permission: "workspace" })
@@ -632,7 +669,7 @@ describe("CodexHost native process boundaries", () => {
         (items) => items[0]?.runtimeStatus === "disconnected",
       )
       await command(home, [])
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await activatedSnapshot(host, id)
       expect(snapshot.descriptor.epoch).not.toBe(before.epoch)
       expect(snapshot.descriptor.settings.permission).toBe("readOnly")
       expect(snapshot.descriptor.pendingSettings?.permission).toBe("auto")
@@ -659,13 +696,139 @@ describe("CodexHost native process boundaries", () => {
       )
     }))
 
+  test(
+    "returns observed history and concurrent snapshots without waiting for a slow activation",
+    () =>
+      harness(async ({ host, sessions, scope, home, gate }) => {
+        const id = await seed(sessions, scope)
+        await configure(home, { thread: historyThread("available before resume"), resumeDelayMs: 5_000 })
+
+        const first = await within(run(host.snapshot(id)), 3_000)
+        expect(JSON.stringify(first.messages)).toContain("available before resume")
+        expect(first.descriptor.runtimeStatus).toBe("resolving")
+        expect(first.descriptor.settings).toEqual({})
+        expect(gate.acquired).toBe(0)
+
+        const concurrent = await within(Promise.all([run(host.snapshot(id)), run(host.snapshot(id))]), 500)
+        expect(
+          concurrent.every((snapshot) => JSON.stringify(snapshot.messages).includes("available before resume")),
+        ).toBe(true)
+        const calls = await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.method === "thread/resume"),
+        )
+        expect(calls.filter((call) => call.method === "thread/resume")).toHaveLength(1)
+        expect((await rpc(home)).some((call) => ["turn/start", "turn/steer"].includes(call.method ?? ""))).toBe(false)
+
+        await until(
+          () => run(host.snapshot(id)),
+          (snapshot) => snapshot.descriptor.runtimeStatus === "idle",
+        )
+      }),
+    12_000,
+  )
+
+  test("keeps an archived missing-directory session as read-only history", () =>
+    harness(async ({ host, sessions, database, scope, home, gate }) => {
+      const missing = path.join(home, "missing-archived-worktree")
+      const id = await seed(sessions, scope, Location.Ref.make({ directory: AbsolutePath.make(missing) }))
+      const native = historyThread("archived history")
+      native.cwd = missing
+      native.status = { type: "notLoaded" }
+      await configure(home, { thread: native })
+      await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
+
+      const snapshot = await activatedSnapshot(host, id)
+      await Bun.sleep(50)
+      expect(JSON.stringify(snapshot.messages)).toContain("archived history")
+      expect(snapshot.descriptor.runtimeStatus).toBe("disconnected")
+      expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(false)
+      expect((await rpc(home)).some((call) => ["turn/start", "turn/steer"].includes(call.method ?? ""))).toBe(false)
+      expect(gate.acquired).toBe(0)
+      expect(gate.released).toBe(0)
+    }))
+
+  test("retries an observed read barrier without activating the archived thread", () =>
+    harness(async ({ host, sessions, database, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
+      await configure(home, {
+        thread: historyThread("stale history"),
+        afterReadThread: historyThread("history after read signal"),
+        readEvents: [
+          { method: "thread/status/changed", params: { threadId: "native-thread", status: { type: "idle" } } },
+        ],
+      })
+
+      await run(host.snapshot(id))
+      await until(
+        () => rpc(home),
+        (calls) => calls.filter((call) => call.method === "thread/read").length >= 4,
+      )
+      const snapshot = await run(host.snapshot(id))
+      expect(JSON.stringify(snapshot.messages)).toContain("history after read signal")
+      expect(JSON.stringify(snapshot.messages)).not.toContain("stale history")
+      expect((await rpc(home)).filter((call) => call.method === "thread/read").length).toBeGreaterThanOrEqual(4)
+      expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(false)
+    }))
+
+  test("keeps observed history when background activation fails", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, {
+        thread: historyThread("history survives activation failure"),
+        resumeError: { code: -32600, message: "resume failed" },
+      })
+
+      const first = await run(host.snapshot(id))
+      expect(JSON.stringify(first.messages)).toContain("history survives activation failure")
+      await until(
+        () => run(host.describe([id])).then((values) => values[0]!),
+        (descriptor) => descriptor.error?.includes("resume failed") === true,
+      )
+      const after = await run(host.snapshot(id))
+      expect(JSON.stringify(after.messages)).toContain("history survives activation failure")
+    }))
+
+  test(
+    "an earlier activation failure cannot overwrite a replacement generation",
+    () =>
+      harness(async ({ host, sessions, scope, home }) => {
+        const id = await seed(sessions, scope)
+        await configure(home, { thread: historyThread("history across generations"), resumeDelayMs: 5_000 })
+        const first = await run(host.snapshot(id))
+        expect(JSON.stringify(first.messages)).toContain("history across generations")
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.method === "thread/resume"),
+        )
+
+        await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+        await until(
+          () => run(host.describe([id])).then((values) => values[0]!),
+          (descriptor) => descriptor.runtimeStatus === "disconnected",
+        )
+        await command(home, [])
+        await configure(home, { resumeDelayMs: 0 })
+        const restored = await until(
+          () => run(host.snapshot(id)),
+          (snapshot) => snapshot.descriptor.runtimeStatus === "idle",
+        )
+        await Bun.sleep(50)
+        expect(JSON.stringify(restored.messages)).toContain("history across generations")
+        expect((await run(host.describe([id])))[0]).toMatchObject({ runtimeStatus: "idle" })
+        expect((await run(host.describe([id])))[0]?.error).toBeUndefined()
+      }),
+    15_000,
+  )
+
   test("reads and resumes the same directory through a real symlink and canonical native cwd", () =>
     harness(async ({ host, sessions, scope, home }) => {
       const alias = path.join(home, "workspace-alias")
       await symlink(directory, alias, "dir")
       const id = await seed(sessions, scope, Location.Ref.make({ directory: AbsolutePath.make(alias) }))
       await configure(home, { thread: { ...thread(), cwd: await realpath(alias) } })
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await activatedSnapshot(host, id)
       expect(snapshot.descriptor.runtimeStatus).toBe("idle")
       expect(snapshot.descriptor.error).toBeUndefined()
       expect((await run(sessions.get(id))).session.location.directory).toBe(AbsolutePath.make(alias))
@@ -694,9 +857,10 @@ describe("CodexHost native process boundaries", () => {
         const snapshot = await run(host.snapshot(id))
         expect(snapshot.descriptor.runtimeStatus).toBe("bindingUnavailable")
         expect(snapshot.descriptor.error).toContain("different native thread or directory")
+        expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(false)
       })
     }
-  })
+  }, 10_000)
 
   test("keeps an existing native login without reading provider credentials", () =>
     harness(
@@ -968,7 +1132,7 @@ describe("CodexHost native process boundaries", () => {
       await run(sessions.admit({ sessionID: id, requestID: "queued", payload: prompt, delivery: "queue" }))
       await run(sessions.admit({ sessionID: id, requestID: "withdraw", payload: prompt, delivery: "queue" }))
       await run(sessions.setQueuePaused(id, true))
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await activatedSnapshot(host, id)
       await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
       const starts = (await rpc(home)).filter((call) => call.method === "turn/start").length
 
@@ -985,7 +1149,7 @@ describe("CodexHost native process boundaries", () => {
       await run(host.queue(id, { action: "withdraw", requestID: "withdraw", revision: snapshot.descriptor.revision }))
       expect((await run(host.delivery(id, "withdraw"))).state).toBe("withdrawn")
       await run(database.db.update(SessionTable).set({ time_archived: null }).run().pipe(Effect.orDie))
-      const restored = await run(host.snapshot(id))
+      const restored = await activatedSnapshot(host, id)
       await run(host.queue(id, { action: "resume", requestID: "queued", revision: restored.descriptor.revision }))
       await until(
         () => run(host.delivery(id, "queued")),
@@ -1201,7 +1365,7 @@ describe("CodexHost native process boundaries", () => {
         (value) => value[0]?.runtimeStatus === "disconnected",
       )
       await command(home, [])
-      await run(host.snapshot(id))
+      await activatedSnapshot(host, id)
       await run(host.submit(id, { requestID: "fresh-steer", input: prompt, delivery: "steer" }))
       await until(
         () => run(host.delivery(id, "fresh-steer")),
@@ -1264,7 +1428,7 @@ describe("CodexHost native process boundaries", () => {
         },
       ]
       await configure(home, { thread: native, selectedProvider: "openai" })
-      const resumed = await run(host.snapshot(id))
+      const resumed = await activatedSnapshot(host, id)
       expect(resumed.descriptor.runtimeStatus).toBe("active")
       expect(resumed.descriptor.capabilities.steer).toBe(true)
       await run(host.submit(id, { requestID: "same-settings", input: prompt, delivery: "steer" }))
@@ -1296,7 +1460,7 @@ describe("CodexHost native process boundaries", () => {
           },
         ]
         await configure(home, { thread: native, selectedModel: "native-model", selectedProvider: "opencode_xd" })
-        expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("xd/native-model")
+        expect((await activatedSnapshot(host, id)).descriptor.settings.model).toBe("xd/native-model")
         await run(
           host.submit(id, {
             requestID: "same-custom-settings",
@@ -1362,7 +1526,7 @@ describe("CodexHost native process boundaries", () => {
         },
       ]
       await configure(home, { thread: native })
-      await run(host.snapshot(id))
+      await activatedSnapshot(host, id)
       const reads = (await rpc(home)).filter((call) => call.method === "thread/read").length
       await configure(home, { readDelayMs: 1_000 })
       await command(home, [
@@ -1517,7 +1681,10 @@ describe("CodexHost native process boundaries", () => {
         () => run(host.delivery(id, "uncertain")),
         (receipt) => receipt.state === "unknown",
       )
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.deliveries.find((receipt) => receipt.requestID === "uncertain")?.state === "accepted",
+      )
       expect(snapshot.deliveries.find((receipt) => receipt.requestID === "uncertain")?.state).toBe("accepted")
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
       expect((await run(sessions.get(id))).binding.queuePaused).toBe(true)
@@ -1582,7 +1749,7 @@ describe("CodexHost native process boundaries", () => {
       await Promise.all([run(host.login()), run(host.login())])
       expect((await rpc(home)).filter((call) => call.method === "account/login/start")).toHaveLength(1)
       const id = await seed(sessions, scope)
-      await run(host.snapshot(id))
+      await activatedSnapshot(host, id)
       const descriptor = await run(host.settings(id, { effort: "high" }))
       expect(descriptor.settings.effort).toBe("low")
       expect(descriptor.pendingSettings?.effort).toBe("high")
@@ -1634,7 +1801,7 @@ describe("CodexHost native process boundaries", () => {
   test("unknown input with no unique native client ID blocks new input and remains visible", () =>
     harness(async ({ host, sessions, home, scope }) => {
       const id = await seed(sessions, scope)
-      await run(host.snapshot(id))
+      await activatedSnapshot(host, id)
       await run(sessions.admit({ sessionID: id, requestID: "lost", payload: prompt, delivery: "steer" }))
       await run(sessions.claim({ sessionID: id, requestID: "lost", generation: "original-attempt" }))
       await run(sessions.settle({ sessionID: id, requestID: "lost", generation: "original-attempt", state: "unknown" }))
@@ -1644,14 +1811,40 @@ describe("CodexHost native process boundaries", () => {
         (value) => value[0]?.runtimeStatus === "disconnected",
       )
       await command(home, [])
-      const snapshot = await run(host.snapshot(id))
-      expect(snapshot.descriptor.error).toContain("confirmed completion")
+      const snapshot = await until(
+        () => run(host.snapshot(id)),
+        (snapshot) => snapshot.descriptor.error !== undefined,
+      )
+      expect(snapshot.descriptor.error).toMatch(/unknown result|no confirmed completion/)
       expect((await run(host.delivery(id, "lost"))).state).toBe("unknown")
       await expect(run(host.submit(id, { requestID: "after", input: prompt, delivery: "steer" }))).rejects.toThrow(
         "Previous native execution",
       )
       expect(await run(sessions.getDelivery({ sessionID: id, requestID: "after" }))).toBeUndefined()
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(0)
+    }))
+
+  test("archived observation preserves unknown execution and queued input without dispatch", () =>
+    harness(async ({ host, sessions, database, home, scope }) => {
+      const id = await seed(sessions, scope)
+      await run(sessions.admit({ sessionID: id, requestID: "unknown", payload: prompt, delivery: "steer" }))
+      await run(sessions.claim({ sessionID: id, requestID: "unknown", generation: "lost-generation" }))
+      await run(
+        sessions.settle({ sessionID: id, requestID: "unknown", generation: "lost-generation", state: "unknown" }),
+      )
+      await run(sessions.admit({ sessionID: id, requestID: "queued", payload: prompt, delivery: "queue" }))
+      await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
+      await configure(home, { thread: historyThread("uncertain archived history") })
+
+      const snapshot = await run(host.snapshot(id))
+      expect(JSON.stringify(snapshot.messages)).toContain("uncertain archived history")
+      expect((await run(host.delivery(id, "unknown"))).state).toBe("unknown")
+      expect((await run(host.delivery(id, "queued"))).state).toBe("paused")
+      expect((await run(sessions.get(id))).binding.executionPending).toBe(true)
+      expect(snapshot.descriptor.capabilities.prompt).toBe(false)
+      expect(
+        (await rpc(home)).some((call) => ["thread/resume", "turn/start", "turn/steer"].includes(call.method ?? "")),
+      ).toBe(false)
     }))
 
   test("rollout fallback survives metadata and usage events", () =>
@@ -1933,7 +2126,8 @@ describe("CodexHost native process boundaries", () => {
         },
       ]
       await configure(home, { thread: native })
-      await run(host.snapshot(id))
+      await activatedSnapshot(host, id)
+      const reads = (await rpc(home)).filter((call) => call.method === "thread/read").length
       native.turns[0]!.items = [{ ...native.turns[0]!.items[0]!, text: "AB" } as v2.ThreadItem]
       await configure(home, { thread: native })
       await command(
@@ -1947,7 +2141,7 @@ describe("CodexHost native process boundaries", () => {
       const snapshot = await run(host.snapshot(id))
       expect(JSON.stringify(snapshot.messages)).toContain('"text":"AB"')
       expect(JSON.stringify(snapshot.messages)).not.toContain('"text":"ABB"')
-      expect((await rpc(home)).filter((call) => call.method === "thread/read")).toHaveLength(4)
+      expect((await rpc(home)).filter((call) => call.method === "thread/read")).toHaveLength(reads + 2)
     }))
   test("interrupted turn retains its lease and paused queue until the native command actually completes", () =>
     harness(async ({ host, sessions, scope, home, gate }) => {
@@ -2026,7 +2220,7 @@ describe("CodexHost native process boundaries", () => {
     harness(async ({ host, sessions, scope, home, gate }) => {
       const id = await seed(sessions, scope)
       await run(sessions.setExecutionPending(id, true))
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await activatedSnapshot(host, id)
       expect(snapshot.descriptor.runtimeStatus).toBe("disconnected")
       expect(snapshot.descriptor.capabilities.prompt).toBe(false)
       expect(snapshot.descriptor.error).toContain("no confirmed completion")
@@ -2099,7 +2293,7 @@ describe("CodexHost native process boundaries", () => {
         },
       })
       await rmdir(missing)
-      const snapshot = await run(host.snapshot(id))
+      const snapshot = await activatedSnapshot(host, id)
       expect(snapshot.descriptor.runtimeStatus).toBe("idle")
       expect(snapshot.descriptor.error).toBeUndefined()
       expect(JSON.stringify(snapshot.messages)).toContain("Preserved native history")
@@ -2233,7 +2427,7 @@ describe("CodexHost native process boundaries", () => {
       )
       await run(sessions.setExecutionPending(created.session.id, true))
       await configure(home, { thread: { ...thread(), historyMode: "paginated" } })
-      const snapshot = await run(host.snapshot(created.session.id))
+      const snapshot = await activatedSnapshot(host, created.session.id)
       expect(snapshot.descriptor.runtimeStatus).toBe("idle")
       expect(snapshot.descriptor.capabilities.prompt).toBe(true)
       expect((await run(sessions.get(created.session.id))).binding.executionPending).toBe(false)
@@ -2301,9 +2495,81 @@ describe("CodexHost native process boundaries", () => {
           },
         },
       })
-      const snapshot = await run(host.snapshot(parent))
+      const snapshot = await until(
+        () => run(host.snapshot(parent)),
+        (snapshot) => snapshot.children.length === 1,
+      )
       expect(snapshot.children).toEqual([{ sessionID: child.session.id, nativeThreadID: "native-child" }])
       expect(snapshot.messages).toHaveLength(2)
+    }))
+
+  test("a discovered notLoaded child activates on snapshot and delivers pending input", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const parent = await seed(sessions, scope)
+      const spawn: v2.ThreadItem = {
+        type: "collabAgentToolCall",
+        id: "discover-child",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "native-thread",
+        receiverThreadIds: ["native-child"],
+        prompt: null,
+        model: null,
+        reasoningEffort: null,
+        agentsStates: {},
+      }
+      const parentThread = {
+        ...thread(),
+        historyMode: "paginated" as const,
+        turns: [
+          {
+            id: "parent-turn",
+            items: [spawn],
+            itemsView: "full" as const,
+            status: "completed" as const,
+            error: null,
+            startedAt: 1,
+            completedAt: 2,
+            durationMs: 1,
+          },
+        ],
+      }
+      const childThread = {
+        ...thread(),
+        id: "native-child",
+        parentThreadId: "native-thread",
+        historyMode: "paginated" as const,
+        status: { type: "notLoaded" } as const,
+      }
+      const resumedChild = { ...childThread, status: { type: "idle" } as const }
+      await configure(home, {
+        thread: parentThread,
+        threads: { "native-thread": parentThread, "native-child": childThread },
+        afterResumeThread: resumedChild,
+      })
+      const parentSnapshot = await until(
+        () => run(host.snapshot(parent)),
+        (snapshot) => snapshot.children.length === 1,
+      )
+      const child = parentSnapshot.children[0]!.sessionID
+
+      expect((await run(host.snapshot(child))).descriptor.runtimeStatus).toBe("disconnected")
+      await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.method === "thread/resume" && call.params?.threadId === "native-child"),
+      )
+      await until(
+        () => run(host.snapshot(child)),
+        (snapshot) => snapshot.descriptor.runtimeStatus === "idle" && snapshot.descriptor.capabilities.prompt,
+      )
+      await run(host.submit(child, { requestID: "child-input", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(child, "child-input")),
+        (delivery) => delivery.state === "accepted",
+      )
+      expect(
+        (await rpc(home)).filter((call) => call.method === "turn/start" && call.params?.threadId === "native-child"),
+      ).toHaveLength(1)
     }))
 
   test("a child discovered from history is usable when paginated native tools are explicitly complete", () =>
@@ -2354,11 +2620,29 @@ describe("CodexHost native process boundaries", () => {
           },
         },
       })
-      const snapshot = await run(host.snapshot(child.session.id))
+      const snapshot = await activatedSnapshot(host, child.session.id)
       expect(snapshot.descriptor.runtimeStatus).toBe("idle")
       expect(snapshot.descriptor.capabilities.prompt).toBe(true)
       expect((await run(sessions.get(child.session.id))).binding.executionPending).toBe(false)
       expect(JSON.stringify(snapshot.messages)).toContain("child-command")
+    }))
+
+  test("deletion waits for an in-flight background activation without restoring the removed session", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { thread: historyThread("history before deletion"), resumeDelayMs: 500 })
+      const snapshot = await run(host.snapshot(id))
+      expect(snapshot.descriptor.runtimeStatus).toBe("resolving")
+      await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.method === "thread/resume"),
+      )
+
+      await within(run(host.remove(id)), 4_000)
+      await expect(run(sessions.get(id))).rejects.toThrow("Session not found")
+      await Bun.sleep(50)
+      expect((await rpc(home)).filter((call) => call.method === "thread/delete")).toHaveLength(1)
+      await expect(run(host.snapshot(id))).rejects.toThrow("Session not found")
     }))
 
   test("deletes an idle native family leaf first and finalizes its managed root once", () =>
@@ -2517,7 +2801,7 @@ describe("CodexHost native process boundaries", () => {
           deletedThreads: ["native-child"],
         })
 
-        const snapshot = await run(host.snapshot(first.parent))
+        const snapshot = await activatedSnapshot(host, first.parent)
         expect(snapshot.descriptor.runtimeStatus).toBe("idle")
         expect(snapshot.children).toEqual([])
         expect(
@@ -2593,7 +2877,7 @@ describe("CodexHost native process boundaries", () => {
         historyMode: "paginated" as const,
       }
       await configure(home, { thread: active, threads: { "native-thread": active, "native-child": child } })
-      expect((await run(host.snapshot(parent))).descriptor.runtimeStatus).toBe("active")
+      expect((await activatedSnapshot(host, parent)).descriptor.runtimeStatus).toBe("active")
       const spawn: v2.ThreadItem = {
         type: "collabAgentToolCall",
         id: "spawn-during-delete",

@@ -2403,7 +2403,16 @@ export default function Page() {
             <Show when={sessionPanelKey()} keyed>
               {(_) => (
                 <SessionPanelFrame newLayout>
-                  <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
+                  <Suspense
+                    fallback={
+                      <div data-slot="session-loading" class="px-2 py-2 text-12-regular text-text-weak">
+                        {language.t("common.loading")}
+                        {language.t("common.loading.ellipsis")}
+                      </div>
+                    }
+                  >
+                    <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
+                  </Suspense>
                 </SessionPanelFrame>
               )}
             </Show>

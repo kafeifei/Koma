@@ -21,8 +21,10 @@ type Config = {
   readError?: boolean
   readDelayMs?: number
   resumeDelayMs?: number
+  resumeError?: { code: number; message: string }
   turnStartDelayMs?: number
   resumeEvents?: Array<{ method: string; params: unknown }>
+  afterResumeThread?: v2.Thread
   afterReadThread?: v2.Thread
   readEvents?: Array<{ method: string; params: unknown }>
   nativeSettings?: Pick<v2.ThreadStartResponse, "sandbox" | "approvalPolicy" | "approvalsReviewer">
@@ -58,7 +60,8 @@ setInterval(() => {
   const next = readFileSync(file, "utf8")
   if (!next || next === command) return
   command = next
-  const value = JSON.parse(next) as { messages?: unknown[]; exit?: boolean }
+  const value = JSON.parse(next) as { messages?: unknown[]; patch?: Partial<Config>; exit?: boolean }
+  if (value.patch) save({ ...read(), ...value.patch })
   value.messages?.forEach(send)
   if (value.exit) process.exit(17)
 }, 5)
@@ -170,6 +173,7 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     return reply({})
   }
   if (message.method === "thread/resume") {
+    if (config.resumeError) return send({ id: message.id, error: config.resumeError })
     if (config.reflectProvider) {
       config.selectedModel = String(message.params?.model ?? config.selectedModel ?? "native-model")
       config.selectedProvider = String(message.params?.modelProvider ?? config.selectedProvider ?? "openai")
@@ -178,6 +182,13 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     config.resumeEvents = undefined
     save(config)
     const response = settings({ ...config.thread, turns: [] })
+    const afterResume = config.afterResumeThread
+    if (afterResume && afterResume.id === message.params?.threadId) {
+      config.thread = afterResume
+      if (config.threads?.[config.thread.id]) config.threads[config.thread.id] = config.thread
+      config.afterResumeThread = undefined
+      save(config)
+    }
     if (config.resumeDelayMs) return setTimeout(() => reply(response), config.resumeDelayMs)
     return reply(response)
   }
