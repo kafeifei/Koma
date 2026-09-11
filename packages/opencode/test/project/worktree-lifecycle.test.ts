@@ -369,6 +369,230 @@ describe("WorktreeLifecycle", () => {
     }),
   )
 
+  it.live("recreates a missing owned branch at the archived base before restoring state", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const base = yield* git(input.directory, ["rev-parse", "HEAD"])
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "tracked.txt"), "staged\n"))
+      yield* git(input.directory, ["add", "tracked.txt"])
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "tracked.txt"), "working\n"))
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "untracked.txt"), "untracked\n"))
+
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      yield* git(input.root, ["branch", "-D", "--", input.branch])
+      yield* Effect.promise(() => Bun.write(path.join(input.root, "tracked.txt"), "new root head\n"))
+      yield* git(input.root, ["add", "tracked.txt"])
+      yield* git(input.root, ["commit", "--no-gpg-sign", "-m", "advance root after archive"])
+      expect(yield* git(input.root, ["rev-parse", "HEAD"])).not.toBe(base)
+
+      yield* input.lifecycle.prepareRestore(input.sessionID)
+
+      expect(yield* git(input.directory, ["rev-parse", "HEAD"])).toBe(base)
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "tracked.txt")).text())).toBe("working\n")
+      expect(yield* git(input.directory, ["diff", "--cached", "--", "tracked.txt"])).toContain("+staged")
+      expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "untracked.txt")).text())).toBe(
+        "untracked\n",
+      )
+    }),
+  )
+
+  it.live("preserves an existing branch that moved away from the archived base", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      const owner = yield* input.lifecycle.get(input.sessionID)
+      if (!owner?.oid) return yield* Effect.die("archive owner did not retain its snapshot oid")
+      yield* Effect.promise(() => Bun.write(path.join(input.root, "tracked.txt"), "moved branch\n"))
+      yield* git(input.root, ["add", "tracked.txt"])
+      yield* git(input.root, ["commit", "--no-gpg-sign", "-m", "move saved branch base"])
+      const moved = yield* git(input.root, ["rev-parse", "HEAD"])
+      yield* git(input.root, ["branch", "-f", input.branch, "HEAD"])
+
+      const failed = yield* input.lifecycle.prepareRestore(input.sessionID).pipe(Effect.flip)
+
+      expect(failed.reason).toBe("git")
+      expect(failed.message).toContain("preserved branch no longer matches the archived base commit")
+      expect(yield* git(input.root, ["rev-parse", input.branch])).toBe(moved)
+      expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(owner.oid)
+      expect(yield* exists(input.directory)).toBe(true)
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "restore", phase: "removed" })
+    }),
+  )
+
+  it.live("preserves an invalid archive without recreating its missing branch", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const storage = yield* Storage.Service
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      yield* git(input.root, ["branch", "-D", "--", input.branch])
+      const invalid = yield* git(input.root, ["commit-tree", "HEAD^{tree}", "-m", "invalid archive"])
+      yield* git(input.root, ["update-ref", `refs/opencode/worktree-archive/${input.sessionID}`, invalid])
+      yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+        ...(yield* input.lifecycle.get(input.sessionID)),
+        oid: invalid,
+      })
+
+      const failed = yield* input.lifecycle.prepareRestore(input.sessionID).pipe(Effect.flip)
+
+      expect(failed.reason).toBe("git")
+      expect(failed.message).toContain("does not contain a valid worktree snapshot")
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(invalid)
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+        intent: "restore",
+        phase: "removed",
+        oid: invalid,
+      })
+      const branch = yield* Effect.promise(() =>
+        $`git show-ref --verify --quiet refs/heads/${input.branch}`.cwd(input.root).quiet().nothrow(),
+      )
+      expect(branch.exitCode).toBe(1)
+    }),
+  )
+
+  it.live("deletes a removed checkout after a missing-branch restore failed", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const storage = yield* Storage.Service
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      yield* git(input.root, ["branch", "-D", "--", input.branch])
+      yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+        ...(yield* input.lifecycle.get(input.sessionID)),
+        intent: "restore",
+        lastError: `git worktree failed: fatal: invalid reference: ${input.branch}`,
+      })
+
+      expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+        intent: "delete",
+        phase: "removed",
+        branchOwned: false,
+      })
+      yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+      yield* input.lifecycle.finalizeDelete(input.sessionID)
+
+      expect(yield* input.lifecycle.get(input.sessionID)).toBeUndefined()
+      expect(yield* exists(input.directory)).toBe(false)
+      const archive = yield* Effect.promise(() =>
+        $`git rev-parse --verify --quiet refs/opencode/worktree-archive/${input.sessionID}`
+          .cwd(input.root)
+          .quiet()
+          .nothrow(),
+      )
+      expect(archive.exitCode).not.toBe(0)
+    }),
+  )
+
+  it.live("deletes a failed restore while preserving the saved branch in another checkout", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      const occupied = `${input.directory}-occupied`
+      yield* git(input.root, ["worktree", "add", occupied, input.branch])
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(async () => {
+          await $`git worktree remove --force ${occupied}`.cwd(input.root).quiet().nothrow()
+          await fs.rm(occupied, { recursive: true, force: true })
+        }),
+      )
+      const failed = yield* input.lifecycle.prepareRestore(input.sessionID).pipe(Effect.flip)
+      expect(failed.reason).toBe("git")
+      expect(failed.message).toContain("already used by worktree")
+
+      expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "delete", branchOwned: false })
+      yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+      yield* input.lifecycle.finalizeDelete(input.sessionID)
+
+      expect(yield* input.lifecycle.get(input.sessionID)).toBeUndefined()
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(yield* exists(occupied)).toBe(true)
+      expect(yield* git(occupied, ["branch", "--show-current"])).toBe(input.branch)
+      expect(yield* Effect.promise(() => Bun.file(path.join(occupied, "tracked.txt")).text())).toBe("base\n")
+      expect(yield* git(input.root, ["show-ref", "--verify", `refs/heads/${input.branch}`])).not.toBe("")
+      const archive = yield* Effect.promise(() =>
+        $`git rev-parse --verify --quiet refs/opencode/worktree-archive/${input.sessionID}`
+          .cwd(input.root)
+          .quiet()
+          .nothrow(),
+      )
+      expect(archive.exitCode).not.toBe(0)
+    }),
+  )
+
+  it.live("preserves a missing checkout whose Git worktree registration is locked", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      const owner = yield* input.lifecycle.get(input.sessionID)
+      if (!owner?.oid) return yield* Effect.die("archive owner did not retain its snapshot oid")
+      yield* git(input.root, ["worktree", "add", input.directory, input.branch])
+      yield* git(input.root, ["worktree", "lock", "--reason", "missing locked checkout", input.directory])
+      yield* Effect.addFinalizer(() => git(input.root, ["worktree", "unlock", input.directory]).pipe(Effect.ignore))
+      yield* Effect.promise(() => fs.rm(input.directory, { recursive: true }))
+      const restore = yield* input.lifecycle.prepareRestore(input.sessionID).pipe(Effect.flip)
+      expect(restore.reason).toBe("git")
+
+      const deletion = yield* input.lifecycle.prepareDelete(input.sessionID).pipe(Effect.flip)
+
+      expect(deletion.reason).toBe("conflict")
+      expect(deletion.message).toContain("locked")
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(
+        yield* input.db
+          .select({ id: SessionTable.id })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, input.sessionID))
+          .get()
+          .pipe(Effect.orDie),
+      ).toEqual({ id: input.sessionID })
+      expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(owner.oid)
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "restore", phase: "removed" })
+    }),
+  )
+
   it.live("serializes a rapid archive and restore without double-removing the checkout", () =>
     Effect.gen(function* () {
       const input = yield* fixture()
@@ -685,6 +909,16 @@ it.live("keeps the archive snapshot when the resident path was replaced by anoth
     )
     expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
     expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive", phase: "captured" })
+    const deletion = yield* input.lifecycle.prepareDelete(input.sessionID).pipe(Effect.exit)
+    expect(Exit.isFailure(deletion)).toBe(true)
+    expect(
+      yield* input.db
+        .select({ id: SessionTable.id })
+        .from(SessionTable)
+        .where(eq(SessionTable.id, input.sessionID))
+        .get()
+        .pipe(Effect.orDie),
+    ).toEqual({ id: input.sessionID })
   }),
 )
 
@@ -751,6 +985,21 @@ it.live("cancels a failed archive while preserving a locked checkout", () =>
 
     const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
     expect(failed.reason).toBe("git")
+    const owner = yield* input.lifecycle.get(input.sessionID)
+    if (!owner?.oid) return yield* Effect.die("failed archive did not retain its snapshot oid")
+    expect(owner).toMatchObject({ intent: "archive", phase: "captured" })
+    const deletion = yield* input.lifecycle.prepareDelete(input.sessionID).pipe(Effect.flip)
+    expect(deletion.reason).toBe("conflict")
+    expect(deletion.message).toContain("locked")
+    expect(
+      yield* input.db
+        .select({ id: SessionTable.id })
+        .from(SessionTable)
+        .where(eq(SessionTable.id, input.sessionID))
+        .get()
+        .pipe(Effect.orDie),
+    ).toEqual({ id: input.sessionID })
+    expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(owner.oid)
     expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive", phase: "captured" })
     expect(yield* input.lifecycle.prepareRestore(input.sessionID)).toEqual({ managed: true })
     expect(yield* Effect.promise(() => fs.readFile(`${input.directory}/tracked.txt`, "utf8"))).toBe(
@@ -758,6 +1007,78 @@ it.live("cancels a failed archive while preserving a locked checkout", () =>
     )
     expect(yield* git(input.root, ["worktree", "list", "--porcelain", "-z"])).toContain(`worktree ${input.directory}\0`)
     expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ phase: "resident" })
+  }),
+)
+
+it.live("deletes a renamed checkout after its archive failed", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const renamed = `archive-delete-${crypto.randomUUID().slice(0, 8)}`
+    yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "delete after rename"))
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* git(input.directory, ["branch", "-m", renamed])
+    const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
+    expect(failed.reason).toBe("git")
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+      branch: input.branch,
+      intent: "archive",
+      phase: "resident",
+    })
+
+    expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+      branch: renamed,
+      intent: "delete",
+      phase: "captured",
+      branchOwned: false,
+    })
+    yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+    yield* input.lifecycle.finalizeDelete(input.sessionID)
+
+    expect(yield* input.lifecycle.get(input.sessionID)).toBeUndefined()
+    expect(yield* exists(input.directory)).toBe(false)
+    const branch = yield* Effect.promise(() =>
+      $`git show-ref --verify --quiet refs/heads/${renamed}`.cwd(input.root).quiet().nothrow(),
+    )
+    expect(branch.exitCode).toBe(0)
+  }),
+)
+
+it.live("preserves an existing branch selected before a failed archive is deleted", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const existing = `user-branch-${crypto.randomUUID().slice(0, 8)}`
+    yield* git(input.root, ["branch", existing, "HEAD"])
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    yield* git(input.directory, ["switch", existing])
+    yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "user branch state"))
+    const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
+    expect(failed.reason).toBe("git")
+
+    expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+      branch: existing,
+      intent: "delete",
+      branchOwned: false,
+    })
+    yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+    yield* input.lifecycle.finalizeDelete(input.sessionID)
+
+    expect(yield* exists(input.directory)).toBe(false)
+    expect(yield* git(input.root, ["show-ref", "--verify", `refs/heads/${existing}`])).not.toBe("")
+    expect(yield* git(input.root, ["show-ref", "--verify", `refs/heads/${input.branch}`])).not.toBe("")
   }),
 )
 

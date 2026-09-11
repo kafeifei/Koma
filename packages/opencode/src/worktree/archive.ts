@@ -92,6 +92,7 @@ export type ClearInput = {
 export interface Interface {
   readonly preview: (input: CaptureInput) => Effect.Effect<IgnoredPreview, ArchiveFailedError>
   readonly capture: (input: CaptureInput) => Effect.Effect<CaptureResult, ArchiveFailedError>
+  readonly baseCommit: (input: ClearInput) => Effect.Effect<string, ArchiveFailedError>
   readonly verify: (input: RestoreInput) => Effect.Effect<VerifyResult, ArchiveFailedError>
   readonly restore: (input: RestoreInput) => Effect.Effect<RestoreResult, ArchiveFailedError>
   readonly clear: (input: ClearInput) => Effect.Effect<void, ArchiveFailedError>
@@ -463,7 +464,7 @@ const layer: Layer.Layer<Service, never, Git.Service | FSUtil.Service> = Layer.e
 
     const readSnapshotAt = Effect.fnUntraced(function* (
       operation: ArchiveFailedError["operation"],
-      input: CaptureInput,
+      input: Pick<CaptureInput, "directory">,
       oid: string,
     ) {
       const values = yield* Effect.all([
@@ -503,7 +504,7 @@ const layer: Layer.Layer<Service, never, Git.Service | FSUtil.Service> = Layer.e
 
     const readSnapshot = Effect.fnUntraced(function* (
       operation: ArchiveFailedError["operation"],
-      input: CaptureInput,
+      input: Pick<CaptureInput, "directory">,
       ref: string,
     ) {
       const oid = yield* optional(input.directory, ["rev-parse", "--verify", "--quiet", ref])
@@ -658,6 +659,17 @@ const layer: Layer.Layer<Service, never, Git.Service | FSUtil.Service> = Layer.e
       return { ref, oid, snapshot, hasChanges, ignored: state.ignored } satisfies CaptureResult
     })
 
+    const baseCommit = Effect.fn("WorktreeArchive.baseCommit")(function* (input: ClearInput) {
+      const ref = yield* archiveRef("restore", input.sessionID)
+      const expected = yield* readSnapshot("restore", input, ref)
+      if (expected.oid !== input.oid) {
+        return yield* failed("restore", `archive ref ${ref} changed after lifecycle persistence`)
+      }
+      const current = yield* optional(input.directory, ["rev-parse", "--verify", "--quiet", ref])
+      if (current !== input.oid) return yield* failed("restore", `archive ref ${ref} changed while reading its base`)
+      return expected.snapshot.baseCommit
+    })
+
     const restore = Effect.fn("WorktreeArchive.restore")(function* (input: RestoreInput) {
       const ref = yield* archiveRef("restore", input.sessionID)
       const currentRef = yield* optional(input.directory, ["rev-parse", "--verify", "--quiet", ref])
@@ -743,7 +755,7 @@ const layer: Layer.Layer<Service, never, Git.Service | FSUtil.Service> = Layer.e
       return yield* failed("clear", `git update-ref failed: ${detail}`)
     })
 
-    return Service.of({ preview, capture, verify, restore, clear })
+    return Service.of({ preview, capture, baseCommit, verify, restore, clear })
   }),
 )
 

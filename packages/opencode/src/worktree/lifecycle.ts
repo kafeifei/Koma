@@ -354,6 +354,30 @@ const layer = Layer.effect(
 
     const directoryExists = (owner: Owner) => fs.existsSafe(owner.directory)
 
+    const restoreCheckout = Effect.fnUntraced(function* (owner: Owner) {
+      if (!owner.sessionID || !owner.oid) {
+        return yield* fail("conflict", "archive snapshot identity is missing", owner)
+      }
+      yield* fs
+        .makeDirectory(path.dirname(owner.directory), { recursive: true })
+        .pipe(Effect.mapError((error) => fail("unavailable", error.message, owner)))
+      const branch = yield* git.run(["show-ref", "--verify", "--quiet", `refs/heads/${owner.branch}`], {
+        cwd: owner.root,
+      })
+      if (branch.exitCode === 0) {
+        yield* gitRun(owner, ["worktree", "add", owner.directory, owner.branch])
+        return
+      }
+      if (branch.exitCode !== 1) {
+        const message = branch.stderr.toString("utf8").trim() || branch.text().trim() || `exit ${branch.exitCode}`
+        return yield* fail("git", `git show-ref failed: ${message}`, owner)
+      }
+      const base = yield* archive
+        .baseCommit({ directory: owner.root, sessionID: owner.sessionID, oid: owner.oid })
+        .pipe(Effect.mapError((error) => fail("git", error.message, owner)))
+      yield* gitRun(owner, ["worktree", "add", "-b", owner.branch, owner.directory, base])
+    })
+
     const registeredCheckout = Effect.fnUntraced(function* (owner: Owner) {
       const list = yield* gitRun(owner, ["worktree", "list", "--porcelain", "-z"])
       const entries = yield* Effect.forEach(
@@ -368,6 +392,7 @@ const layer = Layer.effect(
               directory: location.identity,
               path: location.path,
               branch: lines.find((line) => line.startsWith("branch "))?.slice("branch refs/heads/".length),
+              locked: lines.some((line) => line === "locked" || line.startsWith("locked ")),
             }
           }),
         { concurrency: "unbounded" },
@@ -690,12 +715,7 @@ const layer = Layer.effect(
           )
           return yield* Effect.gen(function* () {
             if (planned.phase !== "restored") yield* verifyArchive(planned)
-            if (!(yield* directoryExists(planned))) {
-              yield* fs
-                .makeDirectory(path.dirname(planned.directory), { recursive: true })
-                .pipe(Effect.mapError((error) => fail("unavailable", error.message, planned)))
-              yield* gitRun(planned, ["worktree", "add", planned.directory, planned.branch])
-            }
+            if (!(yield* directoryExists(planned))) yield* restoreCheckout(planned)
             yield* archive
               .restore({ directory: planned.directory, branch: planned.branch, sessionID, oid: planned.oid! })
               .pipe(Effect.mapError((error) => fail("git", error.message, planned)))
@@ -723,24 +743,61 @@ const layer = Layer.effect(
       )
     })
 
+    const supersedeFailedLifecycle = Effect.fnUntraced(function* (owner: Owner) {
+      if (owner.intent === "restore") {
+        yield* verifyArchive(owner)
+        const registered = yield* registeredCheckout(owner)
+        if (registered?.locked) {
+          return yield* fail("conflict", "managed worktree is locked; session and checkout were preserved", owner)
+        }
+        if (yield* directoryExists(owner)) {
+          yield* assertResidentCheckout(owner)
+          yield* archive
+            .verify({ directory: owner.directory, branch: owner.branch, sessionID: owner.sessionID!, oid: owner.oid! })
+            .pipe(Effect.mapError((error) => fail("git", error.message, owner)))
+          return owner
+        }
+        yield* archive
+          .baseCommit({ directory: owner.root, sessionID: owner.sessionID!, oid: owner.oid! })
+          .pipe(Effect.mapError((error) => fail("git", error.message, owner)))
+        // Without our checkout, branch ownership is no longer provable. Delete only the private archive and owner.
+        return { ...owner, branchOwned: false }
+      }
+      if (owner.intent !== "archive" || owner.phase === "removed") return owner
+      if (!(yield* directoryExists(owner))) {
+        return yield* fail("busy", "worktree archive has not finished removing the checkout", owner)
+      }
+      const resident = yield* assertResidentCheckoutIdentity(owner)
+      if (resident.locked) {
+        return yield* fail("conflict", "managed worktree is locked; session and checkout were preserved", owner)
+      }
+      if (!(yield* cancelArchive(owner))) {
+        return yield* fail("busy", "worktree archive has not finished removing the checkout", owner)
+      }
+      const current = yield* get(owner.sessionID!)
+      if (!current) return yield* fail("conflict", "managed worktree owner disappeared during delete", owner)
+      return current.branch === owner.branch ? current : { ...current, branchOwned: false }
+    })
+
     const prepareDelete = Effect.fn("WorktreeLifecycle.prepareDelete")(function* (sessionID: string) {
       const owner = yield* get(sessionID)
       if (!owner) return { managed: false }
       return yield* mutate(
         owner.directory,
         Effect.gen(function* () {
-          const current = yield* get(sessionID)
-          if (!current) return { managed: false }
-          if (current.intent === "restore") {
-            return yield* fail("busy", "worktree has a pending restore request", current)
+          const found = yield* get(sessionID)
+          if (!found) return { managed: false }
+          if (found.intent === "restore" && !found.lastError) {
+            return yield* fail("busy", "worktree has a pending restore request", found)
           }
-          if (current.intent === "archive" && current.phase !== "removed") {
-            return yield* fail("busy", "worktree archive has not finished removing the checkout", current)
+          if (found.intent === "archive" && found.phase !== "removed" && !found.lastError) {
+            return yield* fail("busy", "worktree archive has not finished removing the checkout", found)
           }
+          if (yield* busy(found)) {
+            return yield* fail("busy", "session or a background child is still using the worktree", found)
+          }
+          const current = yield* supersedeFailedLifecycle(found)
           const shared = yield* familyShared(current)
-          if (yield* busy(current)) {
-            return yield* fail("busy", "session or a background child is still using the worktree", current)
-          }
           yield* block(current.directory)
           const planned = yield* write({
             ...current,
