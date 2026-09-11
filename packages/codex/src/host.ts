@@ -24,6 +24,7 @@ import {
   Engine,
   EngineChanged,
   Input,
+  InputWaitReason,
   Interaction,
   Login,
   Message,
@@ -127,6 +128,7 @@ type Entry = {
   dirty: boolean
   refreshTimer?: ReturnType<typeof setTimeout>
   refreshPending: boolean
+  refreshing?: Promise<void>
   idleConfirmed: boolean
   appliedSettings: Settings
   nativeProvider?: string
@@ -144,6 +146,8 @@ type Entry = {
   lease: boolean
   leaseTarget?: { directory: string; sessionID: SessionSchema.ID }
   error?: string
+  inputWaitReason?: InputWaitReason
+  controlSequence: number
   operations: Promise<void>
   interactions: Promise<void>
   leases: Promise<void>
@@ -237,6 +241,7 @@ const layer = Layer.effect(
       queuePaused: entry.record.binding.queuePaused,
       settings: effectiveSettings(entry),
       pendingSettings: pendingSettings(entry, effectiveSettings(entry)),
+      inputWaitReason: entry.inputWaitReason,
       error: entry.error,
     })
 
@@ -309,6 +314,7 @@ const layer = Layer.effect(
         settingsSequence: 0,
         resumed: false,
         lease: false,
+        controlSequence: 0,
         operations: Promise.resolve(),
         interactions: Promise.resolve(),
         leases: Promise.resolve(),
@@ -725,7 +731,31 @@ const layer = Layer.effect(
       for (const receipt of await run(sessions.deliveries(entry.record.session.id))) {
         if (!["sending", "unknown", "accepted"].includes(receipt.state) || receipt.nativeItemID) continue
         const matches = evidence.get(receipt.requestID)
+        const deliveryGeneration = receipt.generation
+        const nativeTurnID = receipt.nativeTurnID
         if (matches?.length !== 1 || !receipt.generation) {
+          const turn = nativeTurnID ? thread.turns.find((value) => value.id === nativeTurnID) : undefined
+          if (
+            receipt.state === "accepted" &&
+            deliveryGeneration &&
+            nativeTurnID &&
+            !matches?.length &&
+            thread.historyMode === "paginated" &&
+            turn?.itemsView === "full" &&
+            turn.status !== "inProgress"
+          ) {
+            await run(
+              sessions.settle({
+                sessionID: receipt.sessionID,
+                requestID: receipt.requestID,
+                generation: deliveryGeneration,
+                state: "returned",
+                nativeTurnID,
+                error: "Native turn ended before this input entered native history",
+              }),
+            )
+            continue
+          }
           if (receipt.state === "unknown") unresolved = true
           continue
         }
@@ -753,25 +783,37 @@ const layer = Layer.effect(
       // every 200 ms; established new items still use the constant-size delta path.
       entry.refreshTimer = setTimeout(() => {
         entry.refreshTimer = undefined
-        entry.refreshPending = true
-        void serialize(entry, async () => {
-          if (!current(connected) || entry.generation !== connected.generation || !entry.dirty) return false
-          await load(entry)
-          if (entry.idleConfirmed) await pump(entry)
-          return entry.dirty
-        }).then(
+        void refresh(entry).then(
           (again) => {
-            entry.refreshPending = false
             if (again) scheduleRefresh(entry)
           },
           (error) => {
-            entry.refreshPending = false
             entry.dirty = true
             entry.error = errorMessage(error)
             if (current(connected)) void emit(entry, { refresh: true }).catch(() => undefined)
           },
         )
       }, 200)
+    }
+
+    async function refresh(entry: Entry, resume = false): Promise<boolean> {
+      if (entry.refreshing) {
+        await entry.refreshing
+        if (resume && !entry.resumed) return refresh(entry, true)
+        return entry.dirty
+      }
+      entry.refreshPending = true
+      const operation = load(entry, resume)
+      entry.refreshing = operation
+      try {
+        await operation
+      } finally {
+        if (entry.refreshing === operation) entry.refreshing = undefined
+        entry.refreshPending = false
+      }
+      if (["idle", "active"].includes(entry.status)) dispatch(entry)
+      if (entry.dirty) scheduleRefresh(entry)
+      return entry.dirty
     }
 
     async function resumeModel(entry: Entry) {
@@ -797,12 +839,16 @@ const layer = Layer.effect(
       const observedAt = receiveSequence
       if (resume && !entry.resumed) {
         const selected = await resumeModel(entry)
-        const response = await connected.resumeThread(threadID, {
-          ...selected,
-          developerInstructions: await globalInstructions(),
-          cwd: entry.record.session.location.directory,
-          excludeTurns: true,
-        })
+        const response = await connected.resumeThread(
+          threadID,
+          {
+            ...selected,
+            developerInstructions: await globalInstructions(),
+            cwd: entry.record.session.location.directory,
+            excludeTurns: true,
+          },
+          { timeoutMs: 15_000 },
+        )
         if (!current(connected)) return fail("unavailable", "Codex connection changed while resuming")
         if (
           response.thread.id !== threadID ||
@@ -821,7 +867,7 @@ const layer = Layer.effect(
         entry.resumed = true
         scheduleAutomaticApprovals(entry)
       }
-      const metadata = await connected.readThread(threadID, false)
+      const metadata = await connected.readThread(threadID, false, { timeoutMs: 15_000 })
       if (!current(connected)) return fail("unavailable", "Codex connection changed while reading")
       if (
         metadata.thread.id !== threadID ||
@@ -829,8 +875,13 @@ const layer = Layer.effect(
       )
         return fail("conflict", "Codex returned a different native thread or directory")
       if (!current(connected)) return fail("unavailable", "Codex connection changed while checking the directory")
+      if ((signals.get(threadID) ?? 0) > observedAt) {
+        entry.dirty = true
+        scheduleRefresh(entry)
+        return
+      }
       await syncTitle(entry, metadata.thread.name)
-      const history = await connected.readThread(threadID, true).catch(async (error) => {
+      const history = await connected.readThread(threadID, true, { timeoutMs: 15_000 }).catch(async (error) => {
         if (error instanceof CodexRpcError && metadata.thread.path) {
           return {
             fallback: await readCodexRolloutHistory({
@@ -853,6 +904,11 @@ const layer = Layer.effect(
         throw error
       })
       if (!current(connected)) return fail("unavailable", "Codex connection changed while reading history")
+      if ((signals.get(threadID) ?? 0) > observedAt) {
+        entry.dirty = true
+        scheduleRefresh(entry)
+        return
+      }
       // App-server has no snapshot cursor. Previously existing items cannot safely
       // accept any later delta: that fragment may already be in this read. Only
       // complete items or another full read replace them. New item/started events
@@ -921,6 +977,11 @@ const layer = Layer.effect(
             "A previous input remains unknown: the available rollout history has no verified native client ID evidence. It has not been resent"
         }
       }
+      if ((signals.get(threadID) ?? 0) > observedAt) {
+        entry.dirty = true
+        scheduleRefresh(entry)
+        return
+      }
       updateView(entry)
       const native = entry.native
       const active = native.turns.filter((turn) => turn.status === "inProgress")
@@ -935,7 +996,10 @@ const layer = Layer.effect(
         model:
           entry.appliedSettings.model ??
           CodexProviders.observedModel(native.model, entry.nativeProvider ?? native.modelProvider),
-        effort: native.reasoningEffort ?? entry.appliedSettings.effort,
+        effort:
+          entry.settingsSequence <= observedAt
+            ? (native.reasoningEffort ?? entry.appliedSettings.effort)
+            : entry.appliedSettings.effort,
       }
       entry.dirty = (signals.get(threadID) ?? 0) > observedAt
       entry.idleConfirmed = false
@@ -1031,7 +1095,13 @@ const layer = Layer.effect(
       const token = generation(connected)
       await bind(entry, connected)
       if (!current(connected)) return
-      if (!entry.resumed || entry.dirty || entry.status === "disconnected") await load(entry, true)
+      if (!entry.resumed || entry.dirty || entry.status === "disconnected") {
+        void refresh(entry, true).catch(async (error) => {
+          entry.error = errorMessage(error)
+          await emit(entry, { refresh: true })
+        })
+        return
+      }
       if (unconfirmedExecution(entry))
         return fail("conflict", "Previous native execution has not been confirmed finished")
       const input = await run(sessions.getDelivery({ sessionID: entry.record.session.id, requestID }))
@@ -1060,11 +1130,22 @@ const layer = Layer.effect(
         selected.modelProvider !== entry.nativeProvider ||
         JSON.stringify(selected.config) !== entry.providerConfig ||
         developerInstructions !== entry.globalInstructions
+      const activeConfigurationChange =
+        (payload.settings.model !== undefined && payload.settings.model !== entry.appliedSettings.model) ||
+        (payload.settings.effort !== undefined && payload.settings.effort !== entry.appliedSettings.effort) ||
+        (payload.settings.permission !== undefined &&
+          payload.settings.permission !== effectiveSettings(entry).permission) ||
+        (entry.nativeProvider !== undefined && selected.modelProvider !== entry.nativeProvider) ||
+        (entry.providerConfig !== undefined && JSON.stringify(selected.config) !== entry.providerConfig) ||
+        (entry.globalInstructions !== undefined && developerInstructions !== entry.globalInstructions)
       // A steer cannot change providers or global instructions. Apply changes
       // only once native execution is idle, before dispatching the next input.
-      if (activeTurnID && switchConfiguration) return
+      if (activeTurnID && activeConfigurationChange) {
+        entry.inputWaitReason = "waitingForConfiguration"
+        return
+      }
       await acquire(entry)
-      if (switchConfiguration) {
+      if (!activeTurnID && switchConfiguration) {
         if (!entry.idleConfirmed || entry.status !== "idle" || entry.activeTurnID) return
         // Loaded threads ignore provider overrides. Unsubscribe only after the
         // ownership lane has confirmed idle, then resume the same durable ID.
@@ -1077,12 +1158,16 @@ const layer = Layer.effect(
           return fail("conflict", "Codex could not unload the idle thread to select its provider")
         entry.resumed = false
         entry.idleConfirmed = false
-        const resumed = await connected.resumeThread(threadID, {
-          ...selected,
-          developerInstructions,
-          cwd: entry.record.session.location.directory,
-          excludeTurns: true,
-        })
+        const resumed = await connected.resumeThread(
+          threadID,
+          {
+            ...selected,
+            developerInstructions,
+            cwd: entry.record.session.location.directory,
+            excludeTurns: true,
+          },
+          { timeoutMs: 15_000 },
+        )
         if (!current(connected) || resumed.thread.id !== threadID)
           return fail("unavailable", "Codex connection changed while selecting the provider")
         if (!(await sameDirectory(resumed.cwd, entry.record.session.location.directory)))
@@ -1109,88 +1194,110 @@ const layer = Layer.effect(
       entry.idleConfirmed = false
       entry.status = "active"
       entry.error = undefined
-      try {
-        const response = activeTurnID
-          ? await connected.steerTurn(
-              {
-                threadId: entry.record.binding.nativeThreadID!,
-                expectedTurnId: activeTurnID,
-                clientUserMessageId: requestID,
-                input: nativeInput,
-              },
-              { timeoutMs: 30_000 },
-            )
-          : await connected.startTurn(
-              {
-                ...options,
-                threadId: entry.record.binding.nativeThreadID!,
-                cwd: entry.record.session.location.directory,
-                clientUserMessageId: requestID,
-                input: nativeInput,
-              },
-              { timeoutMs: 30_000 },
-            )
-        const nativeTurnID = "turnId" in response ? response.turnId : response.turn.id
-        await run(
-          sessions.settle({
-            sessionID: entry.record.session.id,
-            requestID,
-            generation: token,
-            state: "accepted",
-            nativeTurnID,
-          }),
+      entry.inputWaitReason = undefined
+      const dispatchedAt = receiveSequence
+      const response = activeTurnID
+        ? connected.steerTurn(
+            {
+              threadId: entry.record.binding.nativeThreadID!,
+              expectedTurnId: activeTurnID,
+              clientUserMessageId: requestID,
+              input: nativeInput,
+            },
+            { timeoutMs: 30_000 },
+          )
+        : connected.startTurn(
+            {
+              ...options,
+              threadId: entry.record.binding.nativeThreadID!,
+              cwd: entry.record.session.location.directory,
+              clientUserMessageId: requestID,
+              input: nativeInput,
+            },
+            { timeoutMs: 30_000 },
+          )
+      void response
+        .then(
+          (response) =>
+            serialize(entry, async () => {
+              const nativeTurnID = "turnId" in response ? response.turnId : response.turn.id
+              await run(
+                sessions.settle({
+                  sessionID: entry.record.session.id,
+                  requestID,
+                  generation: token,
+                  state: "accepted",
+                  nativeTurnID,
+                }),
+              )
+              if (!current(connected) || entry.generation !== connected.generation) return
+              if ((signals.get(entry.record.binding.nativeThreadID!) ?? 0) > dispatchedAt) {
+                entry.dirty = true
+                scheduleRefresh(entry)
+                await emit(entry, { refresh: true })
+                await pump(entry)
+                return
+              }
+              entry.activeTurnID = nativeTurnID
+              // A turn/start response acknowledges execution, but its items are not a
+              // history cursor. Display content only from the ordered item stream/read.
+              if ("turn" in response && entry.native && !entry.native.turns.some((turn) => turn.id === nativeTurnID)) {
+                entry.native.turns.push({ ...response.turn, items: [] })
+                reindex(entry)
+              }
+              await emit(entry, { refresh: true })
+              await pump(entry)
+            }),
+          (error) =>
+            serialize(entry, async () => {
+              const rejected = error instanceof CodexRpcError && [-32600, -32601, -32602].includes(error.code)
+              await run(
+                sessions.settle({
+                  sessionID: entry.record.session.id,
+                  requestID,
+                  generation: token,
+                  state: rejected ? "rejected" : "unknown",
+                  error: errorMessage(error),
+                }),
+              )
+              if (!current(connected) || entry.generation !== connected.generation) return
+              entry.record.binding = await run(sessions.pause(entry.record.session.id))
+              entry.error = errorMessage(error)
+              entry.dirty = true
+              entry.status = rejected ? "systemError" : "disconnected"
+              await emit(entry, { refresh: true })
+            }),
         )
-        if (!current(connected) || entry.generation !== connected.generation) return
-        entry.activeTurnID = nativeTurnID
-        // A turn/start response acknowledges execution, but its items are not a
-        // history cursor. Display content only from the ordered item stream/read.
-        if ("turn" in response && entry.native && !entry.native.turns.some((turn) => turn.id === nativeTurnID)) {
-          entry.native.turns.push({ ...response.turn, items: [] })
-          reindex(entry)
-        }
-        await emit(entry, { refresh: true })
-      } catch (error) {
-        const rejected = error instanceof CodexRpcError && [-32600, -32601, -32602].includes(error.code)
-        await run(
-          sessions.settle({
-            sessionID: entry.record.session.id,
-            requestID,
-            generation: token,
-            state: rejected ? "rejected" : "unknown",
-            error: errorMessage(error),
-          }),
-        )
-        await run(sessions.setQueuePaused(entry.record.session.id, true))
-        if (!current(connected) || entry.generation !== connected.generation) return
-        entry.record = await run(sessions.get(entry.record.session.id))
-        entry.error = errorMessage(error)
-        entry.dirty = true
-        entry.status = rejected ? "systemError" : "disconnected"
-        await emit(entry, { refresh: true })
-      }
+        .catch(() => undefined)
+      await emit(entry, { refresh: true })
     }
 
     async function pump(entry: Entry) {
       entry.record = await run(sessions.get(entry.record.session.id))
-      if (
-        entry.record.binding.queuePaused ||
-        entry.status !== "idle" ||
-        !entry.idleConfirmed ||
-        interactionStatus(entry) !== "idle"
-      )
+      const status = interactionStatus(entry)
+      const deliveries = await run(sessions.deliveries(entry.record.session.id))
+      const pending = await run(sessions.pending(entry.record.session.id))
+      if (entry.record.binding.state === "pending") {
+        const next = pending[0]
+        entry.inputWaitReason = next ? undefined : inputWaitReason(entry, deliveries)
+        if (next) await deliver(entry, next.requestID)
         return
-      const next = (await run(sessions.pending(entry.record.session.id)))[0]
+      }
+      if (!["idle", "active"].includes(status) || (status === "idle" && !entry.idleConfirmed)) return
+      const next = status === "active" ? pending.find((item) => item.delivery === "steer") : pending[0]
+      entry.inputWaitReason = next ? undefined : inputWaitReason(entry, deliveries)
       if (next) await deliver(entry, next.requestID)
     }
 
     async function snapshot(entry: Entry): Promise<Snapshot> {
       const deliveries = await run(sessions.deliveries(entry.record.session.id))
+      entry.inputWaitReason = inputWaitReason(entry, deliveries)
       return {
         ...structuredClone(entry.view),
         descriptor: descriptor(entry),
         plan: entry.plan ? { status: "available", value: structuredClone(entry.plan) } : { status: "unavailable" },
         interactions: [...entry.pending.values()].map((pending) => pending.view),
-        deliveries: deliveries.map(deliveryView),
+        deliveries: deliveries.map((delivery) => deliveryView(delivery, entry, deliveries)),
         children: [...new Set(entry.view.nativeChildren.map((child) => child.nativeThreadID))].flatMap(
           (nativeThreadID) => {
             const sessionID = nativeSessions.get(nativeThreadID)
@@ -1209,7 +1316,7 @@ const layer = Layer.effect(
       const existing = resolving.get(key)
       if (existing) return existing
       const operation = (async () => {
-        const native = (await connected.readThread(threadID, false)).thread
+        const native = (await connected.readThread(threadID, false, { timeoutMs: 15_000 })).thread
         if (!current(connected) || native.id !== threadID) return
         const parentID = native.parentThreadId ? nativeSessions.get(native.parentThreadId) : undefined
         if (!parentID) return
@@ -1306,8 +1413,7 @@ const layer = Layer.effect(
             : undefined
       if (!threadID) return
       const toolStarted = notification.method === "item/started" && runningTool(params.item)
-      if (["turn/started", "turn/completed", "thread/status/changed"].includes(notification.method) || toolStarted)
-        signals.set(threadID, received.sequence)
+      signals.set(threadID, received.sequence)
       if (notification.method === "serverRequest/resolved")
         rememberResolved(interactionKey(notification.generation, params.requestId))
       const id = nativeSessions.get(threadID)
@@ -1515,13 +1621,19 @@ const layer = Layer.effect(
         const timestamp = record(params.turn) ? (params.turn.completedAt ?? params.turn.startedAt) : undefined
         if (typeof timestamp === "number") await run(sessions.touch(entry.record.session.id, timestamp * 1000))
       }
-      if (notification.method === "turn/completed" && entry.fallback) await load(entry)
-      else if (entry.status === "idle") {
+      if (notification.method === "turn/completed") {
+        entry.dirty = true
+        entry.idleConfirmed = false
+        await emit(entry, { refresh: true })
+        scheduleRefresh(entry)
+        return
+      }
+      if (entry.status === "idle") {
         await resolveChildren(entry)
         await confirmIdle(entry, connected, notification.sequence)
       }
       await emit(entry, { refresh: true })
-      if (entry.status === "idle" && entry.idleConfirmed) await pump(entry)
+      if (["idle", "active"].includes(entry.status)) dispatch(entry, "native-status")
     }
 
     async function request(native: CodexServerRequest): Promise<CodexServerRequestResult> {
@@ -1676,9 +1788,10 @@ const layer = Layer.effect(
       pending!.view = { ...pending!.view, state: "replying" }
       pending!.resolve(response)
       await emit(entry, { refresh: true })
+      dispatch(entry, "interaction-resolved")
     }
 
-    function dispatch(entry: Entry, requestID: string, retry = false) {
+    function dispatch(entry: Entry, requestID = "advance", retry = false) {
       void serialize(entry, async () => {
         await (async () => {
           if (retry) {
@@ -1692,7 +1805,7 @@ const layer = Layer.effect(
               }),
             )
           }
-          await deliver(entry, requestID)
+          await pump(entry)
         })().catch(async (error) => {
           entry.error = errorMessage(error)
           await emit(entry, { refresh: true })
@@ -1866,7 +1979,9 @@ const layer = Layer.effect(
             dispatch(entry, input.requestID)
           } else if (created.delivery.state === "pending" && ["pending", "bound"].includes(created.binding.state))
             dispatch(entry, input.requestID, true)
-          return { descriptor: descriptor(entry), delivery: deliveryView(created.delivery) }
+          const deliveries = await run(sessions.deliveries(entry.record.session.id))
+          entry.inputWaitReason = inputWaitReason(entry, deliveries)
+          return { descriptor: descriptor(entry), delivery: deliveryView(created.delivery, entry, deliveries) }
         }),
       submit: (sessionID, input) =>
         result(async () => {
@@ -1886,51 +2001,68 @@ const layer = Layer.effect(
               sessions.admit({ sessionID, requestID: input.requestID, payload, delivery: input.delivery }),
             )
             if (!existing || delivery.state === "pending") dispatch(entry, input.requestID, !!existing)
-            return { descriptor: descriptor(entry), delivery: deliveryView(delivery) }
+            const deliveries = await run(sessions.deliveries(entry.record.session.id))
+            entry.inputWaitReason = inputWaitReason(entry, deliveries)
+            return { descriptor: descriptor(entry), delivery: deliveryView(delivery, entry, deliveries) }
           })
         }),
       snapshot: (sessionID) =>
         result(async () => {
           const entry = await getEntry(sessionID)
-          return serialize(entry, async () => {
+          const shouldRefresh = await serialize(entry, async () => {
             entry.record = await run(sessions.get(sessionID))
-            if (
+            return (
               entry.record.binding.state === "bound" &&
               (!entry.native ||
                 !entry.resumed ||
                 entry.generation !== state.runtime?.generation ||
                 (entry.dirty && !entry.refreshTimer && !entry.refreshPending))
-            ) {
-              await load(entry, true).catch(async (error) => {
+            )
+          })
+          if (shouldRefresh)
+            await refresh(entry, true).catch(async (error) => {
+              await serialize(entry, async () => {
                 entry.status = state.runtime ? "bindingUnavailable" : "disconnected"
                 entry.error = errorMessage(error)
                 entry.dirty = true
                 await emit(entry)
               })
-            }
-            return snapshot(entry)
-          })
+            })
+          return serialize(entry, () => snapshot(entry))
         }),
       delivery: (sessionID, requestID) =>
         result(async () => {
-          await getEntry(sessionID)
+          const entry = await getEntry(sessionID)
           const item = await run(sessions.getDelivery({ sessionID, requestID }))
           if (!item) return fail("notFound", "Input receipt does not exist")
-          return deliveryView(item)
+          const deliveries = await run(sessions.deliveries(sessionID))
+          return deliveryView(item, entry, deliveries)
         }),
       queue: (sessionID, input) =>
         result(async () => {
           const entry = await getEntry(sessionID)
-          return serialize(entry, async () => {
+          const controlSequence = await serialize(entry, async () => {
             if (input.revision !== entry.revision) return fail("conflict", "Queue changed; refresh before modifying it")
+            return entry.controlSequence
+          })
+          if (input.action === "resume" && (!entry.resumed || entry.dirty)) await refresh(entry, true)
+          return serialize(entry, async () => {
+            if (controlSequence !== entry.controlSequence)
+              return fail("conflict", "Queue changed; refresh before modifying it")
+            entry.controlSequence++
             if (input.action === "withdraw") await run(sessions.withdraw({ sessionID, requestID: input.requestID }))
             else {
               entry.record = await run(sessions.get(sessionID))
               if (entry.record.session.time.archived !== undefined)
                 return fail("conflict", `Session ${sessionID} is archived; restore it before resuming queued input`)
-              await load(entry, true)
-              if (entry.status !== "idle") return fail("conflict", "Native session has not been confirmed idle")
-              await run(sessions.setQueuePaused(sessionID, false))
+              const receipt = await run(sessions.getDelivery({ sessionID, requestID: input.requestID }))
+              if (!receipt) return fail("notFound", "Input receipt does not exist")
+              if (receipt.delivery === "queue" && entry.status !== "idle")
+                return fail("conflict", "Native session has not been confirmed idle")
+              if (["paused", "returned"].includes(receipt.state))
+                await run(sessions.resume({ sessionID, requestID: input.requestID }))
+              else if (receipt.state === "pending") await run(sessions.setQueuePaused(sessionID, false))
+              else return fail("conflict", "Only pending, paused or returned input may be resumed")
               entry.record = await run(sessions.get(sessionID))
               await pump(entry)
             }
@@ -1941,22 +2073,33 @@ const layer = Layer.effect(
       interrupt: (sessionID) =>
         result(async () => {
           const entry = await getEntry(sessionID)
-          return serialize(entry, async () => {
-            await run(sessions.setQueuePaused(sessionID, true))
+          const needsRefresh = await serialize(entry, async () => {
+            entry.controlSequence++
+            entry.record.binding = await run(sessions.pause(sessionID))
             entry.record = await run(sessions.get(sessionID))
-            const connected = await runtime()
-            if (!entry.resumed || entry.dirty || entry.generation !== connected.generation || !entry.activeTurnID)
-              await load(entry, true)
+            if (entry.activeTurnID) entry.status = "interrupting"
+            await emit(entry, { refresh: true })
+            return (
+              !entry.activeTurnID && (!entry.resumed || entry.dirty || entry.generation !== state.runtime?.generation)
+            )
+          })
+          const connected = await runtime()
+          if (needsRefresh) await refresh(entry, true)
+          const target = await serialize(entry, async () => {
             if (!entry.activeTurnID) {
               if (entry.status !== "idle" || !entry.idleConfirmed)
                 return fail("conflict", "The active native turn ID is unavailable; no interrupt was sent")
               await emit(entry, { refresh: true })
-              return descriptor(entry)
+              return { kind: "idle" as const, descriptor: descriptor(entry) }
             }
             const turnID = entry.activeTurnID
             entry.status = "interrupting"
             await emit(entry)
-            await connected.interruptTurn(entry.record.binding.nativeThreadID!, turnID)
+            return { kind: "active" as const, turnID, threadID: entry.record.binding.nativeThreadID! }
+          })
+          if (target.kind === "idle") return target.descriptor
+          await connected.interruptTurn(target.threadID, target.turnID, { timeoutMs: 10_000 })
+          return serialize(entry, async () => {
             if (!current(connected)) return fail("unavailable", "Codex connection changed during interrupt")
             return descriptor(entry)
           })
@@ -2016,7 +2159,11 @@ function emptyView(): CodexView {
   }
 }
 
-function deliveryView(input: SessionExternal.Delivery): Delivery {
+function deliveryView(
+  input: SessionExternal.Delivery,
+  entry?: Entry,
+  deliveries: SessionExternal.Delivery[] = [],
+): Delivery {
   return {
     sessionID: input.sessionID,
     requestID: input.requestID,
@@ -2025,9 +2172,45 @@ function deliveryView(input: SessionExternal.Delivery): Delivery {
     input: decodeInput(input.payload),
     nativeTurnID: input.nativeTurnID,
     nativeItemID: input.nativeItemID,
+    waitReason: entry ? deliveryWaitReason(entry, input, deliveries) : undefined,
     error: input.error,
     createdAt: input.created,
   }
+}
+
+function deliveryWaitReason(
+  entry: Entry,
+  input: SessionExternal.Delivery,
+  deliveries: SessionExternal.Delivery[],
+): InputWaitReason | undefined {
+  if (input.state === "paused") return "paused"
+  if (input.state === "unknown") return "deliveryUnknown"
+  if (input.state === "accepted" && !input.nativeItemID) return "nativeConfirmation"
+  if (input.state !== "pending") return
+  if (
+    deliveries.some(
+      (delivery) =>
+        delivery.state === "pending" && delivery.delivery === input.delivery && delivery.sequence < input.sequence,
+    )
+  )
+    return "earlierInput"
+  const status = interactionStatus(entry)
+  if (status === "waitingApproval") return "waitingApproval"
+  if (status === "waitingInput") return "waitingInput"
+  if (input.delivery === "queue" && entry.record.binding.queuePaused) return "paused"
+  if (input.delivery === "queue" && status !== "idle") return "waitingForIdle"
+  if (entry.inputWaitReason === "waitingForConfiguration") return "waitingForConfiguration"
+  if (!["idle", "active"].includes(status)) return "waitingForIdle"
+}
+
+function inputWaitReason(entry: Entry, deliveries: SessionExternal.Delivery[]): InputWaitReason | undefined {
+  const pending = deliveries.filter((delivery) => delivery.state === "pending")
+  const next = pending.find((delivery) => delivery.delivery === "steer") ?? pending[0]
+  if (next) return deliveryWaitReason(entry, next, deliveries)
+  if (deliveries.some((delivery) => delivery.state === "unknown")) return "deliveryUnknown"
+  if (deliveries.some((delivery) => delivery.state === "paused")) return "paused"
+  if (deliveries.some((delivery) => delivery.state === "accepted" && !delivery.nativeItemID))
+    return "nativeConfirmation"
 }
 
 function nativeStatus(status: v2.ThreadStatus): RuntimeStatus {

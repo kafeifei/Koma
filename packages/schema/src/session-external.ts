@@ -65,14 +65,27 @@ export const Submit = Schema.Struct({
 }).annotate({ identifier: "SessionExternal.Submit" })
 export interface Submit extends Schema.Schema.Type<typeof Submit> {}
 
+export const InputWaitReason = Schema.Literals([
+  "earlierInput",
+  "waitingApproval",
+  "waitingInput",
+  "waitingForIdle",
+  "waitingForConfiguration",
+  "paused",
+  "nativeConfirmation",
+  "deliveryUnknown",
+]).annotate({ identifier: "SessionExternal.InputWaitReason" })
+export type InputWaitReason = typeof InputWaitReason.Type
+
 export const Delivery = Schema.Struct({
   sessionID: SessionID,
   requestID: Schema.String,
-  state: Schema.Literals(["pending", "sending", "accepted", "unknown", "rejected", "withdrawn"]),
+  state: Schema.Literals(["pending", "paused", "sending", "accepted", "unknown", "returned", "rejected", "withdrawn"]),
   delivery: Schema.Literals(["steer", "queue"]),
   input: Input,
   nativeTurnID: Schema.String.pipe(optional),
   nativeItemID: Schema.String.pipe(optional),
+  waitReason: InputWaitReason.pipe(optional),
   error: Schema.String.pipe(optional),
   createdAt: Schema.Finite,
 }).annotate({ identifier: "SessionExternal.Delivery" })
@@ -89,6 +102,7 @@ export const Descriptor = Schema.Struct({
   queuePaused: Schema.Boolean,
   settings: Settings,
   pendingSettings: Settings.pipe(optional),
+  inputWaitReason: InputWaitReason.pipe(optional),
   error: Schema.String.pipe(optional),
 }).annotate({ identifier: "SessionExternal.Descriptor" })
 export interface Descriptor extends Schema.Schema.Type<typeof Descriptor> {}

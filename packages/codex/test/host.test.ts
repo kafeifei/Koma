@@ -168,6 +168,15 @@ async function until<A>(read: () => Promise<A>, check: (value: A) => boolean): P
   }
 }
 
+async function within<A>(operation: Promise<A>, timeout = 500): Promise<A> {
+  return Promise.race([
+    operation,
+    Bun.sleep(timeout).then(() => {
+      throw new Error(`Operation did not complete within ${timeout}ms`)
+    }),
+  ])
+}
+
 async function seed(sessions: SessionExternal.Interface, scope: string, target = location()) {
   const created = await run(
     sessions.create({
@@ -354,8 +363,8 @@ describe("CodexHost native process boundaries", () => {
           expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("native-model")
           await complete(home)
           await until(
-            () => run(host.snapshot(id)),
-            (value) => value.descriptor.runtimeStatus === "idle",
+            () => run(sessions.get(id)),
+            (value) => !value.binding.executionPending,
           )
           // An unsent selection must not be applied by a reconnect.
           await run(host.settings(id, { model: "xd/native-model" }))
@@ -387,8 +396,8 @@ describe("CodexHost native process boundaries", () => {
           expect(calls.filter((call) => call.method === "turn/start")).toHaveLength(3)
           await complete(home)
           await until(
-            () => run(host.snapshot(id)),
-            (value) => value.descriptor.runtimeStatus === "idle",
+            () => run(sessions.get(id)),
+            (value) => !value.binding.executionPending,
           )
           await run(host.settings(id, { model: "native-model" }))
           await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
@@ -911,7 +920,7 @@ describe("CodexHost native process boundaries", () => {
         run(host.queue(id, { action: "resume", requestID: "queued", revision: snapshot.descriptor.revision })),
       ).rejects.toThrow("is archived")
       expect(await run(sessions.getDelivery({ sessionID: id, requestID: "archived-new" }))).toBeUndefined()
-      expect((await run(host.delivery(id, "queued"))).state).toBe("pending")
+      expect((await run(host.delivery(id, "queued"))).state).toBe("paused")
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(starts)
 
       await run(host.queue(id, { action: "withdraw", requestID: "withdraw", revision: snapshot.descriptor.revision }))
@@ -968,6 +977,18 @@ describe("CodexHost native process boundaries", () => {
       )
       await until(
         () => run(host.delivery(created.session.id, request.requestID)),
+        (receipt) => receipt.state === "paused",
+      )
+      const restored = await run(host.snapshot(created.session.id))
+      await run(
+        host.queue(created.session.id, {
+          action: "resume",
+          requestID: request.requestID,
+          revision: restored.descriptor.revision,
+        }),
+      )
+      await until(
+        () => run(host.delivery(created.session.id, request.requestID)),
         (delivery) => delivery.state === "accepted",
       )
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
@@ -1018,7 +1039,7 @@ describe("CodexHost native process boundaries", () => {
       expect((await rpc(home)).some((call) => call.method === "turn/interrupt")).toBe(true)
     }))
 
-  test("ACK-only steers survive interruption as unconfirmed receipts without replay", () =>
+  test("ACK-only steers are returned only after paginated terminal history proves they were not committed", () =>
     harness(async ({ host, sessions, scope, home }) => {
       const id = await seed(sessions, scope)
       await run(host.snapshot(id))
@@ -1031,15 +1052,15 @@ describe("CodexHost native process boundaries", () => {
       await run(host.interrupt(id))
       const config = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8"))
       const turn = { ...config.thread.turns[0], status: "interrupted", completedAt: 2, durationMs: 1000 }
-      await configure(home, { thread: { ...thread(), turns: [turn] } })
+      await configure(home, { thread: { ...thread(), historyMode: "paginated", turns: [turn] } })
       await command(home, [{ method: "turn/completed", params: { threadId: "native-thread", turn } }])
       await until(
-        () => run(host.snapshot(id)),
-        (value) => value.descriptor.runtimeStatus === "idle",
+        () => run(host.delivery(id, "missing-two")),
+        (value) => value.state === "returned",
       )
       for (const requestID of ["missing-one", "missing-two"]) {
         const receipt = await run(host.delivery(id, requestID))
-        expect(receipt.state).toBe("accepted")
+        expect(receipt.state).toBe("returned")
         expect(receipt.nativeTurnID).toBe("turn-1")
         expect(receipt.nativeItemID).toBeUndefined()
         expect(receipt.input.prompt.text).toBe("hello")
@@ -1047,6 +1068,311 @@ describe("CodexHost native process boundaries", () => {
       expect((await run(sessions.get(id))).binding.queuePaused).toBe(true)
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
       expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(2)
+      await run(host.submit(id, { requestID: "missing-one", input: prompt, delivery: "steer" }))
+      await Bun.sleep(50)
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+      const snapshot = await run(host.snapshot(id))
+      await command(home, [
+        {
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "missing", itemId: "missing", delta: "refresh" },
+        },
+      ])
+      await Bun.sleep(30)
+      await run(host.queue(id, { action: "resume", requestID: "missing-one", revision: snapshot.descriptor.revision }))
+      await until(
+        () => run(host.delivery(id, "missing-one")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(2)
+      const current = await run(host.snapshot(id))
+      const reads = (await rpc(home)).filter((call) => call.method === "thread/read").length
+      await configure(home, { readDelayMs: 200 })
+      await command(home, [
+        {
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "missing", itemId: "missing", delta: "refresh-again" },
+        },
+      ])
+      await Bun.sleep(30)
+      const resume = run(
+        host.queue(id, {
+          action: "resume",
+          requestID: "missing-two",
+          revision: current.descriptor.revision,
+        }),
+      )
+      await until(
+        () => rpc(home),
+        (calls) => calls.filter((call) => call.method === "thread/read").length > reads,
+      )
+      await run(host.interrupt(id))
+      await expect(resume).rejects.toThrow("Queue changed")
+      expect((await run(host.delivery(id, "missing-two"))).state).toBe("returned")
+    }))
+
+  test("stop and reconnect pause old input while a fresh steer starts normally", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "running", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "running")),
+        (receipt) => receipt.state === "accepted",
+      )
+      await command(home, [approval("stop-approval")])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 1,
+      )
+      await run(host.submit(id, { requestID: "old-steer", input: prompt, delivery: "steer" }))
+      expect((await run(host.delivery(id, "old-steer"))).state).toBe("pending")
+      await run(host.interrupt(id))
+      expect((await run(host.delivery(id, "old-steer"))).state).toBe("paused")
+      const config = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8"))
+      const turn = { ...config.thread.turns[0], status: "interrupted", completedAt: 2, durationMs: 1000 }
+      await configure(home, {
+        thread: { ...thread(), historyMode: "paginated", turns: [turn] },
+        turnRequests: undefined,
+        waitForApprovals: false,
+      })
+      await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+      await until(
+        () => run(host.describe([id])),
+        (value) => value[0]?.runtimeStatus === "disconnected",
+      )
+      await command(home, [])
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "fresh-steer", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "fresh-steer")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await run(host.delivery(id, "old-steer"))).state).toBe("paused")
+      expect(
+        (await rpc(home))
+          .filter((call) => call.method === "turn/steer" || call.method === "turn/start")
+          .map((call) => call.params?.clientUserMessageId),
+      ).not.toContain("old-steer")
+    }))
+
+  test("steers admitted during approval resume in durable order after the approval resolves", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await configure(home, { turnRequests: [approval("approval")], waitForApprovals: true })
+      await run(host.submit(id, { requestID: "first", input: prompt, delivery: "steer" }))
+      const blocked = await until(
+        () => run(host.snapshot(id)),
+        (value) => value.interactions.length === 1,
+      )
+      await within(run(host.submit(id, { requestID: "steer-one", input: prompt, delivery: "steer" })))
+      await within(run(host.submit(id, { requestID: "steer-two", input: prompt, delivery: "steer" })))
+      expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(0)
+      const interaction = blocked.interactions[0]!
+      await run(
+        host.reply(id, interaction.id, {
+          revision: interaction.revision,
+          choiceID: interaction.choices.find((choice) => choice.kind === "allow")!.id,
+        }),
+      )
+      await until(
+        () => run(host.delivery(id, "steer-two")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect(
+        (await rpc(home))
+          .filter((call) => call.method === "turn/steer")
+          .map((call) => call.params?.clientUserMessageId),
+      ).toEqual(["steer-one", "steer-two"])
+    }))
+
+  test("an active resumed thread accepts same-settings steer without pretending unknown config changed", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const native = thread()
+      native.status = { type: "active", activeFlags: [] }
+      native.turns = [
+        {
+          id: "running",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      ]
+      await configure(home, { thread: native, selectedProvider: "openai" })
+      const resumed = await run(host.snapshot(id))
+      expect(resumed.descriptor.runtimeStatus).toBe("active")
+      expect(resumed.descriptor.capabilities.steer).toBe(true)
+      await run(host.submit(id, { requestID: "same-settings", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "same-settings")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(1)
+      expect((await rpc(home)).filter((call) => call.method === "thread/unsubscribe")).toHaveLength(0)
+    }))
+
+  test("an active custom-provider thread compares the stable UI model ID before steering", () =>
+    harness(
+      async ({ host, sessions, scope, home }) => {
+        const id = await seed(sessions, scope)
+        const native = thread()
+        native.modelProvider = "opencode_xd"
+        native.status = { type: "active", activeFlags: [] }
+        native.turns = [
+          {
+            id: "running",
+            items: [],
+            itemsView: "full",
+            status: "inProgress",
+            error: null,
+            startedAt: 1,
+            completedAt: null,
+            durationMs: null,
+          },
+        ]
+        await configure(home, { thread: native, selectedModel: "native-model", selectedProvider: "opencode_xd" })
+        expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("xd/native-model")
+        await run(
+          host.submit(id, {
+            requestID: "same-custom-settings",
+            input: { ...prompt, settings: { model: "xd/native-model" } },
+            delivery: "steer",
+          }),
+        )
+        await until(
+          () => run(host.delivery(id, "same-custom-settings")),
+          (receipt) => receipt.state === "accepted",
+        )
+        expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(1)
+        expect((await rpc(home)).filter((call) => call.method === "thread/unsubscribe")).toHaveLength(0)
+      },
+      undefined,
+      undefined,
+      customProviders,
+    ))
+
+  test("a late turn ACK cannot restore a completed turn as the steer target", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await configure(home, { turnStartDelayMs: 250 })
+      await run(host.submit(id, { requestID: "late-ack", input: prompt, delivery: "steer" }))
+      await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.method === "turn/start"),
+      )
+      await complete(home)
+      await until(
+        () => run(host.delivery(id, "late-ack")),
+        (receipt) => receipt.state === "accepted",
+      )
+      await until(
+        () => run(sessions.get(id)),
+        (record) => !record.binding.executionPending,
+      )
+      await run(host.submit(id, { requestID: "after-completion", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "after-completion")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(2)
+      expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(0)
+    }))
+
+  test("a delayed native read does not block status notifications or interrupt", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const native = thread()
+      native.status = { type: "active", activeFlags: [] }
+      native.turns = [
+        {
+          id: "running",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      ]
+      await configure(home, { thread: native })
+      await run(host.snapshot(id))
+      const reads = (await rpc(home)).filter((call) => call.method === "thread/read").length
+      await configure(home, { readDelayMs: 1_000 })
+      await command(home, [
+        {
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "missing", itemId: "missing", delta: "late" },
+        },
+      ])
+      await until(
+        () => rpc(home),
+        (calls) => calls.filter((call) => call.method === "thread/read").length > reads,
+      )
+      await command(home, [
+        {
+          method: "thread/status/changed",
+          params: { threadId: "native-thread", status: { type: "active", activeFlags: ["waitingOnUserInput"] } },
+        },
+      ])
+      await within(
+        until(
+          () => run(host.describe([id])),
+          (value) => value[0]?.runtimeStatus === "waitingInput",
+        ),
+      )
+      await within(run(host.interrupt(id)))
+      expect((await rpc(home)).some((call) => call.method === "turn/interrupt")).toBe(true)
+    }))
+
+  test("a delayed stale read cannot replace a newer active turn ID", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const old = thread()
+      old.status = { type: "active", activeFlags: [] }
+      old.turns = [
+        {
+          id: "old-running",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      ]
+      await configure(home, { thread: old })
+      await run(host.snapshot(id))
+      const reads = (await rpc(home)).filter((call) => call.method === "thread/read").length
+      await configure(home, { readDelayMs: 500 })
+      await command(home, [
+        {
+          method: "item/agentMessage/delta",
+          params: { threadId: "native-thread", turnId: "missing", itemId: "missing", delta: "late" },
+        },
+      ])
+      await until(
+        () => rpc(home),
+        (calls) => calls.filter((call) => call.method === "thread/read").length > reads,
+      )
+      const current = {
+        ...thread(),
+        status: { type: "active", activeFlags: [] } as v2.ThreadStatus,
+        turns: [{ ...old.turns[0]!, id: "new-running" }],
+      }
+      await command(home, [{ method: "turn/started", params: { threadId: "native-thread", turn: current.turns[0] } }])
+      await configure(home, { thread: current, readDelayMs: 50 })
+      await Bun.sleep(700)
+      await within(run(host.interrupt(id)))
+      expect((await rpc(home)).findLast((call) => call.method === "turn/interrupt")?.params?.turnId).toBe("new-running")
     }))
 
   test("native user item events before the steer ACK confirm once without losing evidence", () =>
@@ -1246,26 +1572,26 @@ describe("CodexHost native process boundaries", () => {
         run(host.reply(id, interaction.id, { revision: interaction.revision, answers: { q: ["yes"] } })),
       ).rejects.toThrow("no longer pending")
     }))
-  test("unknown input with no unique native client ID remains blocked and visible", () =>
+  test("unknown input with no unique native client ID blocks new input and remains visible", () =>
     harness(async ({ host, sessions, home, scope }) => {
       const id = await seed(sessions, scope)
       await run(host.snapshot(id))
       await run(sessions.admit({ sessionID: id, requestID: "lost", payload: prompt, delivery: "steer" }))
       await run(sessions.claim({ sessionID: id, requestID: "lost", generation: "original-attempt" }))
       await run(sessions.settle({ sessionID: id, requestID: "lost", generation: "original-attempt", state: "unknown" }))
-      await run(
-        host.queue(id, {
-          action: "resume",
-          requestID: "",
-          revision: (await run(host.snapshot(id))).descriptor.revision,
-        }),
+      await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+      await until(
+        () => run(host.describe([id])),
+        (value) => value[0]?.runtimeStatus === "disconnected",
       )
+      await command(home, [])
       const snapshot = await run(host.snapshot(id))
-      expect(snapshot.descriptor.error).toContain("no")
+      expect(snapshot.descriptor.error).toContain("confirmed completion")
       expect((await run(host.delivery(id, "lost"))).state).toBe("unknown")
-      await run(host.submit(id, { requestID: "after", input: prompt, delivery: "steer" }))
-      await Bun.sleep(30)
-      expect((await run(host.delivery(id, "after"))).state).toBe("pending")
+      await expect(run(host.submit(id, { requestID: "after", input: prompt, delivery: "steer" }))).rejects.toThrow(
+        "Previous native execution",
+      )
+      expect(await run(sessions.getDelivery({ sessionID: id, requestID: "after" }))).toBeUndefined()
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(0)
     }))
 
@@ -1475,7 +1801,7 @@ describe("CodexHost native process boundaries", () => {
         (receipt) => receipt.state === "accepted",
       )
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
-      expect((await rpc(home)).filter((call) => call.method === "thread/read").length).toBeGreaterThanOrEqual(4)
+      expect((await rpc(home)).filter((call) => call.method === "thread/read").length).toBeGreaterThanOrEqual(3)
     }))
 
   test("read-overlapping start and completion are reconciled by a bounded fresh snapshot", () =>
@@ -1618,7 +1944,7 @@ describe("CodexHost native process boundaries", () => {
       expect(stopping.descriptor.runtimeStatus).toBe("interrupting")
       expect(gate.released).toBe(released)
       expect((await run(sessions.get(id))).binding.executionPending).toBe(true)
-      expect((await run(host.delivery(id, "queued-after-stop"))).state).toBe("pending")
+      expect((await run(host.delivery(id, "queued-after-stop"))).state).toBe("paused")
       const completed = { ...item, status: "completed", exitCode: 0, durationMs: 3000 } as v2.ThreadItem
       await configure(home, { thread: { ...thread(), turns: [{ ...turn, items: [completed] }] } })
       await command(home, [
@@ -1633,7 +1959,7 @@ describe("CodexHost native process boundaries", () => {
       )
       expect(gate.released).toBe(released + 1)
       expect((await run(sessions.get(id))).binding.executionPending).toBe(false)
-      expect((await run(host.delivery(id, "queued-after-stop"))).state).toBe("pending")
+      expect((await run(host.delivery(id, "queued-after-stop"))).state).toBe("paused")
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
     }))
 
@@ -1852,8 +2178,20 @@ describe("CodexHost native process boundaries", () => {
       expect(snapshot.descriptor.runtimeStatus).toBe("idle")
       expect(snapshot.descriptor.capabilities.prompt).toBe(true)
       expect((await run(sessions.get(created.session.id))).binding.executionPending).toBe(false)
-      expect((await run(host.delivery(created.session.id, "first"))).state).toBe("pending")
+      expect((await run(host.delivery(created.session.id, "first"))).state).toBe("paused")
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(0)
+      await run(
+        host.queue(created.session.id, {
+          action: "resume",
+          requestID: "first",
+          revision: snapshot.descriptor.revision,
+        }),
+      )
+      await until(
+        () => run(host.delivery(created.session.id, "first")),
+        (receipt) => receipt.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
     }))
 
   test("spawn and wait references list one bound child session", () =>

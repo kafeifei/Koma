@@ -2986,6 +2986,15 @@ export type LabDescribeOutput = ReadonlyArray<{
     readonly effort?: string
     readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
+  readonly inputWaitReason?:
+    | "earlierInput"
+    | "waitingApproval"
+    | "waitingInput"
+    | "waitingForIdle"
+    | "waitingForConfiguration"
+    | "paused"
+    | "nativeConfirmation"
+    | "deliveryUnknown"
   readonly error?: string
 }>
 
@@ -3164,12 +3173,21 @@ export type LabCreateOutput = {
       readonly effort?: string
       readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
+    readonly inputWaitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
   }
   readonly delivery: {
     readonly sessionID: string
     readonly requestID: string
-    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
     readonly delivery: "steer" | "queue"
     readonly input: {
       readonly prompt: {
@@ -3194,6 +3212,15 @@ export type LabCreateOutput = {
     }
     readonly nativeTurnID?: string
     readonly nativeItemID?: string
+    readonly waitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
     readonly createdAt: number
   }
@@ -3238,6 +3265,15 @@ export type LabSnapshotOutput = {
       readonly effort?: string
       readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
+    readonly inputWaitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
   }
   readonly messages: ReadonlyArray<
@@ -3390,7 +3426,7 @@ export type LabSnapshotOutput = {
   readonly deliveries: ReadonlyArray<{
     readonly sessionID: string
     readonly requestID: string
-    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
     readonly delivery: "steer" | "queue"
     readonly input: {
       readonly prompt: {
@@ -3415,6 +3451,15 @@ export type LabSnapshotOutput = {
     }
     readonly nativeTurnID?: string
     readonly nativeItemID?: string
+    readonly waitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
     readonly createdAt: number
   }>
@@ -3597,12 +3642,21 @@ export type LabSubmitOutput = {
       readonly effort?: string
       readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
+    readonly inputWaitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
   }
   readonly delivery: {
     readonly sessionID: string
     readonly requestID: string
-    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
     readonly delivery: "steer" | "queue"
     readonly input: {
       readonly prompt: {
@@ -3627,6 +3681,15 @@ export type LabSubmitOutput = {
     }
     readonly nativeTurnID?: string
     readonly nativeItemID?: string
+    readonly waitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
     readonly createdAt: number
   }
@@ -3640,7 +3703,7 @@ export type LabDeliveryInput = {
 export type LabDeliveryOutput = {
   readonly sessionID: string
   readonly requestID: string
-  readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+  readonly state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
   readonly delivery: "steer" | "queue"
   readonly input: {
     readonly prompt: {
@@ -3665,6 +3728,15 @@ export type LabDeliveryOutput = {
   }
   readonly nativeTurnID?: string
   readonly nativeItemID?: string
+  readonly waitReason?:
+    | "earlierInput"
+    | "waitingApproval"
+    | "waitingInput"
+    | "waitingForIdle"
+    | "waitingForConfiguration"
+    | "paused"
+    | "nativeConfirmation"
+    | "deliveryUnknown"
   readonly error?: string
   readonly createdAt: number
 }
@@ -3725,6 +3797,15 @@ export type LabQueueOutput = {
       readonly effort?: string
       readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
+    readonly inputWaitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
   }
   readonly messages: ReadonlyArray<
@@ -3877,7 +3958,7 @@ export type LabQueueOutput = {
   readonly deliveries: ReadonlyArray<{
     readonly sessionID: string
     readonly requestID: string
-    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
     readonly delivery: "steer" | "queue"
     readonly input: {
       readonly prompt: {
@@ -3902,6 +3983,15 @@ export type LabQueueOutput = {
     }
     readonly nativeTurnID?: string
     readonly nativeItemID?: string
+    readonly waitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
     readonly createdAt: number
   }>
@@ -4006,6 +4096,15 @@ export type LabInterruptOutput = {
     readonly effort?: string
     readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
+  readonly inputWaitReason?:
+    | "earlierInput"
+    | "waitingApproval"
+    | "waitingInput"
+    | "waitingForIdle"
+    | "waitingForConfiguration"
+    | "paused"
+    | "nativeConfirmation"
+    | "deliveryUnknown"
   readonly error?: string
 }
 
@@ -4075,6 +4174,15 @@ export type LabReplyOutput = {
       readonly effort?: string
       readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
     }
+    readonly inputWaitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
   }
   readonly messages: ReadonlyArray<
@@ -4227,7 +4335,7 @@ export type LabReplyOutput = {
   readonly deliveries: ReadonlyArray<{
     readonly sessionID: string
     readonly requestID: string
-    readonly state: "pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn"
+    readonly state: "pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn"
     readonly delivery: "steer" | "queue"
     readonly input: {
       readonly prompt: {
@@ -4252,6 +4360,15 @@ export type LabReplyOutput = {
     }
     readonly nativeTurnID?: string
     readonly nativeItemID?: string
+    readonly waitReason?:
+      | "earlierInput"
+      | "waitingApproval"
+      | "waitingInput"
+      | "waitingForIdle"
+      | "waitingForConfiguration"
+      | "paused"
+      | "nativeConfirmation"
+      | "deliveryUnknown"
     readonly error?: string
     readonly createdAt: number
   }>
@@ -4373,5 +4490,14 @@ export type LabSettingsOutput = {
     readonly effort?: string
     readonly permission?: ("default" | "auto" | "full") | "workspace" | "readOnly"
   }
+  readonly inputWaitReason?:
+    | "earlierInput"
+    | "waitingApproval"
+    | "waitingInput"
+    | "waitingForIdle"
+    | "waitingForConfiguration"
+    | "paused"
+    | "nativeConfirmation"
+    | "deliveryUnknown"
   readonly error?: string
 }

@@ -42,7 +42,9 @@ export const SessionExternalDeliveryTable = sqliteTable(
     fingerprint: text().notNull(),
     payload: text({ mode: "json" }).$type<Schema.Json>().notNull(),
     delivery: text().$type<"steer" | "queue">().notNull(),
-    state: text().$type<"pending" | "sending" | "accepted" | "unknown" | "rejected" | "withdrawn">().notNull(),
+    state: text()
+      .$type<"pending" | "paused" | "sending" | "accepted" | "unknown" | "returned" | "rejected" | "withdrawn">()
+      .notNull(),
     generation: text(),
     native_turn_id: text(),
     native_item_id: text(),

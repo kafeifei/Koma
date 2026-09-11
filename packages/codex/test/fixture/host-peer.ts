@@ -19,6 +19,9 @@ type Config = {
   steerItemBeforeAck?: boolean
   disconnectTurn?: boolean
   readError?: boolean
+  readDelayMs?: number
+  resumeDelayMs?: number
+  turnStartDelayMs?: number
   resumeEvents?: Array<{ method: string; params: unknown }>
   afterReadThread?: v2.Thread
   readEvents?: Array<{ method: string; params: unknown }>
@@ -150,7 +153,9 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     config.resumeEvents?.forEach(send)
     config.resumeEvents = undefined
     save(config)
-    return reply(settings({ ...config.thread, turns: [] }))
+    const response = settings({ ...config.thread, turns: [] })
+    if (config.resumeDelayMs) return setTimeout(() => reply(response), config.resumeDelayMs)
+    return reply(response)
   }
   if (message.method === "thread/read") {
     if (message.params?.includeTurns) {
@@ -163,11 +168,14 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
       config.readEvents = undefined
       save(config)
       events?.forEach(send)
-      reply({ thread: snapshot })
+      if (config.readDelayMs) setTimeout(() => reply({ thread: snapshot }), config.readDelayMs)
+      else reply({ thread: snapshot })
       if (events) setTimeout(() => events.forEach(send), 10)
       return
     }
-    return reply({ thread: { ...config.thread, turns: [] } })
+    const response = { thread: { ...config.thread, turns: [] } }
+    if (config.readDelayMs) return setTimeout(() => reply(response), config.readDelayMs)
+    return reply(response)
   }
   if (message.method === "turn/start") {
     const turn: v2.Turn = {
@@ -228,6 +236,7 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
       })
     })
     if (config.waitForApprovals && pending.size) return
+    if (config.turnStartDelayMs) return setTimeout(() => reply({ turn }), config.turnStartDelayMs)
     return reply({ turn })
   }
   if (message.method === "turn/steer") {

@@ -82,6 +82,8 @@ export interface Interface {
   readonly pending: (sessionID: SessionSchema.ID) => Effect.Effect<Delivery[], Error>
   readonly deliveries: (sessionID: SessionSchema.ID) => Effect.Effect<Delivery[], Error>
   readonly withdraw: (input: { sessionID: SessionSchema.ID; requestID: string }) => Effect.Effect<Delivery, Error>
+  readonly pause: (sessionID: SessionSchema.ID) => Effect.Effect<Binding, Error>
+  readonly resume: (input: { sessionID: SessionSchema.ID; requestID: string }) => Effect.Effect<Delivery, Error>
   readonly setSettings: (sessionID: SessionSchema.ID, settings: Payload) => Effect.Effect<Binding, Error>
   readonly claimBinding: (input: {
     sessionID: SessionSchema.ID
@@ -113,7 +115,7 @@ export interface Interface {
     sessionID: SessionSchema.ID
     requestID: string
     generation: string
-    state: "accepted" | "unknown" | "rejected"
+    state: "accepted" | "unknown" | "returned" | "rejected"
     nativeTurnID?: string
     nativeItemID?: string
     error?: string
@@ -593,7 +595,7 @@ const layer = Layer.effect(
             and(
               eq(SessionExternalDeliveryTable.session_id, input.sessionID),
               eq(SessionExternalDeliveryTable.request_id, input.requestID),
-              eq(SessionExternalDeliveryTable.state, "pending"),
+              inArray(SessionExternalDeliveryTable.state, ["pending", "paused", "returned"]),
             ),
           )
           .returning()
@@ -602,7 +604,76 @@ const layer = Layer.effect(
         if (row) return deliveryInfo(row)
         const recorded = yield* readDelivery(input)
         if (recorded?.state === "withdrawn") return deliveryInfo(recorded)
-        return yield* new ConflictError({ message: "Only a pending input may be withdrawn" })
+        return yield* new ConflictError({ message: "Only a pending, paused or returned input may be withdrawn" })
+      }),
+      pause: Effect.fn("SessionExternal.pause")(function* (sessionID) {
+        yield* get(sessionID)
+        return yield* db
+          .transaction(
+            () =>
+              Effect.gen(function* () {
+                yield* db
+                  .update(SessionExternalDeliveryTable)
+                  .set({ state: "paused", time_updated: Date.now() })
+                  .where(
+                    and(
+                      eq(SessionExternalDeliveryTable.session_id, sessionID),
+                      eq(SessionExternalDeliveryTable.state, "pending"),
+                    ),
+                  )
+                  .run()
+                const row = yield* db
+                  .update(SessionExternalBindingTable)
+                  .set({ queue_paused: true, time_updated: Date.now() })
+                  .where(eq(SessionExternalBindingTable.session_id, sessionID))
+                  .returning()
+                  .get()
+                if (!row)
+                  return yield* new NotFoundError({ sessionID, message: "External Session binding disappeared" })
+                return bindingInfo(row)
+              }),
+            { behavior: "immediate" },
+          )
+          .pipe(Effect.orDie)
+      }),
+      resume: Effect.fn("SessionExternal.resume")(function* (input) {
+        yield* get(input.sessionID)
+        return yield* db
+          .transaction(
+            () =>
+              Effect.gen(function* () {
+                const row = yield* db
+                  .update(SessionExternalDeliveryTable)
+                  .set({
+                    state: "pending",
+                    generation: null,
+                    native_turn_id: null,
+                    native_item_id: null,
+                    error: null,
+                    time_updated: Date.now(),
+                  })
+                  .where(
+                    and(
+                      eq(SessionExternalDeliveryTable.session_id, input.sessionID),
+                      eq(SessionExternalDeliveryTable.request_id, input.requestID),
+                      inArray(SessionExternalDeliveryTable.state, ["paused", "returned"]),
+                    ),
+                  )
+                  .returning()
+                  .get()
+                const recorded = row ?? (yield* readDelivery(input))
+                if (!recorded || recorded.state !== "pending")
+                  return yield* new ConflictError({ message: "Only a paused or returned input may be resumed" })
+                yield* db
+                  .update(SessionExternalBindingTable)
+                  .set({ queue_paused: false, time_updated: Date.now() })
+                  .where(eq(SessionExternalBindingTable.session_id, input.sessionID))
+                  .run()
+                return deliveryInfo(recorded)
+              }),
+            { behavior: "immediate" },
+          )
+          .pipe(Effect.orDie)
       }),
       setSettings: Effect.fn("SessionExternal.setSettings")(function* (sessionID, value) {
         yield* get(sessionID)
@@ -778,6 +849,13 @@ const layer = Layer.effect(
                       ),
                     )
                   : undefined,
+                input.state === "returned" && input.nativeTurnID
+                  ? and(
+                      eq(SessionExternalDeliveryTable.state, "accepted"),
+                      isNull(SessionExternalDeliveryTable.native_item_id),
+                      eq(SessionExternalDeliveryTable.native_turn_id, input.nativeTurnID),
+                    )
+                  : undefined,
               ),
             ),
           )
@@ -834,6 +912,16 @@ const layer = Layer.effect(
                     and(
                       inArray(SessionExternalDeliveryTable.session_id, sessions),
                       eq(SessionExternalDeliveryTable.state, "sending"),
+                    ),
+                  )
+                  .run()
+                yield* db
+                  .update(SessionExternalDeliveryTable)
+                  .set({ state: "paused", time_updated: Date.now() })
+                  .where(
+                    and(
+                      inArray(SessionExternalDeliveryTable.session_id, sessions),
+                      eq(SessionExternalDeliveryTable.state, "pending"),
                     ),
                   )
                   .run()
