@@ -33,8 +33,11 @@ const layer = Layer.effectDiscard(
         load: Effect.succeed(value),
         baseline: render,
         update: (_previous, current) =>
-          `These instructions replace all previously loaded ambient instructions.\n\n${render(current)}`,
-        removed: () => "Previously loaded instructions no longer apply.",
+          `${global.root ? "These project instructions replace all previously loaded project instructions." : "These instructions replace all previously loaded ambient instructions."}\n\n${render(current)}`,
+        removed: () =>
+          global.root
+            ? "Previously loaded project instructions no longer apply."
+            : "Previously loaded instructions no longer apply.",
       })
 
     const observe = Effect.fn("InstructionContext.observe")(function* () {
@@ -55,7 +58,11 @@ const layer = Layer.effectDiscard(
           fs.resolve,
         ),
       )
-      const paths = Array.dedupe([yield* fs.resolve(join(global.config, "AGENTS.md")), ...discovered])
+      // Lab's model-dependent global rules are composed at the provider-turn boundary.
+      const paths = Array.dedupe([
+        ...(!global.root ? [yield* fs.resolve(join(global.config, "AGENTS.md"))] : []),
+        ...discovered,
+      ])
       const files = yield* Effect.forEach(
         paths,
         (path) =>

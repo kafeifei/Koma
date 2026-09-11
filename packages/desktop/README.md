@@ -90,6 +90,34 @@ User repositories and their project-local `.opencode` directories remain in plac
 Existing auxiliary files under the former desktop profile are preserved in
 `desktop/`; migration does not clean caches, old builds or user files.
 
+### Lab global instructions
+
+Lab reads global instruction files in the backend, without asking the model to run
+`printenv` or discover another client's configuration:
+
+- Always load the nonempty `~/.agents/AGENTS.md` as common rules.
+- For an **OpenCode** session, append the nonempty `<OPENCODE_HOME>/config/AGENTS.md`.
+  Only when that file is absent or empty, select a fallback using the actual API model ID:
+  OpenAI GPT/Codex/o-series models use personal Codex rules; Claude models use
+  `~/.claude/CLAUDE.md`. Gateway/provider names do not select the manufacturer.
+  Unknown/other models do not load either manufacturer's rules. Claude prompt opt-outs still apply.
+- For a **native Codex** session, append personal Codex rules regardless of its selected model,
+  skipping the OpenCode global rules and model-manufacturer selection.
+- Personal Codex rules mean the first nonempty file of `AGENTS.override.md`, then `AGENTS.md`,
+  under the backend's `CODEX_HOME` or, when unset/empty, `~/.codex`.
+
+This imports instruction text only. Codex runtime storage, authentication and settings remain
+in Lab's independent `engines/codex/` home. Native sessions receive the selected global rules
+through `developerInstructions` on thread start/resume, preserving native project-rule loading.
+Changed rules are reapplied before a subsequent idle native turn; active turns are not restarted.
+OpenCode reselects global rules for each provider turn, including model switches. The V2 context
+records rule changes as replacements of prior global instructions.
+
+Project discovery and skills retain their own policies. In particular, Lab disables automatic
+project configuration loading; this does not prevent explicit file reads by tools. The new
+OpenCode rule-selection policy is enabled by the Lab profile (`OPENCODE_HOME`); upstream
+entrypoints without that profile retain their original global-instruction behavior.
+
 Run this fork's shared-home CLI from the repository root with:
 
 ```bash

@@ -8,6 +8,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { EventV2 } from "@opencode-ai/core/event"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { Global } from "@opencode-ai/core/global"
+import { LabInstructions } from "@opencode-ai/core/lab-instructions"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
@@ -130,6 +131,7 @@ type Entry = {
   appliedSettings: Settings
   nativeProvider?: string
   providerConfig?: string
+  globalInstructions?: string
   // Execution/history reads may complete after a settings write. Keep the
   // confirmed durable intent in the interaction lane instead of those snapshots.
   desiredSettings: Settings
@@ -162,6 +164,7 @@ const layer = Layer.effect(
     const credentials = providerCredentials(providers)
     const events = yield* EventV2.Service
     const global = yield* Global.Service
+    const instructions = yield* LabInstructions.Service
     const enabled = process.env.OPENCODE_ENABLE_CODEX === "1"
     const storage = codexStorage({
       state: global.state,
@@ -200,6 +203,8 @@ const layer = Layer.effect(
       externalInstalled?: number
     } = { closed: false, recovery: Promise.resolve(), authReset: Promise.resolve(), authVersion: 0, lastGeneration: 0 }
     const run = Effect.runPromise
+    const globalInstructions = () =>
+      run(instructions.load({ engine: "codex" }).pipe(Effect.map(LabInstructions.render)))
     const generation = (connected: CodexRuntime) => `${epoch}:${connected.generation}`
     const entryEpoch = (entry: Entry) => `${epoch}:${entry.generation ?? state.lastGeneration}`
     const current = (connected: CodexRuntime) =>
@@ -386,6 +391,7 @@ const layer = Layer.effect(
       entry.appliedSettings = {}
       entry.nativeProvider = undefined
       entry.providerConfig = undefined
+      entry.globalInstructions = undefined
       entry.settingsSequence = 0
       entry.plan = undefined
       entry.dirty = true
@@ -478,6 +484,7 @@ const layer = Layer.effect(
               entry.appliedSettings = {}
               entry.nativeProvider = undefined
               entry.providerConfig = undefined
+              entry.globalInstructions = undefined
               entry.plan = undefined
               entry.dirty = true
               entry.status = "disconnected"
@@ -792,6 +799,7 @@ const layer = Layer.effect(
         const selected = await resumeModel(entry)
         const response = await connected.resumeThread(threadID, {
           ...selected,
+          developerInstructions: await globalInstructions(),
           cwd: entry.record.session.location.directory,
           excludeTurns: true,
         })
@@ -808,6 +816,7 @@ const layer = Layer.effect(
           // Resume may rejoin an already loaded child and ignore overrides.
           // Confirm custom config only after an explicit idle unload/resume.
           entry.providerConfig = undefined
+          entry.globalInstructions = undefined
         }
         entry.resumed = true
         scheduleAutomaticApprovals(entry)
@@ -950,6 +959,7 @@ const layer = Layer.effect(
       const options = {
         ...threadSettings(decodeSettings(entry.record.binding.settings)),
         ...(await selectedModel(decodeSettings(entry.record.binding.settings))),
+        developerInstructions: await globalInstructions(),
         cwd: entry.record.session.location.directory,
         historyMode: "paginated" as const,
       }
@@ -984,6 +994,7 @@ const layer = Layer.effect(
           entry.appliedSettings = observedSettings(started)
           entry.nativeProvider = started.modelProvider
           entry.providerConfig = JSON.stringify(options.config)
+          entry.globalInstructions = options.developerInstructions
         }
         scheduleAutomaticApprovals(entry)
         entry.status = executionStatus(entry, nativeStatus(started.thread.status))
@@ -1039,18 +1050,21 @@ const layer = Layer.effect(
       const payload = decodeInput(input.payload)
       const nativeInput = codexInput(payload)
       const selected = await selectedModel(payload.settings)
+      const developerInstructions = await globalInstructions()
       const options = turnSettings(
         { ...payload.settings, model: selected.model },
         entry.record.session.location.directory,
       )
       const activeTurnID = entry.activeTurnID
-      const switchProvider =
-        selected.modelProvider !== entry.nativeProvider || JSON.stringify(selected.config) !== entry.providerConfig
-      // A steer cannot change providers. Keep the admitted input pending until
-      // the current native turn completes, then dispatch it with its own route.
-      if (activeTurnID && switchProvider) return
+      const switchConfiguration =
+        selected.modelProvider !== entry.nativeProvider ||
+        JSON.stringify(selected.config) !== entry.providerConfig ||
+        developerInstructions !== entry.globalInstructions
+      // A steer cannot change providers or global instructions. Apply changes
+      // only once native execution is idle, before dispatching the next input.
+      if (activeTurnID && switchConfiguration) return
       await acquire(entry)
-      if (switchProvider) {
+      if (switchConfiguration) {
         if (!entry.idleConfirmed || entry.status !== "idle" || entry.activeTurnID) return
         // Loaded threads ignore provider overrides. Unsubscribe only after the
         // ownership lane has confirmed idle, then resume the same durable ID.
@@ -1065,6 +1079,7 @@ const layer = Layer.effect(
         entry.idleConfirmed = false
         const resumed = await connected.resumeThread(threadID, {
           ...selected,
+          developerInstructions,
           cwd: entry.record.session.location.directory,
           excludeTurns: true,
         })
@@ -1076,6 +1091,7 @@ const layer = Layer.effect(
           return fail("conflict", "Codex did not apply the selected provider")
         entry.nativeProvider = resumed.modelProvider
         entry.providerConfig = JSON.stringify(selected.config)
+        entry.globalInstructions = developerInstructions
         entry.appliedSettings = observedSettings(resumed)
         entry.resumed = true
         entry.idleConfirmed = true
@@ -1968,6 +1984,7 @@ export const node = makeGlobalNode({
   service: Service,
   layer,
   deps: [
+    LabInstructions.node,
     Global.node,
     SessionExternal.node,
     SessionExternalOwnership.node,
