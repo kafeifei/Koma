@@ -25,8 +25,6 @@ test("Lab uses an explicit home without changing other tools' XDG directories", 
     OPENCODE_DB: "/formal/opencode.db",
     OPENCODE_PORT: "4096",
     OPENCODE_CODEX_HOME: "/formal/codex",
-    OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false",
-    OPENCODE_BACKGROUND_SUBAGENTS_ONLY: "false",
     OPENAI_API_KEY: "provider-key",
     XDG_DATA_HOME: "/user/data",
     XDG_CONFIG_HOME: "/user/config",
@@ -43,8 +41,6 @@ test("Lab uses an explicit home without changing other tools' XDG directories", 
   expect(environment.OPENCODE_PORT).toBeUndefined()
   expect(environment.OPENCODE_CODEX_HOME).toBeUndefined()
   expect(environment.OPENCODE_ENABLE_CODEX).toBe("1")
-  expect(environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("true")
-  expect(environment.OPENCODE_BACKGROUND_SUBAGENTS_ONLY).toBe("true")
   expect(environment.OPENAI_API_KEY).toBe("provider-key")
   expect(environment.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1")
   expect(environment.OPENCODE_DISABLE_AUTOUPDATE).toBe("1")

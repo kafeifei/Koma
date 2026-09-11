@@ -25,8 +25,6 @@ export function prepare(environment: NodeJS.ProcessEnv, root: string) {
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     OPENCODE_ENABLE_CODEX: "1",
-    OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "true",
-    OPENCODE_BACKGROUND_SUBAGENTS_ONLY: "true",
   })
   return { OPENCODE_HOME: paths.root }
 }
