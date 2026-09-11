@@ -55,6 +55,7 @@ import { createRemoteAccess } from "./remote-access"
 import { createWebEntryController } from "./web-entry-controller"
 import { initializeRuntimeResources, runtimePath } from "./resources"
 import { ensureLabBackend } from "./lab-backend"
+import { createShutdownController } from "./shutdown-controller"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -212,14 +213,6 @@ const main = Effect.gen(function* () {
       await Promise.all([webEntry?.stop(), remoteAccess?.stop(), killSidecar()])
     })())
   }
-  const relaunch = () => {
-    setAppQuitting()
-    void stopSidecars().finally(() => {
-      app.relaunch()
-      app.quit()
-    })
-  }
-
   try {
     setDefaultCACertificates([...new Set([...getCACertificates("default"), ...getCACertificates("system")])])
   } catch (error) {
@@ -247,12 +240,26 @@ const main = Effect.gen(function* () {
 
   const resources = initializeRuntimeResources()
   logger.log("runtime resources prepared", { renderer: runtimePath("renderer") })
-  let stopped = false
-  let allowQuit = false
   let initialized = false
+  const shutdown = createShutdownController({
+    stop: stopSidecars,
+    quit: () => app.quit(),
+    setQuitting: () => setAppQuitting(),
+    log: (message, meta) => logger.log(message, meta),
+    warn: (message, error) => logger.warn(message, error),
+  })
+  const relaunch = () => {
+    shutdown.markQuitting()
+    void stopSidecars().finally(() => {
+      app.relaunch()
+      setImmediate(() => app.quit())
+    })
+  }
   // Cleanup is scoped to this process and happens after windows and sidecars stop.
   // A crash may leave its temp snapshot; another instance must not remove it.
   app.once("quit", () => {
+    const stopped = shutdown.didStop()
+    logger.log("app quit", { stopped, initialized })
     if (!stopped || !initialized) return
     try {
       resources.dispose()
@@ -283,33 +290,8 @@ const main = Effect.gen(function* () {
     emitDeepLinks([url])
   })
 
-  app.on("before-quit", (event) => {
-    setAppQuitting()
-    if (allowQuit) return
-    event.preventDefault()
-    // A gateway still waiting for startup must not make Quit wait indefinitely.
-    // On timeout retain the snapshot, since a resource consumer may remain alive.
-    const timeout = setTimeout(() => {
-      logger.warn("runtime shutdown timed out; preserving its resource snapshot")
-      allowQuit = true
-      app.quit()
-    }, 7_000)
-    void stopSidecars()
-      .then(() => {
-        stopped = true
-      })
-      .catch((error) => logger.warn("failed to stop runtime; preserving its resource snapshot", error))
-      .finally(() => {
-        clearTimeout(timeout)
-        allowQuit = true
-        app.quit()
-      })
-  })
-
-  app.on("will-quit", () => {
-    setAppQuitting()
-    void stopSidecars()
-  })
+  app.on("before-quit", shutdown.beforeQuit)
+  app.on("will-quit", shutdown.willQuit)
 
   app.on("child-process-gone", (_event, details) => {
     writeLog("utility", "child process gone", { details }, "error")
@@ -325,8 +307,8 @@ const main = Effect.gen(function* () {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      setAppQuitting()
-      void stopSidecars().finally(() => app.quit())
+      shutdown.markQuitting()
+      void stopSidecars().finally(() => setImmediate(() => app.quit()))
     })
   }
 
@@ -546,6 +528,10 @@ const main = Effect.gen(function* () {
     app.quit()
   })
   app.on("activate", () => {
+    if (shutdown.isQuitting()) {
+      logger.log("app activation ignored during shutdown")
+      return
+    }
     if (BrowserWindow.getAllWindows().length > 0) return
     restoreMainWindows()
   })
