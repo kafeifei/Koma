@@ -31,6 +31,10 @@ const BACKGROUND_DESCRIPTION = [
   "Use background only for independent work that can run while you continue elsewhere.",
   "You will be notified automatically when it finishes.",
 ].join(" ")
+const BACKGROUND_ONLY_DESCRIPTION = [
+  "All subagents run in the background. This tool returns without waiting for task completion; foreground execution is unavailable.",
+  "You will be notified automatically when each task finishes. Continue independent work or respond to the user while it runs.",
+].join(" ")
 const BACKGROUND_STARTED = [
   "The task is working in the background. You will be notified automatically when it finishes.",
   "DO NOT sleep, poll for progress, ask the task for status, or duplicate this task's work — avoid working with the same files or topics it is using.",
@@ -106,7 +110,7 @@ export const TaskTool = Tool.define(
       ctx: Tool.Context,
     ) {
       const cfg = yield* config.get()
-      const runInBackground = params.background === true
+      const runInBackground = flags.backgroundSubagentsOnly || params.background === true
       if (runInBackground && !flags.experimentalBackgroundSubagents) {
         return yield* Effect.fail(
           new Error("Background subagents require OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"),
@@ -439,11 +443,16 @@ export const TaskTool = Tool.define(
     })
 
     return {
-      description: flags.experimentalBackgroundSubagents
-        ? [DESCRIPTION, BACKGROUND_DESCRIPTION].join("\n\n")
-        : DESCRIPTION,
+      description: flags.backgroundSubagentsOnly
+        ? [DESCRIPTION, BACKGROUND_ONLY_DESCRIPTION].join("\n\n")
+        : flags.experimentalBackgroundSubagents
+          ? [DESCRIPTION, BACKGROUND_DESCRIPTION].join("\n\n")
+          : DESCRIPTION,
       parameters: Parameters,
-      jsonSchema: flags.experimentalBackgroundSubagents ? undefined : ToolJsonSchema.fromSchema(BaseParameters),
+      jsonSchema:
+        flags.experimentalBackgroundSubagents && !flags.backgroundSubagentsOnly
+          ? undefined
+          : ToolJsonSchema.fromSchema(BaseParameters),
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         run(params, ctx).pipe(Effect.orDie),
     }

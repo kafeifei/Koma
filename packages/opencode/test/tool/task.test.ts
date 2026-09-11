@@ -93,6 +93,7 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
 
 const it = testEffect(layer())
 const background = testEffect(layer({ experimentalBackgroundSubagents: true }))
+const backgroundOnly = testEffect(layer({ experimentalBackgroundSubagents: true, backgroundSubagentsOnly: true }))
 
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -1049,6 +1050,42 @@ describe("tool.task", () => {
       expect(job?.status).toBe("running")
     }),
   )
+
+  for (const requested of [undefined, false]) {
+    backgroundOnly.instance(`background-only mode does not wait when background is ${requested}`, () =>
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        expect(def.description).toContain("foreground execution is unavailable")
+        expect(def.jsonSchema?.properties).not.toHaveProperty("background")
+
+        const result = yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            ...(requested === undefined ? {} : { background: requested }),
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: { ...stubOps(), prompt: () => Effect.never } },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        expect(result.metadata.background).toBe(true)
+        expect(result.output).toContain('state="running"')
+        expect((yield* jobs.get(result.metadata.sessionId))?.status).toBe("running")
+      }),
+    )
+  }
 
   background.instance(
     "running task rejects model or variant changes",
