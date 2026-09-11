@@ -384,23 +384,16 @@ describe("WorktreeLifecycle", () => {
       const results = yield* Effect.all(
         {
           archive: input.lifecycle.continueArchive(input.sessionID),
-          restore: input.lifecycle
-            .prepareRestore(input.sessionID)
-            .pipe(
-              Effect.catchTag("WorktreeLifecycleFailedError", (error) =>
-                error.reason === "busy" ? Effect.succeed({ busy: true }) : Effect.fail(error),
-              ),
-            ),
+          restore: input.lifecycle.prepareRestore(input.sessionID),
         },
         { concurrency: "unbounded" },
       )
       expect(results.archive.managed).toBe(true)
-      // Restore may reach the mutex first; its busy response must be safely retryable after archive completes.
-      const restored =
-        "busy" in results.restore ? yield* input.lifecycle.prepareRestore(input.sessionID) : results.restore
-      expect(restored.managed).toBe(true)
+      expect(results.restore.managed).toBe(true)
       expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "tracked.txt")).text())).toBe("rapid\n")
-      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "restore", phase: "restored" })
+      const owner = yield* input.lifecycle.get(input.sessionID)
+      if (!owner) return yield* Effect.die("lifecycle owner disappeared during archive and restore")
+      expect(["resident", "restored"]).toContain(owner.phase)
 
       yield* input.db
         .update(SessionTable)
@@ -628,6 +621,145 @@ it.live("preserves files changed externally after a persisted archive capture", 
       "external writer after capture",
     )
     expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
+
+    // Reproduce a crash after the private ref was cleared but before the lifecycle record was rewritten.
+    yield* git(input.root, ["update-ref", "-d", `refs/opencode/worktree-archive/${input.sessionID}`, saved.oid])
+    expect(yield* input.lifecycle.prepareRestore(input.sessionID)).toEqual({ managed: true })
+    expect(yield* Effect.promise(() => fs.readFile(`${input.directory}/tracked.txt`, "utf8"))).toBe(
+      "external writer after capture",
+    )
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ phase: "resident" })
+    expect((yield* input.lifecycle.get(input.sessionID))?.intent).toBeUndefined()
+    expect((yield* input.lifecycle.get(input.sessionID))?.oid).toBeUndefined()
+    const cleared = yield* Effect.promise(() =>
+      $`git rev-parse --verify --quiet refs/opencode/worktree-archive/${input.sessionID}`
+        .cwd(input.root)
+        .quiet()
+        .nothrow(),
+    )
+    expect(cleared.exitCode).not.toBe(0)
+  }),
+)
+
+it.live("keeps the archive snapshot when the resident path was replaced by another repository", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const archive = yield* WorktreeArchive.Service
+    const storage = yield* Storage.Service
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    const saved = yield* archive.capture({
+      directory: input.directory,
+      branch: input.branch,
+      sessionID: input.sessionID,
+    })
+    yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+      ...(yield* input.lifecycle.get(input.sessionID)),
+      phase: "captured",
+      oid: saved.oid,
+    })
+    const original = `${input.directory}-original`
+    yield* Effect.promise(() => fs.rename(input.directory, original))
+    yield* Effect.promise(() => fs.mkdir(input.directory))
+    yield* git(input.directory, ["init", "-b", input.branch])
+    yield* Effect.promise(() => fs.writeFile(`${input.directory}/foreign.txt`, "foreign repository"))
+    yield* git(input.directory, ["add", "foreign.txt"])
+    yield* git(input.directory, ["commit", "--no-gpg-sign", "-m", "foreign repository"])
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(async () => {
+        await fs.rm(input.directory, { recursive: true, force: true })
+        await fs.rename(original, input.directory)
+      }),
+    )
+
+    const failed = yield* input.lifecycle.prepareRestore(input.sessionID).pipe(Effect.flip)
+    expect(failed.reason).toBe("conflict")
+    expect(failed.message).toContain("different Git repository")
+    expect(yield* Effect.promise(() => fs.readFile(`${input.directory}/foreign.txt`, "utf8"))).toBe(
+      "foreign repository",
+    )
+    expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive", phase: "captured" })
+  }),
+)
+
+it.live("clears a captured ref that was not persisted before archive cancellation", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const archive = yield* WorktreeArchive.Service
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    const saved = yield* archive.capture({
+      directory: input.directory,
+      branch: input.branch,
+      sessionID: input.sessionID,
+    })
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive", phase: "resident" })
+    expect((yield* input.lifecycle.get(input.sessionID))?.oid).toBeUndefined()
+    expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
+
+    expect(yield* input.lifecycle.prepareRestore(input.sessionID)).toEqual({ managed: true })
+    const cleared = yield* Effect.promise(() =>
+      $`git rev-parse --verify --quiet refs/opencode/worktree-archive/${input.sessionID}`
+        .cwd(input.root)
+        .quiet()
+        .nothrow(),
+    )
+    expect(cleared.exitCode).not.toBe(0)
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ phase: "resident" })
+  }),
+)
+
+it.live("cancels a failed archive while preserving a locked checkout", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "preserve after failure"))
+    yield* git(input.root, ["worktree", "lock", "--reason", "lifecycle cancellation", input.directory])
+    yield* Effect.addFinalizer(() => git(input.root, ["worktree", "unlock", input.directory]).pipe(Effect.ignore))
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+
+    const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
+    expect(failed.reason).toBe("git")
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive", phase: "captured" })
+    expect(yield* input.lifecycle.prepareRestore(input.sessionID)).toEqual({ managed: true })
+    expect(yield* Effect.promise(() => fs.readFile(`${input.directory}/tracked.txt`, "utf8"))).toBe(
+      "preserve after failure",
+    )
+    expect(yield* git(input.root, ["worktree", "list", "--porcelain", "-z"])).toContain(`worktree ${input.directory}\0`)
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ phase: "resident" })
+  }),
+)
+
+it.live("cancels a pending archive while retaining its active directory lease", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    yield* input.lifecycle.acquire({ directory: input.directory, sessionID: `pty:${input.sessionID}` })
+    expect(yield* input.lifecycle.prepareArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+    yield* input.db
+      .update(SessionTable)
+      .set({ time_archived: Date.now() })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+    expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true, pending: true })
+
+    expect(yield* input.lifecycle.prepareRestore(input.sessionID)).toEqual({ managed: true })
+    expect((yield* input.lifecycle.usage(input.directory)).ownerIDs).toEqual([`pty:${input.sessionID}`])
+    expect(yield* exists(input.directory)).toBe(true)
+    yield* input.lifecycle.acquire({ directory: input.directory, sessionID: input.sessionID })
+    yield* input.lifecycle.release({ directory: input.directory, sessionID: input.sessionID })
+    yield* input.lifecycle.release({ directory: input.directory, sessionID: `pty:${input.sessionID}` })
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ phase: "resident" })
   }),
 )
 
