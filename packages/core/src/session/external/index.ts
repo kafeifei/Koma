@@ -2,7 +2,7 @@ export * as SessionExternal from "."
 
 import { createHash } from "node:crypto"
 import path from "node:path"
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Database } from "../../database/database"
 import { makeGlobalNode } from "../../effect/app-node"
@@ -764,7 +764,21 @@ const layer = Layer.effect(
               eq(SessionExternalDeliveryTable.session_id, input.sessionID),
               eq(SessionExternalDeliveryTable.request_id, input.requestID),
               eq(SessionExternalDeliveryTable.generation, input.generation),
-              inArray(SessionExternalDeliveryTable.state, ["sending", "unknown"]),
+              or(
+                inArray(SessionExternalDeliveryTable.state, ["sending", "unknown"]),
+                // A transport acknowledgement is not proof that the input entered
+                // native history. Exact client ID evidence may enrich it later.
+                input.state === "accepted" && input.nativeTurnID && input.nativeItemID
+                  ? and(
+                      eq(SessionExternalDeliveryTable.state, "accepted"),
+                      isNull(SessionExternalDeliveryTable.native_item_id),
+                      or(
+                        isNull(SessionExternalDeliveryTable.native_turn_id),
+                        eq(SessionExternalDeliveryTable.native_turn_id, input.nativeTurnID),
+                      ),
+                    )
+                  : undefined,
+              ),
             ),
           )
           .returning()

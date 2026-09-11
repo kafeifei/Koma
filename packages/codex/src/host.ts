@@ -716,10 +716,10 @@ const layer = Layer.effect(
       }
       let unresolved = false
       for (const receipt of await run(sessions.deliveries(entry.record.session.id))) {
-        if (receipt.state !== "unknown") continue
+        if (!["sending", "unknown", "accepted"].includes(receipt.state) || receipt.nativeItemID) continue
         const matches = evidence.get(receipt.requestID)
         if (matches?.length !== 1 || !receipt.generation) {
-          unresolved = true
+          if (receipt.state === "unknown") unresolved = true
           continue
         }
         await run(
@@ -1443,8 +1443,14 @@ const layer = Layer.effect(
         typeof params.item.id === "string"
       ) {
         entry.blockedDeltas.add(itemKey(params.turnId, params.item.id))
-        if (params.item.type === "userMessage" && entry.native) await reconcile(entry, entry.native)
       }
+      if (
+        ["item/started", "item/completed"].includes(notification.method) &&
+        record(params.item) &&
+        params.item.type === "userMessage" &&
+        entry.native
+      )
+        await reconcile(entry, entry.native)
       if (notification.method === "error" && record(params.error) && typeof params.error.message === "string")
         entry.error = params.error.message
       if (notification.method === "thread/name/updated" && typeof params.threadName === "string") {

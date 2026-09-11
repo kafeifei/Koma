@@ -437,6 +437,7 @@ test("refreshes unknown receipts, then resumes and withdraws the paused queue", 
       const accepted = {
         ...current.deliveries.find((item) => item.requestID === requestID)!,
         state: "accepted" as const,
+        nativeItemID: "confirmed-user-item",
       }
       harness.current = {
         ...current,
@@ -477,6 +478,50 @@ test("refreshes unknown receipts, then resumes and withdraws the paused queue", 
   await withdrawRow.locator('[data-action="withdraw-delivery"]').click()
   await expect.poll(() => harness.queue.length).toBe(2)
   expect(harness.queue[1]).toEqual({ action: "withdraw", requestID: withdraw.requestID, revision: 62 })
+})
+
+test("keeps unconfirmed receipts and copies text only into an empty stopped composer", async ({ page }) => {
+  const unconfirmed = { ...delivery("receipt-unconfirmed", "steer", "accepted"), nativeTurnID: "native-turn" }
+  const harness: Harness = {
+    current: snapshot(70, { runtimeStatus: "active", deliveries: [unconfirmed] }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  const controls = await open(page)
+  const row = controls.locator(`[data-delivery-id="${unconfirmed.requestID}"]`)
+  const copy = row.locator('[data-action="copy-delivery-text"]')
+  const editor = page.locator('[data-component="prompt-input"][contenteditable="true"]')
+  await expect(row).toBeVisible()
+  await expect(copy).toHaveCount(0)
+
+  await editor.fill("Keep this draft")
+  harness.current = snapshot(71, { runtimeStatus: "idle", queuePaused: true, deliveries: [unconfirmed] })
+  await row.locator('[data-action="check-delivery"]').click()
+  await expect(editor).toHaveText("Keep this draft")
+  await expect(copy).toHaveCount(0)
+  await editor.fill("")
+  harness.current = snapshot(72, { runtimeStatus: "disconnected", queuePaused: true, deliveries: [unconfirmed] })
+  await row.locator('[data-action="check-delivery"]').click()
+  await expect(copy).toHaveCount(0)
+  harness.current = snapshot(73, { runtimeStatus: "idle", queuePaused: true, deliveries: [unconfirmed] })
+  await row.locator('[data-action="check-delivery"]').click()
+  await expect(copy).toBeVisible()
+  await copy.click()
+  await expect(editor).toHaveText(unconfirmed.input.prompt.text)
+  await expect(row).toBeVisible()
+  await expect(copy).toHaveCount(0)
+  expect(harness.queue).toEqual([])
+
+  harness.current = snapshot(74, {
+    runtimeStatus: "idle",
+    queuePaused: true,
+    deliveries: [{ ...unconfirmed, nativeItemID: "native-item-1" }],
+  })
+  await row.locator('[data-action="check-delivery"]').click()
+  await expect(row).toHaveCount(0)
+  await expect(editor).toHaveText(unconfirmed.input.prompt.text)
 })
 
 async function setup(page: Page, harness: Harness) {

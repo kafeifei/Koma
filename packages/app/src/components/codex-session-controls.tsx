@@ -15,9 +15,33 @@ import { showToast } from "@/utils/toast"
 
 type Interaction = LabSnapshotOutput["interactions"][number]
 type Delivery = LabSnapshotOutput["deliveries"][number]
+export type CodexDelivery = Delivery
+
+export function isConfirmedCodexDelivery(delivery: Pick<Delivery, "state" | "nativeItemID">) {
+  return delivery.state === "accepted" && !!delivery.nativeItemID
+}
+
+export function needsCodexDeliveryConfirmation(delivery: Pick<Delivery, "state" | "nativeItemID">) {
+  return delivery.state === "accepted" && !delivery.nativeItemID
+}
+
+export function isCodexDeliveryActive(runtimeStatus: string | undefined) {
+  return (
+    runtimeStatus === "resolving" ||
+    runtimeStatus === "creating" ||
+    runtimeStatus === "active" ||
+    runtimeStatus === "waitingApproval" ||
+    runtimeStatus === "waitingInput" ||
+    runtimeStatus === "interrupting"
+  )
+}
 
 export function actionableCodexDeliveries(deliveries: readonly Delivery[]) {
-  return deliveries.filter((delivery) => ["pending", "sending", "unknown", "rejected"].includes(delivery.state))
+  return deliveries.filter(
+    (delivery) =>
+      (delivery.state === "accepted" && !isConfirmedCodexDelivery(delivery)) ||
+      ["pending", "sending", "unknown", "rejected"].includes(delivery.state),
+  )
 }
 
 export function codexSessionInteractionBlocked(snapshot: LabSnapshotOutput | undefined) {
@@ -126,7 +150,12 @@ export function codexFormContent(fields: readonly CodexFormField[], values: Reco
   return content
 }
 
-export function CodexSessionControls(props: { sessionID?: string; engine?: "opencode" | "codex" }) {
+export function CodexSessionControls(props: {
+  sessionID?: string
+  engine?: "opencode" | "codex"
+  onCopyDeliveryText?: (delivery: CodexDelivery) => void
+  canCopyDeliveryText?: () => boolean
+}) {
   const serverSync = useServerSync()
   const platform = usePlatform()
   const language = useLanguage()
@@ -232,7 +261,9 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
 
   const checkDelivery = (delivery: Delivery) =>
     void run(`delivery:${delivery.requestID}`, delivery.sessionID, () =>
-      external().actions.delivery({ sessionID: delivery.sessionID, requestID: delivery.requestID }),
+      external()
+        .actions.delivery({ sessionID: delivery.sessionID, requestID: delivery.requestID })
+        .then(() => external().load(delivery.sessionID, { force: true })),
     )
 
   const deliveries = createMemo(() => actionableCodexDeliveries(snapshot()?.deliveries ?? []))
@@ -318,6 +349,14 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
     if (delivery.state === "unknown") return language.t("codex.delivery.unknown")
     if (delivery.state === "rejected") return language.t("codex.delivery.rejected")
     return language.t("codex.delivery.withdrawn")
+  }
+
+  const deliveryHint = (delivery: Delivery) => {
+    if (!needsCodexDeliveryConfirmation(delivery)) return undefined
+    const status = descriptor()?.runtimeStatus
+    if (isCodexDeliveryActive(status) && status !== "interrupting")
+      return language.t("codex.delivery.unconfirmedActiveHint")
+    return language.t("codex.delivery.unconfirmedHint")
   }
 
   function ChoiceButtons(interaction: Interaction, options?: { content?: JsonValue; disableAllow?: boolean }) {
@@ -670,12 +709,19 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
                         <Show when={delivery.state === "unknown"}>
                           <span>{language.t("codex.delivery.unknownHint")}</span>
                         </Show>
+                        <Show when={deliveryHint(delivery)}>{(hint) => <span>{hint()}</span>}</Show>
                         <Show when={delivery.error}>
                           {(error) => <span class="text-text-critical">{error()}</span>}
                         </Show>
                       </div>
                     </div>
-                    <Show when={delivery.state === "unknown" || delivery.state === "sending"}>
+                    <Show
+                      when={
+                        delivery.state === "unknown" ||
+                        delivery.state === "sending" ||
+                        needsCodexDeliveryConfirmation(delivery)
+                      }
+                    >
                       <Button
                         data-action="check-delivery"
                         size="small"
@@ -683,6 +729,30 @@ export function CodexSessionControls(props: { sessionID?: string; engine?: "open
                         onClick={() => checkDelivery(delivery)}
                       >
                         {language.t("codex.delivery.check")}
+                      </Button>
+                    </Show>
+                    <Show
+                      when={
+                        needsCodexDeliveryConfirmation(delivery) &&
+                        descriptor()?.runtimeStatus === "idle" &&
+                        props.onCopyDeliveryText &&
+                        props.canCopyDeliveryText?.() !== false
+                      }
+                    >
+                      <Button
+                        data-action="copy-delivery-text"
+                        size="small"
+                        onClick={() => {
+                          if (
+                            descriptor()?.runtimeStatus !== "idle" ||
+                            !needsCodexDeliveryConfirmation(delivery) ||
+                            props.canCopyDeliveryText?.() === false
+                          )
+                            return
+                          props.onCopyDeliveryText?.(delivery)
+                        }}
+                      >
+                        {language.t("codex.delivery.copyText")}
                       </Button>
                     </Show>
                     <Show when={delivery.delivery === "queue" && delivery.state === "pending"}>

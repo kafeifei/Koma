@@ -419,6 +419,10 @@ export const dict = {
   "codex.delivery.withdrawn": "Withdrawn",
   "codex.delivery.unknownHint": "This input will not be resent automatically.",
   "codex.delivery.check": "Check status",
+  "codex.delivery.unconfirmedActiveHint": "Waiting for confirmation that this input entered the session.",
+  "codex.delivery.unconfirmedHint":
+    "Delivery is not confirmed. The original input is saved and will not be resent automatically.",
+  "codex.delivery.copyText": "Copy text to input",
   "codex.interaction.title": "Codex needs your input",
   "codex.interaction.reply": "Reply",
   "codex.interaction.choice.allow": "Allow once",

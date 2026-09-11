@@ -16,6 +16,7 @@ type Config = {
   authenticated?: boolean
   refreshOnLogin?: boolean
   delayLogin?: boolean
+  steerItemBeforeAck?: boolean
   disconnectTurn?: boolean
   readError?: boolean
   resumeEvents?: Array<{ method: string; params: unknown }>
@@ -229,7 +230,22 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     if (config.waitForApprovals && pending.size) return
     return reply({ turn })
   }
-  if (message.method === "turn/steer") return reply({ turnId: config.thread.turns.at(-1)?.id })
+  if (message.method === "turn/steer") {
+    const turn = config.thread.turns.at(-1)!
+    if (config.steerItemBeforeAck) {
+      const item: v2.ThreadItem = {
+        type: "userMessage",
+        id: `steer-${String(message.params?.clientUserMessageId)}`,
+        clientId: String(message.params?.clientUserMessageId),
+        content: [{ type: "text", text: "saved steer", text_elements: [] }],
+      }
+      turn.items.push(item)
+      save(config)
+      send({ method: "item/started", params: { threadId: config.thread.id, turnId: turn.id, item } })
+      send({ method: "item/completed", params: { threadId: config.thread.id, turnId: turn.id, item } })
+    }
+    return reply({ turnId: turn.id })
+  }
   if (message.method === "turn/interrupt") return reply({})
   send({ id: message.id, error: { code: -32601, message: "Fixture does not support this method" } })
 })

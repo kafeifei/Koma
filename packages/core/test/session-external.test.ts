@@ -441,6 +441,41 @@ describe("SessionExternal", () => {
     }),
   )
 
+  it.effect("confirms acknowledged inputs without allowing receipt replacement or downgrade", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const created = yield* external.create(input)
+      const sessionID = created.session.id
+      yield* external.claimBinding({ sessionID, generation: "host:1" })
+      yield* external.bind({ sessionID, generation: "host:1", nativeThreadID: "native-1" })
+      yield* external.claim({ sessionID, requestID: input.requestID, generation: "host:1" })
+      const receipt = { sessionID, requestID: input.requestID, generation: "host:1", state: "accepted" as const }
+      yield* external.settle({ ...receipt, nativeTurnID: "turn-1" })
+      for (const invalid of [
+        { ...receipt, generation: "host:2", nativeTurnID: "turn-1", nativeItemID: "item-1" },
+        { ...receipt, nativeTurnID: "turn-2", nativeItemID: "item-1" },
+        { ...receipt, state: "unknown" as const },
+      ])
+        expect((yield* Effect.flip(external.settle(invalid)))._tag).toBe("SessionExternal.Conflict")
+      const evidence = { ...receipt, nativeTurnID: "turn-1", nativeItemID: "item-1" }
+      expect((yield* external.settle(evidence)).nativeItemID).toBe("item-1")
+      expect((yield* external.settle(evidence)).nativeItemID).toBe("item-1")
+      // A delayed transport ACK must preserve an earlier native-history confirmation.
+      expect((yield* external.settle({ ...receipt, nativeTurnID: "turn-1" })).nativeItemID).toBe("item-1")
+      for (const invalid of [
+        { ...evidence, nativeItemID: "other-item" },
+        { ...receipt, state: "rejected" as const },
+      ])
+        expect((yield* Effect.flip(external.settle(invalid)))._tag).toBe("SessionExternal.Conflict")
+      expect((yield* external.getDelivery(receipt))?.payload).toEqual(input.payload)
+      yield* external.admit({ sessionID, requestID: "early-event", payload: input.payload, delivery: "steer" })
+      yield* external.claim({ sessionID, requestID: "early-event", generation: "host:1" })
+      const early = { ...receipt, requestID: "early-event", nativeTurnID: "turn-1" }
+      yield* external.settle({ ...early, nativeItemID: "early-item" })
+      expect((yield* external.settle(early)).nativeItemID).toBe("early-item")
+    }),
+  )
+
   it.effect("preserves payloads while paused queues and unresolved thread creation cannot claim work", () =>
     Effect.gen(function* () {
       const external = yield* SessionExternal.Service

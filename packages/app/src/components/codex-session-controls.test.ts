@@ -5,6 +5,9 @@ import {
   codexFormContent,
   codexFormFields,
   codexSessionInteractionBlocked,
+  isCodexDeliveryActive,
+  isConfirmedCodexDelivery,
+  needsCodexDeliveryConfirmation,
   reconcileCodexLoginID,
 } from "./codex-session-controls"
 
@@ -26,12 +29,28 @@ describe("Codex conditional docks", () => {
   test("hides settled delivery receipts from the queue dock", () => {
     const deliveries = [
       { requestID: "pending", state: "pending" },
-      { requestID: "accepted", state: "accepted" },
+      { requestID: "accepted", state: "accepted", nativeItemID: "item-1" },
+      { requestID: "unconfirmed", state: "accepted" },
       { requestID: "withdrawn", state: "withdrawn" },
       { requestID: "unknown", state: "unknown" },
     ] as unknown as LabSnapshotOutput["deliveries"]
 
-    expect(actionableCodexDeliveries(deliveries).map((delivery) => delivery.requestID)).toEqual(["pending", "unknown"])
+    expect(actionableCodexDeliveries(deliveries).map((delivery) => delivery.requestID)).toEqual([
+      "pending",
+      "unconfirmed",
+      "unknown",
+    ])
+  })
+
+  test("requires native item evidence before treating an accepted receipt as settled", () => {
+    expect(isConfirmedCodexDelivery({ state: "accepted", nativeItemID: "item-1" })).toBe(true)
+    expect(isConfirmedCodexDelivery({ state: "accepted" })).toBe(false)
+    expect(needsCodexDeliveryConfirmation({ state: "accepted" })).toBe(true)
+    expect(needsCodexDeliveryConfirmation({ state: "accepted", nativeItemID: "item-1" })).toBe(false)
+    expect(isCodexDeliveryActive("active")).toBe(true)
+    expect(isCodexDeliveryActive("waitingInput")).toBe(true)
+    expect(isCodexDeliveryActive("interrupting")).toBe(true)
+    expect(isCodexDeliveryActive("idle")).toBe(false)
   })
 })
 

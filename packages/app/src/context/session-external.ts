@@ -303,8 +303,10 @@ export function createSessionExternalContext(input: {
       !committed ||
       committed.epoch !== receipt.descriptor.epoch ||
       committed.revision !== receipt.descriptor.revision
-    )
+    ) {
+      void loadSnapshot(receipt.descriptor.sessionID, { force: true }).catch(() => undefined)
       return receipt
+    }
     const snapshot = data.snapshots[receipt.descriptor.sessionID]
     if (snapshot) {
       const deliveries = [
@@ -387,6 +389,7 @@ export function createSessionExternalContext(input: {
         const fence = { observed: data.descriptors[sessionID] }
         const descriptor = await input.api.interrupt({ sessionID })
         commitDescriptor(descriptor, fence)
+        void loadSnapshot(sessionID, { force: true }).catch(() => undefined)
         return descriptor
       },
       reply: async (request: Parameters<typeof input.api.reply>[0]) => {
