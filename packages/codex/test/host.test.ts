@@ -21,9 +21,10 @@ import { CodexProviders } from "../src/providers"
 import type { v2 } from "../src/protocol/generated/index"
 
 let directory: string
-const environment = ["OPENCODE_ENABLE_CODEX", "OPENCODE_CODEX_HOME", "OPENCODE_CODEX_BINARY"]
+const environment = ["OPENCODE_ENABLE_CODEX", "OPENCODE_CODEX_HOME", "OPENCODE_CODEX_BINARY", "CODEX_HOME"]
 const previous = new Map(environment.map((key) => [key, process.env[key]]))
 beforeAll(async () => {
+  delete process.env.CODEX_HOME
   directory = await mkdtemp(path.join(tmpdir(), "codex-host-test-"))
   const binary = path.join(directory, "codex-fixture")
   await writeFile(
@@ -141,7 +142,16 @@ const rpc = async (home: string) =>
     .trim()
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as { id?: string | number; method?: string; error?: unknown; result?: unknown })
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          id?: string | number
+          method?: string
+          params?: Record<string, unknown>
+          error?: unknown
+          result?: unknown
+        },
+    )
 const configure = async (home: string, patch: object) => {
   const file = path.join(home, "fixture.json")
   await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), ...patch }))
@@ -234,6 +244,58 @@ async function complete(home: string) {
 }
 
 describe("CodexHost native process boundaries", () => {
+  test("injects common and personal Codex rules and refreshes them only after native execution is idle", () =>
+    harness(async ({ host, home }) => {
+      await mkdir(path.join(home, ".agents"), { recursive: true })
+      await mkdir(path.join(home, ".codex"), { recursive: true })
+      await mkdir(path.join(home, ".claude"), { recursive: true })
+      await writeFile(path.join(home, ".agents", "AGENTS.md"), "common rules")
+      await writeFile(path.join(home, ".codex", "AGENTS.override.md"), "personal codex rules")
+      await writeFile(path.join(home, ".claude", "CLAUDE.md"), "wrong vendor rules")
+      await configure(home, { reflectProvider: true, selectedModel: "claude-opus-4-8" })
+      const created = await run(
+        host.create({
+          requestID: "rules-first",
+          engine: "codex",
+          location: location(),
+          input: { ...prompt, settings: { model: "claude-opus-4-8" } },
+          delivery: "steer",
+        }),
+      )
+      const id = created.descriptor.sessionID
+      await until(
+        () => run(host.delivery(id, "rules-first")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const start = (await rpc(home)).find((call) => call.method === "thread/start")!
+      expect(start.params?.developerInstructions).toContain("common rules")
+      expect(start.params?.developerInstructions).toContain("personal codex rules")
+      expect(start.params?.developerInstructions).not.toContain("wrong vendor rules")
+      await writeFile(path.join(home, ".codex", "AGENTS.override.md"), "updated codex rules")
+      await run(
+        host.submit(id, {
+          requestID: "rules-next",
+          input: { ...prompt, settings: { model: "claude-opus-4-8" } },
+          delivery: "steer",
+        }),
+      )
+      expect((await run(host.delivery(id, "rules-next"))).state).toBe("pending")
+      expect((await rpc(home)).some((call) => call.method === "thread/unsubscribe")).toBe(false)
+      await complete(home)
+      await until(
+        () => run(host.delivery(id, "rules-next")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const calls = await rpc(home)
+      const resume = calls.findLast((call) => call.method === "thread/resume")!
+      expect(resume.params?.developerInstructions).toContain("common rules")
+      expect(resume.params?.developerInstructions).toContain("updated codex rules")
+      expect(resume.params?.developerInstructions).not.toContain("personal codex rules")
+      expect(calls.filter((call) => call.method === "thread/start")).toHaveLength(1)
+      expect(calls.filter((call) => call.method === "turn/start")).toHaveLength(2)
+      expect(calls.filter((call) => call.method === "turn/steer")).toHaveLength(0)
+    }))
+
   test(
     "custom models work without ChatGPT and switch providers only after idle, preserving restoration",
     () =>

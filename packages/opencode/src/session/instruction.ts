@@ -11,6 +11,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "@opencode-ai/core/global"
+import { LabInstructions } from "@opencode-ai/core/lab-instructions"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID } from "./schema"
 
@@ -33,8 +34,8 @@ function extract(messages: SessionV1.WithParts[]) {
 
 export interface Interface {
   readonly clear: (messageID: MessageID) => Effect.Effect<void>
-  readonly systemPaths: () => Effect.Effect<Set<string>, FSUtil.Error>
-  readonly system: () => Effect.Effect<string[], FSUtil.Error>
+  readonly systemPaths: (model?: string) => Effect.Effect<Set<string>, FSUtil.Error>
+  readonly system: (model?: string) => Effect.Effect<string[], FSUtil.Error>
   readonly find: (dir: string) => Effect.Effect<string | undefined, FSUtil.Error>
   readonly resolve: (
     messages: SessionV1.WithParts[],
@@ -48,13 +49,19 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/In
 const layer: Layer.Layer<
   Service,
   never,
-  FSUtil.Service | Config.Service | Global.Service | HttpClient.HttpClient | RuntimeFlags.Service
+  | FSUtil.Service
+  | Config.Service
+  | Global.Service
+  | HttpClient.HttpClient
+  | RuntimeFlags.Service
+  | LabInstructions.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
     const cfg = yield* Config.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
+    const labInstructions = yield* LabInstructions.Service
     const flags = yield* RuntimeFlags.Service
     const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
     const globalFiles = [
@@ -107,15 +114,24 @@ const layer: Layer.Layer<
       s.claims.delete(messageID)
     })
 
-    const systemPaths = Effect.fn("Instruction.systemPaths")(function* () {
+    const systemPaths = Effect.fn("Instruction.systemPaths")(function* (model?: string) {
       const config = yield* cfg.get()
       const ctx = yield* InstanceState.context
       const paths = new Set<string>()
 
-      for (const file of globalFiles) {
+      const globals = global.root
+        ? yield* labInstructions
+            .load({
+              engine: "opencode",
+              model,
+              disableClaudeCodePrompt: flags.disableClaudeCodePrompt,
+            })
+            .pipe(Effect.map((files) => files.map((file) => file.path)))
+        : globalFiles
+      for (const file of globals) {
         if (yield* fs.existsSafe(file)) {
           paths.add(path.resolve(file))
-          break
+          if (!global.root) break
         }
       }
 
@@ -152,9 +168,9 @@ const layer: Layer.Layer<
       return paths
     })
 
-    const system = Effect.fn("Instruction.system")(function* () {
+    const system = Effect.fn("Instruction.system")(function* (model?: string) {
       const config = yield* cfg.get()
-      const paths = yield* systemPaths()
+      const paths = yield* systemPaths(model)
       const urls = (config.instructions ?? []).filter(
         (item) => item.startsWith("https://") || item.startsWith("http://"),
       )
@@ -231,7 +247,7 @@ export function loaded(messages: SessionV1.WithParts[]) {
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Config.node, FSUtil.node, Global.node, RuntimeFlags.node, httpClient],
+  deps: [Config.node, FSUtil.node, Global.node, RuntimeFlags.node, LabInstructions.node, httpClient],
 })
 
 export * as Instruction from "./instruction"

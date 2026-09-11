@@ -91,6 +91,7 @@ Codex 可通过独立配置端口使用现有 XD 等 Responses 供应商的模�
 - 桌面设置中的“实验功能”管理本机 Lab 后端启动偏好，持久化在 profile 的 `config/experiments.json`；后台子代理开关映射上游 `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`。界面区分保存值与后端确认的生效值，更改只在后端下次启动时应用，不自动重启或修改 Task 的前后台选择逻辑。未保存偏好时保留上游环境变量默认行为。
 - 共享后端首次接管前拒绝仍占用数据库的旧进程，接管后将原迁移清单提升为要求后端协议的 v2；旧 Lab 入口会拒绝打开，不能用旧包回退写入。普通上游入口也不能绕过已激活 profile 的后端直接打开数据库。CLI 卸载只移除受管命令链接，保留共享数据及运行中后端所需版本；维护和交付不得自动终止已有后端。
 - Lab 的隔离准备会清除代码列出的配置／数据库等环境覆盖项，禁用项目配置加载与自动更新；它不会自动继承官方 OpenCode 的全局配置和认证存储。不要为“方便测试”接管或迁移官方实例的数据、登录状态或后台服务。
+- Lab 的全局工作说明由后端选取：始终叠加 `~/.agents/AGENTS.md`；OpenCode 优先自己的全局 `AGENTS.md`，缺失／空白时按实际 API 模型回退到个人 Codex 或 Claude 说明；原生 Codex 则不看模型，直接叠加个人 Codex 说明。只读取规则文本，不导入其他客户端的设置或认证；优先级与路径见 [Lab global instructions](./packages/desktop/README.md#lab-global-instructions)。
 - 这是应用和后端状态隔离，不是文件系统沙箱。用户打开的代码目录仍是真实目录；不能据此宣称所有环境凭据、项目文件、外部工具和网络都已隔离。
 - 本地 Web 入口属于该 Desktop 实例，默认开启，可在设置中关闭；仅监听 `127.0.0.1`，代理到该实例的后端。网关检查 Host，对非页面导航请求检查来源，并在代理层加入后端认证；它没有独立的用户登录层，可访问该 loopback 端口的本地程序仍在可达范围内。不能擅自改成公网／局域网服务或新建第二套 Session 数据源。具体规则见 [web-entry-controller.ts](./packages/desktop/src/main/web-entry-controller.ts) 和 [web-entry.ts](./packages/desktop/src/main/web-entry.ts)。
 - Remote 是显式开启的独立入口：GitHub 设备授权配合 Microsoft Dev Tunnels，默认仅所属账号可访问。Desktop 主进程持有登录、共享和连接状态；它为当前实例的同一后端创建独立 loopback 网关与私有隧道，关闭共享会关闭该网关及已有连接。独立登录不自动开启共享，连接其他设备也不要求共享本机。网站仅处理登录与设备目录，工作台流量直接进入微软隧道；不另建 Session 数据源。配置与验证边界见 [Desktop README](./packages/desktop/README.md) 和 [Remote Web README](./packages/remote-web/README.md)。

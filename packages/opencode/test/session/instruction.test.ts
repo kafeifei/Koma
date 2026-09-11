@@ -210,6 +210,34 @@ describe("Instruction.resolve", () => {
 })
 
 describe("Instruction.system", () => {
+  it.live("Lab combines common rules with model-selected fallbacks while preserving project instructions", () =>
+    Effect.gen(function* () {
+      const home = yield* tmpWithFiles({
+        ".agents/AGENTS.md": "common rules",
+        ".codex/AGENTS.override.md": "codex rules",
+        ".claude/CLAUDE.md": "claude rules",
+      })
+      const project = yield* tmpWithFiles({ "AGENTS.md": "project rules" })
+      yield* Effect.gen(function* () {
+        const svc = yield* Instruction.Service
+        const openai = (yield* svc.system("gateway/openai/gpt-6-astra")).join("\n")
+        expect(openai).toContain("common rules")
+        expect(openai).toContain("codex rules")
+        expect(openai).toContain("project rules")
+        expect(openai).not.toContain("claude rules")
+        const claude = (yield* svc.system("gateway/claude-opus-4-8")).join("\n")
+        expect(claude).toContain("common rules")
+        expect(claude).toContain("claude rules")
+        expect(claude).not.toContain("codex rules")
+        yield* write(path.join(home, "lab", "config", "AGENTS.md"), "opencode rules")
+        const own = (yield* svc.system("gpt-6-astra")).join("\n")
+        expect(own).toContain("common rules")
+        expect(own).toContain("opencode rules")
+        expect(own).not.toContain("codex rules")
+      }).pipe(provideInstance(project), provideInstruction({ home, root: path.join(home, "lab") }))
+    }),
+  )
+
   it.live("loads both project and global AGENTS.md when both exist", () =>
     Effect.gen(function* () {
       const globalTmp = yield* tmpWithFiles({ "AGENTS.md": "# Global Instructions" })

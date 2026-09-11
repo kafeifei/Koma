@@ -1279,7 +1279,7 @@ const layer = Layer.effect(
                 session.permissionMode,
               ),
               sys.environment(model),
-              instruction.system().pipe(Effect.orDie),
+              instruction.system(model.api.id).pipe(Effect.orDie),
               sys.mcp(agent, session.permission, session.permissionMode),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
