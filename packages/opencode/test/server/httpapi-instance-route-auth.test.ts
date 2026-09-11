@@ -46,6 +46,19 @@ afterEach(async () => {
 })
 
 describe("HttpApi instance route authorization", () => {
+  test("requires configured auth before reading backend-wide shutdown state", async () => {
+    const server = app({ password: "secret" })
+    const missing = await server.request("/lab/shutdown-state")
+    expect(missing.status).toBe(401)
+    await cancelBody(missing)
+
+    const authed = await server.request("/lab/shutdown-state", {
+      headers: { authorization: basic("opencode", "secret") },
+    })
+    expect(authed.status).toBe(200)
+    expect(await authed.json()).toEqual({ active: false })
+  })
+
   test("requires configured auth before opening the instance event stream", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
     const server = app({ password: "secret" })

@@ -10,7 +10,7 @@ import { nativeT } from "./native-translations"
 const { autoUpdater } = pkg
 const key = "ready"
 
-export function setupAutoUpdater(stop: () => Promise<void>) {
+export function setupAutoUpdater(shutdown: (quit: () => void) => Promise<boolean>) {
   const logger = getLogger()
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
@@ -55,7 +55,7 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
       set: (value) => store.set(key, value),
       clear: () => store.delete(key),
     },
-    stop,
+    shutdown,
     log: (message, data) => logger.log(message, data),
   })
 }

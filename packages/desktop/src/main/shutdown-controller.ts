@@ -1,9 +1,10 @@
 type QuitEvent = { preventDefault(): void }
 
 type ShutdownControllerOptions = {
+  confirm?(): Promise<boolean>
   stop(): Promise<void>
   quit(): void
-  setQuitting(): void
+  setQuitting(value: boolean): void
   log(message: string, meta?: Record<string, unknown>): void
   warn(message: string, error?: unknown): void
   timeoutMs?: number
@@ -13,64 +14,114 @@ type ShutdownControllerOptions = {
 export function createShutdownController(options: ShutdownControllerOptions) {
   let quitting = false
   let allowed = false
-  let stopping = false
   let stopped = false
-  let scheduled = false
+  let pending: Promise<boolean> | undefined
+  let forced = false
 
   const markQuitting = () => {
     quitting = true
-    options.setQuitting()
+    options.setQuitting(true)
   }
 
-  const requestQuit = (reason: "stopped" | "failed" | "timed_out") => {
-    if (scheduled) return
+  const finishQuit = (quit: () => void, reason: "stopped" | "failed" | "timed_out") => {
     allowed = true
-    scheduled = true
     const schedule = options.schedule ?? setImmediate
     // Native macOS quit enters Electron from AppKit. A Promise continuation can
     // reenter app.quit() before that callback returns, after which Electron's
     // outer frame overwrites its quitting state and leaves a windowless process.
-    schedule(() => {
-      options.log("runtime quit requested", { reason })
-      options.quit()
+    return new Promise<void>((resolve, reject) => {
+      schedule(() => {
+        options.log("runtime quit requested", { reason })
+        try {
+          quit()
+          resolve()
+        } catch (error) {
+          reject(error)
+        }
+      })
     })
   }
 
+  const stop = (quit: () => void) =>
+    new Promise<void>((resolve, reject) => {
+      markQuitting()
+      options.log("runtime shutdown started")
+
+      let timedOut = false
+      const timeout = setTimeout(() => {
+        timedOut = true
+        options.warn("runtime shutdown timed out; preserving its resource snapshot")
+        void finishQuit(quit, "timed_out").then(resolve, reject)
+      }, options.timeoutMs ?? 7_000)
+
+      void options
+        .stop()
+        .then(() => {
+          if (timedOut) return
+          stopped = true
+          options.log("runtime shutdown finished")
+        })
+        .catch((error) => {
+          if (timedOut) return
+          options.warn("failed to stop runtime; preserving its resource snapshot", error)
+        })
+        .finally(() => {
+          if (timedOut) return
+          clearTimeout(timeout)
+          void finishQuit(quit, stopped ? "stopped" : "failed").then(resolve, reject)
+        })
+    })
+
+  const failedQuit = (error: unknown) => {
+    allowed = false
+    quitting = false
+    forced = false
+    pending = undefined
+    options.setQuitting(false)
+    options.warn("failed to complete runtime quit; keeping the app open", error)
+  }
+
+  // The first quit/relaunch/install request owns the entire confirmation and
+  // shutdown. Later requests cannot open a second dialog or replace its action.
+  const requestQuit = (quit = options.quit): Promise<boolean> => {
+    if (pending) return pending
+    pending = (async () => {
+      const confirmed = options.confirm
+        ? await options.confirm().catch((error) => {
+            options.warn("failed to confirm runtime shutdown; keeping the app open", error)
+            return false
+          })
+        : true
+      if (forced) return true
+      if (!confirmed) return false
+      await stop(quit)
+      return true
+    })()
+      .catch((error) => {
+        failedQuit(error)
+        throw error
+      })
+      .finally(() => {
+        if (!quitting) pending = undefined
+      })
+    return pending
+  }
+
+  // OS termination must not wait for an interactive confirmation. A pending
+  // dialog may finish later, but it cannot start a second shutdown.
+  const forceQuit = () => {
+    if (quitting) return
+    forced = true
+    void stop(options.quit).catch(failedQuit)
+  }
+
   const beforeQuit = (event: QuitEvent) => {
-    markQuitting()
     if (allowed) {
       options.log("runtime quit admitted", { stopped })
       return
     }
-
     event.preventDefault()
-    if (stopping) return
-    stopping = true
-    options.log("runtime shutdown started")
-
-    let timedOut = false
-    const timeout = setTimeout(() => {
-      timedOut = true
-      options.warn("runtime shutdown timed out; preserving its resource snapshot")
-      requestQuit("timed_out")
-    }, options.timeoutMs ?? 7_000)
-
-    void options
-      .stop()
-      .then(() => {
-        if (timedOut) return
-        stopped = true
-        options.log("runtime shutdown finished")
-      })
-      .catch((error) => {
-        if (timedOut) return
-        options.warn("failed to stop runtime; preserving its resource snapshot", error)
-      })
-      .finally(() => {
-        if (timedOut) return
-        clearTimeout(timeout)
-        requestQuit(stopped ? "stopped" : "failed")
-      })
+    void requestQuit().catch(() => undefined)
   }
 
   const willQuit = () => {
@@ -82,7 +133,8 @@ export function createShutdownController(options: ShutdownControllerOptions) {
   return {
     beforeQuit,
     willQuit,
-    markQuitting,
+    requestQuit,
+    forceQuit,
     isQuitting: () => quitting,
     didStop: () => stopped,
   }
