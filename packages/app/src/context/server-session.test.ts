@@ -8,6 +8,17 @@ import { projectExternalMessages } from "@/utils/session-external"
 
 type MessageApi = ServerApi["message"]
 
+test("archiving a running session keeps its status until the backend confirms it stopped", async () => {
+  const store = createServerSession(messageClient(response()))
+  const info = session("child")
+  store.apply({ type: "session.updated", properties: { info } })
+  store.apply({ type: "session.status", properties: { sessionID: info.id, status: { type: "busy" } } })
+  store.apply({ type: "session.updated", properties: { info: { ...info, time: { ...info.time, archived: 2 } } } })
+  expect(store.data.session_working(info.id)).toBe(true)
+  store.apply({ type: "session.status", properties: { sessionID: info.id, status: { type: "idle" } } })
+  expect(store.data.session_working(info.id)).toBe(false)
+})
+
 const session = (id: string, parentID?: string): Session => ({
   id,
   slug: id,

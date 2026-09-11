@@ -35,7 +35,9 @@ export const read = Effect.fn("LabShutdownState.read")(function* (input: {
     (yield* input.database.db
       .select({ id: SessionExternalBindingTable.session_id })
       .from(SessionExternalBindingTable)
-      .where(inArray(SessionExternalBindingTable.state, ["pending", "creating", "unknown"]))
+      // A pending binding can be a stopped task that never started a native thread.
+      // Its admitted work is covered by execution_pending and delivery rows below.
+      .where(inArray(SessionExternalBindingTable.state, ["creating", "unknown"]))
       .limit(1)
       .get()
       .pipe(Effect.orDie)) !== undefined

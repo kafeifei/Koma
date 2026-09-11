@@ -375,16 +375,13 @@ const layer = Layer.effect(
       return entries.find((entry) => entry?.directory === owner.directory)
     })
 
-    const assertResidentCheckout = Effect.fnUntraced(function* (owner: Owner) {
+    const assertResidentCheckoutIdentity = Effect.fnUntraced(function* (owner: Owner) {
       const registered = yield* registeredCheckout(owner)
       if (!registered) {
         return yield* fail("conflict", "managed worktree path is no longer registered; directory was preserved", owner)
       }
-      if (registered.branch !== owner.branch) {
-        return yield* fail("conflict", "managed worktree branch identity changed; directory was preserved", owner)
-      }
       const branch = yield* git.run(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: owner.directory })
-      if (branch.exitCode !== 0 || branch.text().trim() !== owner.branch) {
+      if (branch.exitCode !== 0 || branch.text().trim() !== registered.branch) {
         return yield* fail("conflict", "managed worktree directory is no longer on its registered branch", owner)
       }
       const common = yield* git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
@@ -398,7 +395,15 @@ const layer = Layer.effect(
       ) {
         return yield* fail("conflict", "managed worktree directory belongs to a different Git repository", owner)
       }
-      return registered
+      return { ...registered, branch: branch.text().trim() }
+    })
+
+    const assertResidentCheckout = Effect.fnUntraced(function* (owner: Owner) {
+      const resident = yield* assertResidentCheckoutIdentity(owner)
+      if (resident.branch !== owner.branch) {
+        return yield* fail("conflict", "managed worktree branch identity changed; directory was preserved", owner)
+      }
+      return resident
     })
 
     const removeCheckout = Effect.fnUntraced(function* (owner: Owner) {
@@ -427,7 +432,7 @@ const layer = Layer.effect(
 
     const cancelArchive = Effect.fnUntraced(function* (owner: Owner) {
       if (!(yield* directoryExists(owner))) return false
-      yield* assertResidentCheckout(owner)
+      const resident = yield* assertResidentCheckoutIdentity(owner)
       if (!owner.sessionID) return yield* fail("conflict", "managed worktree has no owning session", owner)
       // The live checkout remains authoritative when removal never completed. Discard only our private snapshot metadata.
       const current = owner.oid
@@ -439,7 +444,14 @@ const layer = Layer.effect(
           .clear({ directory: owner.root, sessionID: owner.sessionID, oid })
           .pipe(Effect.mapError((error) => fail("git", error.message, owner)))
       }
-      yield* write({ ...owner, intent: undefined, phase: "resident", oid: undefined, lastError: undefined })
+      yield* write({
+        ...owner,
+        branch: resident.branch,
+        intent: undefined,
+        phase: "resident",
+        oid: undefined,
+        lastError: undefined,
+      })
       yield* unblock(owner.directory)
       return true
     })

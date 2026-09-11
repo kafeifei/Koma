@@ -28,6 +28,44 @@ const json = (method: string, body: unknown) => ({
 })
 
 describe("managed worktree HTTP lifecycle", () => {
+  it.live("recovers a failed archive after a task renames its branch, then archives and restores it again", () =>
+    Effect.gen(function* () {
+      const temp = yield* tmpdirScoped({ git: true })
+      const created = yield* requestInDirectory("/experimental/worktree", temp, json("POST", { wait: true }))
+      expect(created.status).toBe(200)
+      const worktree = (yield* created.json) as { directory: string }
+      const admitted = yield* requestInDirectory(
+        "/session",
+        worktree.directory,
+        json("POST", { title: "Renamed task" }),
+      )
+      expect(admitted.status).toBe(200)
+      const session = (yield* admitted.json) as { id: string }
+      const route = `/session/${session.id}`
+      const branch = `renamed-task-${crypto.randomUUID().slice(0, 8)}`
+      yield* Effect.promise(() => $`git branch -m ${branch}`.cwd(worktree.directory).quiet())
+      yield* Effect.promise(() => Bun.write(`${worktree.directory}/draft.txt`, "preserve renamed branch draft"))
+
+      const failed = yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: Date.now() } }))
+      expect(failed.status).toBe(409)
+      expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: null } }))).status).toBe(200)
+      expect(yield* Effect.promise(() => $`git branch --show-current`.cwd(worktree.directory).text())).toBe(
+        `${branch}\n`,
+      )
+      expect(yield* Effect.promise(() => Bun.file(`${worktree.directory}/draft.txt`).text())).toBe(
+        "preserve renamed branch draft",
+      )
+      expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: Date.now() } }))).status).toBe(
+        200,
+      )
+      expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: null } }))).status).toBe(200)
+      expect(yield* Effect.promise(() => Bun.file(`${worktree.directory}/draft.txt`).text())).toBe(
+        "preserve renamed branch draft",
+      )
+      expect((yield* requestInDirectory(route, temp, { method: "DELETE" })).status).toBe(200)
+    }),
+  )
+
   it.live("creates, archives, restores and deletes through the project root", () =>
     Effect.gen(function* () {
       const temp = yield* tmpdirScoped({ git: true })

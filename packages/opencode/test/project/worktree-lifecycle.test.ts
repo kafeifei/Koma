@@ -714,6 +714,27 @@ it.live("clears a captured ref that was not persisted before archive cancellatio
   }),
 )
 
+it.live("cancels an unremoved archive after the checkout branch is renamed", () =>
+  Effect.gen(function* () {
+    const input = yield* fixture()
+    const renamed = `composer-placeholder-${crypto.randomUUID().slice(0, 8)}`
+    yield* Effect.promise(() => Bun.write(path.join(input.directory, "tracked.txt"), "preserve after rename\n"))
+    yield* input.lifecycle.prepareArchive(input.sessionID)
+    yield* git(input.directory, ["branch", "-m", renamed])
+
+    expect(yield* input.lifecycle.prepareRestore(input.sessionID)).toEqual({ managed: true })
+    expect(yield* git(input.directory, ["branch", "--show-current"])).toBe(renamed)
+    expect(yield* Effect.promise(() => Bun.file(path.join(input.directory, "tracked.txt")).text())).toBe(
+      "preserve after rename\n",
+    )
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+      branch: renamed,
+      phase: "resident",
+    })
+    expect((yield* input.lifecycle.get(input.sessionID))?.intent).toBeUndefined()
+  }),
+)
+
 it.live("cancels a failed archive while preserving a locked checkout", () =>
   Effect.gen(function* () {
     const input = yield* fixture()

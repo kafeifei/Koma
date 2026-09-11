@@ -113,10 +113,28 @@ describe("lab shutdown state", () => {
         .values({
           session_id: sessionID,
           runtime_scope: "shutdown-test",
-          state: "bound",
-          execution_pending: true,
+          state: "pending",
+          queue_paused: true,
+          execution_pending: false,
           time_updated: now,
         })
+        .run()
+        .pipe(Effect.orDie)
+      // A stopped, never-started native binding has no execution to interrupt.
+      expect(yield* LabShutdownState.read(input)).toBe(false)
+      for (const state of ["creating", "unknown"] as const) {
+        yield* db
+          .update(SessionExternalBindingTable)
+          .set({ state })
+          .where(eq(SessionExternalBindingTable.session_id, sessionID))
+          .run()
+          .pipe(Effect.orDie)
+        expect(yield* LabShutdownState.read(input)).toBe(true)
+      }
+      yield* db
+        .update(SessionExternalBindingTable)
+        .set({ state: "bound", queue_paused: false, execution_pending: true })
+        .where(eq(SessionExternalBindingTable.session_id, sessionID))
         .run()
         .pipe(Effect.orDie)
       expect(yield* LabShutdownState.read(input)).toBe(true)
