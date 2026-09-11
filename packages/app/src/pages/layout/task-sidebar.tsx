@@ -460,7 +460,19 @@ function TaskSession(props: {
     () => props.session.id,
   )
   const status = () =>
-    state.needsAttention() ? "attention" : state.loading() ? "running" : state.unread() ? "unread" : "idle"
+    state.needsAttention()
+      ? "attention"
+      : state.loading()
+        ? "running"
+        : state.resolving()
+          ? "loading"
+          : state.unread()
+            ? "unread"
+            : "idle"
+  const statusLabel = () => {
+    const value = status()
+    return language.t(value === "loading" ? "common.loading" : `workspace.status.${value}`)
+  }
   const title = () => sessionTitle(props.session.title) || language.t("workspace.newTask")
   const external = () => props.session.engine === "codex" || props.context.sync.external.isExternal(props.session.id)
   const tab = () => ({ type: "session" as const, server: props.server, sessionId: props.session.id })
@@ -530,12 +542,7 @@ function TaskSession(props: {
           props.onNavigate()
         }}
       >
-        <span
-          data-slot="workspace-task-status"
-          role="img"
-          aria-label={language.t(`workspace.status.${status()}`)}
-          title={language.t(`workspace.status.${status()}`)}
-        >
+        <span data-slot="workspace-task-status" role="img" aria-label={statusLabel()} title={statusLabel()}>
           <Show when={state.loading()} fallback={<span data-slot="workspace-status-dot" />}>
             <Spinner />
           </Show>

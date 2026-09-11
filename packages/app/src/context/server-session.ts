@@ -662,7 +662,7 @@ export function createServerSession(
   }
 
   const applyExternalDescriptor = (descriptor: LabSnapshotOutput["descriptor"]) => {
-    const working = ["resolving", "creating", "active", "waitingApproval", "waitingInput", "interrupting"].includes(
+    const working = ["creating", "active", "waitingApproval", "waitingInput", "interrupting"].includes(
       descriptor.runtimeStatus,
     )
     setData("session_status", descriptor.sessionID, working ? { type: "busy" } : { type: "idle" })

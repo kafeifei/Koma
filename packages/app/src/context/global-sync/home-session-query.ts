@@ -33,7 +33,8 @@ export function createHomeSessionQuery(context: Accessor<ServerCtx | undefined>)
           signal,
         )
         ctx.sync.external.observe(result.sessions)
-        await ctx.sync.external.describe(result.sessions.map((session) => session.id)).catch((error) => {
+        // Native status recovery must not block the saved task list.
+        void ctx.sync.external.describe(result.sessions.map((session) => session.id)).catch((error) => {
           console.warn("Failed to describe home session engines", error)
         })
         cache.complete(sequence)

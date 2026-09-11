@@ -40,5 +40,11 @@ export function useSessionTabAvatarState(
     if (needsAttention()) return false
     return serverSync.session.data.session_working(sessionId())
   })
-  return { unread, loading, needsAttention }
+  const resolving = createMemo(() => {
+    const external = sync()?.external
+    if (!external?.isExternal(sessionId())) return false
+    const descriptor = external.data.descriptors[sessionId()]
+    return !descriptor || descriptor.runtimeStatus === "resolving"
+  })
+  return { unread, loading, needsAttention, resolving }
 }
