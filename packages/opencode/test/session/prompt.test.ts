@@ -3,7 +3,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { expect } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
@@ -50,7 +50,7 @@ import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Format } from "../../src/format"
-import { TestInstance } from "../fixture/fixture"
+import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -233,6 +233,7 @@ function makeHttp(input?: {
   mcpInstructions?: MCP.ServerInstructions[]
   processor?: "blocking" | "failing"
   backgroundSubagents?: boolean
+  diskDatabase?: boolean
 }) {
   const root = LayerNode.group([promptRoot, testLLMServerNode])
   const replacements = [
@@ -240,6 +241,19 @@ function makeHttp(input?: {
     [LSP.node, lsp],
     [MCP.node, makeMcp(input?.mcpInstructions)],
     [RuntimeFlags.node, input?.backgroundSubagents ? backgroundRuntimeFlags : runtimeFlags],
+    ...(input?.diskDatabase
+      ? [
+          [
+            Database.node,
+            Layer.unwrap(
+              Effect.gen(function* () {
+                const directory = yield* tmpdirScoped()
+                return Database.layerFromPath(path.join(directory, "task-results.sqlite"))
+              }).pipe(Effect.provide(LayerNode.compile(CrossSpawnSpawner.node)), Effect.orDie),
+            ),
+          ] as const,
+        ]
+      : []),
   ] as const
   if (input?.processor === "blocking") {
     return LayerNode.compile(root, [...replacements, [SessionProcessor.node, blockingProcessor]])
@@ -262,9 +276,11 @@ function makeHttpNoLLMServer(input?: { mcpInstructions?: MCP.ServerInstructions[
 
 const it = testEffect(makeHttp())
 const background = testEffect(makeHttp({ backgroundSubagents: true }))
+const backgroundDisk = testEffect(makeHttp({ backgroundSubagents: true, diskDatabase: true }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const failedProcessor = testEffect(makeHttp({ processor: "failing" }))
+const backgroundFailedProcessor = testEffect(makeHttp({ processor: "failing", diskDatabase: true }))
 const withMcpInstructions = testEffect(
   makeHttp({
     mcpInstructions: [
@@ -1498,6 +1514,317 @@ background.instance("background task completion resumes the parent with its own 
     expect(inputs[1]?.reasoning_effort).toBe("xhigh")
     expect(inputs[2]?.reasoning_effort).toBe("low")
     expect(inputs[3]?.reasoning_effort).toBe("xhigh")
+  }),
+)
+
+backgroundDisk.instance(
+  "background result is durable for an archived parent without starting another provider turn",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(subagentModelCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const database = yield* Database.Service
+      const databasePath = (yield* database.db.all<{ file: string }>(sql`PRAGMA database_list`))[0].file
+      expect(databasePath).toEndWith("task-results.sqlite")
+      const chat = yield* sessions.create({
+        title: "Archived parent",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      const release = defer<void>()
+      yield* llm.toolMatch((hit) => hit.body.model === "test-model", "task", {
+        description: "finish after archive",
+        prompt: "return a result after the parent is archived",
+        subagent_type: "general",
+        model: "test/fast-model",
+        variant: "low",
+        background: true,
+      })
+      yield* llm.pushMatch(
+        (hit) => hit.body.model === "fast-model",
+        reply().wait(release.promise).text("archived background result").stop().item(),
+      )
+      yield* llm.textMatch((hit) => hit.body.model === "test-model", "parent is done for now")
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        variant: "xhigh",
+        parts: [{ type: "text", text: "start" }],
+      })
+      yield* awaitWithTimeout(llm.wait(3), "child did not start")
+      yield* sessions.setArchived({ sessionID: chat.id, time: Date.now() })
+      const archived = yield* sessions.get(chat.id)
+      release.resolve()
+      const result = yield* pollWithTimeout(
+        sessions
+          .messages({ sessionID: chat.id })
+          .pipe(
+            Effect.map((messages) =>
+              messages.find((message) =>
+                message.parts.some((part) => part.type === "text" && part.metadata?.taskResult),
+              ),
+            ),
+          ),
+        "archived parent did not receive its durable background result",
+      )
+      const part = result.parts.find(
+        (part): part is SessionV1.TextPart => part.type === "text" && !!part.metadata?.taskResult,
+      )!
+      expect(part.text).toContain("archived background result")
+      const persisted = yield* Effect.gen(function* () {
+        const reopened = yield* Database.Service
+        return yield* reopened.db.select().from(PartTable).where(eq(PartTable.id, part.id)).get()
+      }).pipe(Effect.provide(Database.layerFromPath(databasePath)))
+      expect(persisted?.data).toMatchObject({ type: "text", text: part.text, synthetic: true })
+      expect(yield* llm.calls).toBe(3)
+      expect((yield* sessions.get(chat.id)).model).toEqual(archived.model)
+      expect((yield* sessions.get(chat.id)).time.archived).toBe(archived.time.archived)
+      expect(
+        yield* Effect.flip(
+          prompt.prompt({ sessionID: chat.id, parts: [{ type: "text", text: "ordinary prompt still rejected" }] }),
+        ),
+      ).toMatchObject({ _tag: "SessionArchivedError" })
+      const retry = {
+        sessionID: chat.id,
+        childSessionID: SessionID.make(part.metadata!.taskResult.childSessionID),
+        sourceMessageID: MessageID.make(part.metadata!.taskResult.sourceMessageID),
+        callID: part.metadata!.taskResult.callID as string | undefined,
+        state: "completed" as const,
+        text: part.text,
+      }
+      const duplicates = yield* Effect.all([prompt.taskResult(retry), prompt.taskResult(retry)], {
+        concurrency: "unbounded",
+      })
+      expect(duplicates).toEqual([
+        { messageID: result.info.id, accepted: false },
+        { messageID: result.info.id, accepted: false },
+      ])
+      expect(
+        (yield* sessions.messages({ sessionID: chat.id })).filter((message) => message.info.id === result.info.id),
+      ).toHaveLength(1)
+      expect(yield* llm.calls).toBe(3)
+    }),
+)
+
+backgroundDisk.instance(
+  "background result follows the parent's current settings without overwriting a mid-task switch",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(subagentModelCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "Changing parent",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      const release = defer<void>()
+      yield* llm.toolMatch((hit) => hit.body.model === "test-model", "task", {
+        description: "finish after settings switch",
+        prompt: "finish slowly",
+        subagent_type: "general",
+        model: "test/fast-model",
+        variant: "low",
+        background: true,
+      })
+      yield* llm.pushMatch(
+        (hit) => hit.body.model === "fast-model" && hit.body.reasoning_effort === "low",
+        reply().wait(release.promise).text("result after switch").stop().item(),
+      )
+      yield* llm.textMatch((hit) => hit.body.model === "test-model", "parent continues")
+      yield* llm.textMatch(
+        (hit) => hit.body.model === "fast-model" && hit.body.reasoning_effort === "medium",
+        "received using current settings",
+      )
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        variant: "xhigh",
+        parts: [{ type: "text", text: "start" }],
+      })
+      yield* awaitWithTimeout(llm.wait(3), "child did not start")
+      yield* sessions.setAgentModel({
+        sessionID: chat.id,
+        agent: "plan",
+        model: { providerID: ref.providerID, id: ModelV2.ID.make("fast-model"), variant: "medium" },
+        time: Date.now(),
+      })
+      yield* sessions.setPermissionMode({ sessionID: chat.id, permissionMode: "auto" })
+      const current = yield* sessions.get(chat.id)
+      release.resolve()
+      yield* awaitWithTimeout(llm.wait(4), "background result did not resume the parent")
+      yield* pollWithTimeout(
+        sessions
+          .messages({ sessionID: chat.id })
+          .pipe(
+            Effect.map((messages) =>
+              messages.find((message) =>
+                message.parts.some((part) => part.type === "text" && part.text === "received using current settings"),
+              ),
+            ),
+          ),
+        "parent continuation did not finish",
+      )
+      const after = yield* sessions.get(chat.id)
+      expect(after.agent).toBe(current.agent)
+      expect(after.model).toEqual(current.model)
+      expect(after.permission).toEqual(current.permission)
+      expect(after.permissionMode).toEqual(current.permissionMode)
+      const request = (yield* llm.inputs)[3]
+      expect(request.model).toBe("fast-model")
+      expect(request.reasoning_effort).toBe("medium")
+    }),
+)
+
+backgroundDisk.instance("concurrent background result deliveries save and wake exactly once", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const events = yield* EventV2Bridge.Service
+    const status = yield* SessionStatus.Service
+    const chat = yield* sessions.create({ title: "Concurrent deliveries" })
+    yield* llm.text("source assistant")
+    const source = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      parts: [{ type: "text", text: "start" }],
+    })
+    const child = yield* sessions.create({ parentID: chat.id })
+    const input = {
+      sessionID: chat.id,
+      childSessionID: child.id,
+      sourceMessageID: source.info.id,
+      callID: "concurrent-task",
+      state: "completed" as const,
+      text: "one durable result",
+    }
+    yield* llm.text("received once")
+    const receipts = yield* Effect.all([prompt.taskResult(input), prompt.taskResult(input)], {
+      concurrency: "unbounded",
+    })
+    expect(receipts.filter((receipt) => receipt.accepted)).toHaveLength(1)
+    expect(receipts[0].messageID).toBe(receipts[1].messageID)
+    yield* awaitWithTimeout(llm.wait(2), "result did not wake the parent")
+    yield* pollWithTimeout(
+      status.get(chat.id).pipe(Effect.map((value) => value.type === "idle")),
+      "parent did not finish",
+    )
+    const errors: NonNullable<SessionV1.Assistant["error"]>[] = []
+    const off = yield* events.listen((event) => {
+      if (event.type !== Session.Event.Error.type) return Effect.void
+      const data = event.data as typeof Session.Event.Error.data.Type
+      if (data.sessionID === chat.id && data.error) errors.push(data.error)
+      return Effect.void
+    })
+    const conflict = yield* prompt.taskResult({ ...input, text: "conflicting result" }).pipe(Effect.exit)
+    expect(Exit.isFailure(conflict)).toBe(true)
+    expect(errors).toContainEqual(
+      expect.objectContaining({ data: { message: expect.stringContaining("could not be saved") } }),
+    )
+    yield* off
+    expect(yield* prompt.taskResult(input)).toEqual({ messageID: receipts[0].messageID, accepted: false })
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    expect(messages.filter((message) => message.info.id === receipts[0].messageID)).toHaveLength(1)
+    expect(
+      messages.flatMap((message) => message.parts).filter((part) => part.type === "text" && part.text === input.text),
+    ).toHaveLength(1)
+    expect(yield* llm.calls).toBe(2)
+  }),
+)
+
+backgroundDisk.instance(
+  "archiving before a queued background drain starts keeps its receipt without provider work",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const state = yield* SessionRunState.Service
+      const status = yield* SessionStatus.Service
+      const chat = yield* sessions.create({ title: "Archive admission race" })
+      const source = yield* seed(chat.id, { finish: "stop" })
+      const child = yield* sessions.create({ parentID: chat.id })
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const stored = yield* MessageV2.get({ sessionID: chat.id, messageID: source.assistant.id })
+      const shell = yield* state
+        .startShell(
+          chat.id,
+          Effect.succeed(stored),
+          Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.as(stored)),
+        )
+        .pipe(Effect.forkChild)
+      yield* Deferred.await(started)
+      const receipt = yield* prompt.taskResult({
+        sessionID: chat.id,
+        childSessionID: child.id,
+        sourceMessageID: source.assistant.id,
+        state: "completed",
+        text: "saved before archive wins admission",
+      })
+      expect(receipt.accepted).toBe(true)
+      expect((yield* sessions.get(chat.id)).time.archived).toBeUndefined()
+      yield* sessions.setArchived({ sessionID: chat.id, time: Date.now() })
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(shell)
+      yield* pollWithTimeout(
+        status.get(chat.id).pipe(Effect.map((value) => value.type === "idle")),
+        "queued background drain did not settle",
+      )
+      const result = yield* MessageV2.get({ sessionID: chat.id, messageID: receipt.messageID })
+      expect(result.parts).toContainEqual(
+        expect.objectContaining({ type: "text", text: "saved before archive wins admission" }),
+      )
+      expect(yield* llm.calls).toBe(0)
+    }),
+)
+
+backgroundFailedProcessor.instance("background result remains saved when its continuation fails visibly", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const events = yield* EventV2Bridge.Service
+    const chat = yield* sessions.create({ title: "Failed continuation" })
+    const source = yield* seed(chat.id, { finish: "stop" })
+    const child = yield* sessions.create({ parentID: chat.id })
+    const errors: NonNullable<SessionV1.Assistant["error"]>[] = []
+    const off = yield* events.listen((event) => {
+      if (event.type !== Session.Event.Error.type) return Effect.void
+      const data = event.data as typeof Session.Event.Error.data.Type
+      if (data.sessionID === chat.id && data.error) errors.push(data.error)
+      return Effect.void
+    })
+    const input = {
+      sessionID: chat.id,
+      childSessionID: child.id,
+      sourceMessageID: source.assistant.id,
+      state: "completed" as const,
+      text: "result survives failed continuation",
+    }
+    const receipt = yield* prompt.taskResult(input)
+    expect(receipt.accepted).toBe(true)
+    yield* pollWithTimeout(
+      sessions
+        .messages({ sessionID: chat.id })
+        .pipe(
+          Effect.map((messages) => messages.find((message) => message.info.role === "assistant" && message.info.error)),
+        ),
+      "continuation failure was not persisted",
+    )
+    expect(errors).toContainEqual(expect.objectContaining({ data: { message: "Processor startup failed" } }))
+    expect((yield* MessageV2.get({ sessionID: chat.id, messageID: receipt.messageID })).parts).toContainEqual(
+      expect.objectContaining({ type: "text", text: input.text }),
+    )
+    expect(yield* prompt.taskResult(input)).toEqual({ messageID: receipt.messageID, accepted: false })
+    expect(
+      (yield* sessions.messages({ sessionID: chat.id })).filter((message) => message.info.id === receipt.messageID),
+    ).toHaveLength(1)
+    expect(yield* llm.calls).toBe(0)
+    yield* off
   }),
 )
 
