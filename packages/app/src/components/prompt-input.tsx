@@ -80,7 +80,7 @@ import {
   createCodexPromptController,
   PromptEngineSelect,
 } from "./codex-prompt-controls"
-import { CodexSessionControls, codexSessionInteractionBlocked } from "./codex-session-controls"
+import { CodexSessionControls, codexSessionInteractionBlocked, type CodexDelivery } from "./codex-session-controls"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -421,6 +421,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       setCursorPosition(editorRef, length)
       setStore("applyingHistory", false)
       queueScroll()
+    })
+  }
+
+  const canCopyCodexDeliveryText = () =>
+    prompt.current().every((part) => part.type === "text" && part.content.length === 0) &&
+    prompt.context.items().length === 0
+
+  const copyCodexDeliveryText = (delivery: CodexDelivery) => {
+    if (!canCopyCodexDeliveryText()) return
+    const text = delivery.input.prompt.text
+    const restored = [{ type: "text" as const, content: text, start: 0, end: text.length }]
+    prompt.set(restored, text.length)
+    requestAnimationFrame(() => {
+      editorRef.focus()
+      setCursorPosition(editorRef, text.length)
     })
   }
 
@@ -1496,7 +1511,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         newLayoutDesigns={false}
         t={(key) => language.t(key as Parameters<typeof language.t>[0])}
       />
-      <CodexSessionControls sessionID={props.controls.session.id} engine={engine()} />
+      <CodexSessionControls
+        sessionID={props.controls.session.id}
+        engine={engine()}
+        onCopyDeliveryText={copyCodexDeliveryText}
+        canCopyDeliveryText={canCopyCodexDeliveryText}
+      />
       <Show when={!codexBlocked()}>
         <>
           <DockShellForm

@@ -1018,6 +1018,103 @@ describe("CodexHost native process boundaries", () => {
       expect((await rpc(home)).some((call) => call.method === "turn/interrupt")).toBe(true)
     }))
 
+  test("ACK-only steers survive interruption as unconfirmed receipts without replay", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      for (const requestID of ["first", "missing-one", "missing-two"])
+        await run(host.submit(id, { requestID, input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "missing-two")),
+        (receipt) => receipt.state === "accepted",
+      )
+      await run(host.interrupt(id))
+      const config = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8"))
+      const turn = { ...config.thread.turns[0], status: "interrupted", completedAt: 2, durationMs: 1000 }
+      await configure(home, { thread: { ...thread(), turns: [turn] } })
+      await command(home, [{ method: "turn/completed", params: { threadId: "native-thread", turn } }])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => value.descriptor.runtimeStatus === "idle",
+      )
+      for (const requestID of ["missing-one", "missing-two"]) {
+        const receipt = await run(host.delivery(id, requestID))
+        expect(receipt.state).toBe("accepted")
+        expect(receipt.nativeTurnID).toBe("turn-1")
+        expect(receipt.nativeItemID).toBeUndefined()
+        expect(receipt.input.prompt.text).toBe("hello")
+      }
+      expect((await run(sessions.get(id))).binding.queuePaused).toBe(true)
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+      expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(2)
+    }))
+
+  test("native user item events before the steer ACK confirm once without losing evidence", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      await run(host.submit(id, { requestID: "first", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "first")),
+        (receipt) => receipt.state === "accepted",
+      )
+      await configure(home, { steerItemBeforeAck: true })
+      await run(host.submit(id, { requestID: "confirmed", input: prompt, delivery: "steer" }))
+      const receipt = await until(
+        () => run(host.delivery(id, "confirmed")),
+        (receipt) => receipt.nativeItemID === "steer-confirmed",
+      )
+      expect(receipt.state).toBe("accepted")
+      expect(receipt.nativeTurnID).toBe("turn-1")
+      const config = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8"))
+      const item = config.thread.turns[0].items.at(-1)
+      await command(home, [{ method: "item/completed", params: { threadId: "native-thread", turnId: "turn-1", item } }])
+      await run(host.interrupt(id))
+      expect((await run(host.delivery(id, "confirmed"))).nativeItemID).toBe("steer-confirmed")
+      expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(1)
+    }))
+
+  test("accepted receipts require one exact client ID match when native history is reread", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(host.snapshot(id))
+      for (const requestID of ["first", "exact", "ambiguous", "absent"])
+        await run(host.submit(id, { requestID, input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "absent")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const config = JSON.parse(await readFile(path.join(home, "fixture.json"), "utf8"))
+      for (const [clientId, itemID] of [
+        ["exact", "exact-item"],
+        ["ambiguous", "one"],
+        ["ambiguous", "two"],
+        ["unrelated", "other"],
+      ])
+        config.thread.turns[0].items.push({
+          type: "userMessage",
+          id: itemID,
+          clientId,
+          content: [{ type: "text", text: "hello", text_elements: [] }],
+        })
+      await configure(home, config)
+      await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
+      await until(
+        () => run(host.describe([id])),
+        (items) => items[0]?.runtimeStatus === "disconnected",
+      )
+      await command(home, [])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) =>
+          value.deliveries.some((receipt) => receipt.requestID === "exact" && receipt.nativeItemID === "exact-item"),
+      )
+      expect((await run(host.delivery(id, "exact"))).nativeItemID).toBe("exact-item")
+      expect((await run(host.delivery(id, "ambiguous"))).nativeItemID).toBeUndefined()
+      expect((await run(host.delivery(id, "absent"))).nativeItemID).toBeUndefined()
+      expect((await rpc(home)).filter((call) => call.method === "turn/steer")).toHaveLength(3)
+    }))
+
   test("disconnect reconciles unknown delivery only from exact client ID without resending", () =>
     harness(async ({ host, sessions, home }) => {
       await configure(home, { disconnectTurn: true })

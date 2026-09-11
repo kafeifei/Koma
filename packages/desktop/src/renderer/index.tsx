@@ -252,7 +252,6 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     recordFatalRendererError: (error) => window.api.recordFatalRendererError(error),
 
     restart: async () => {
-      await window.api.killSidecar().catch(() => undefined)
       window.api.relaunch()
     },
 

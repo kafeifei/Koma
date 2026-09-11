@@ -221,6 +221,67 @@ describe("external session controller", () => {
     expect(controller.data.snapshots.ses_codex?.deliveries).toEqual([])
   })
 
+  test("refreshes durable receipts when a newer SSE revision overtakes the submit ACK", async () => {
+    const submitted = Promise.withResolvers<{
+      descriptor: LabDescribeOutput[number]
+      delivery: ReturnType<typeof delivery>
+    }>()
+    let snapshots = 0
+    const { controller } = setup({
+      submit: async () => submitted.promise,
+      snapshot: async () => {
+        snapshots++
+        return snapshots === 1 ? snapshot(1) : { ...snapshot(2), deliveries: [delivery()] }
+      },
+    })
+    await controller.load("ses_codex", { force: true })
+    const submitting = controller.actions.submit({
+      sessionID: "ses_codex",
+      requestID: "request",
+      input: delivery().input,
+      delivery: "steer",
+    })
+    controller.apply({
+      type: "session.external.changed",
+      data: { sessionID: "ses_codex", epoch: "runtime-a", revision: 2, descriptor: descriptor(2) },
+    })
+    expect(snapshots).toBe(1)
+    submitted.resolve({ descriptor: descriptor(1), delivery: delivery() })
+    expect((await submitting).delivery.state).toBe("accepted")
+    for (let index = 0; index < 5; index++) await Promise.resolve()
+
+    expect(snapshots).toBe(2)
+    expect(controller.data.descriptors.ses_codex?.revision).toBe(2)
+    expect(controller.data.snapshots.ses_codex?.deliveries).toEqual([delivery()])
+    expect(controller.data.snapshots.ses_codex?.deliveries[0]?.nativeItemID).toBeUndefined()
+  })
+
+  test("refreshes unconfirmed receipts after interruption without submitting them again", async () => {
+    let snapshots = 0
+    let submissions = 0
+    const stopped = {
+      ...snapshot(3),
+      descriptor: { ...descriptor(3), runtimeStatus: "idle" as const, queuePaused: true },
+      deliveries: [delivery()],
+    }
+    const { controller } = setup({
+      snapshot: async () => (++snapshots === 1 ? snapshot(1) : stopped),
+      interrupt: async () => ({ ...descriptor(2), runtimeStatus: "interrupting", queuePaused: true }),
+      submit: async () => {
+        submissions++
+        return { descriptor: descriptor(4), delivery: delivery() }
+      },
+    })
+    await controller.load("ses_codex", { force: true })
+    await controller.actions.interrupt("ses_codex")
+    for (let index = 0; index < 5; index++) await Promise.resolve()
+
+    expect(snapshots).toBe(2)
+    expect(controller.data.snapshots.ses_codex?.deliveries).toEqual([delivery()])
+    expect(controller.data.descriptors.ses_codex).toMatchObject({ runtimeStatus: "idle", queuePaused: true })
+    expect(submissions).toBe(0)
+  })
+
   test("falls back to ordinary sessions only after a legacy 404 probe", async () => {
     const { controller } = setup({
       describe: async () => {

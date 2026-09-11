@@ -72,6 +72,7 @@ export interface Interface {
   readonly usage: (
     directory: string,
   ) => Effect.Effect<{ directory: string; ownerIDs: string[]; blocked: boolean }, LifecycleFailedError>
+  readonly hasActiveLease: Effect.Effect<boolean>
   readonly leaseDirectory: (directory: string) => Effect.Effect<string, LifecycleFailedError>
   readonly register: (input: RegisterInput) => Effect.Effect<void, LifecycleFailedError>
   readonly claim: (input: ClaimInput) => Effect.Effect<boolean, LifecycleFailedError>
@@ -189,6 +190,10 @@ const layer = Layer.effect(
         blocked: blocked(directory),
       }
     })
+
+    const hasActiveLease: Interface["hasActiveLease"] = Effect.sync(() =>
+      [...gates.values()].some((current) => [...current.leases.values()].some((count) => count > 0)),
+    )
 
     const get = Effect.fn("WorktreeLifecycle.get")(function* (sessionID: string) {
       const owner = (yield* records()).find((owner) => owner.sessionID === sessionID)
@@ -922,6 +927,7 @@ const layer = Layer.effect(
     return Service.of({
       list,
       usage,
+      hasActiveLease,
       leaseDirectory,
       register,
       claim,

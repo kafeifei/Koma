@@ -76,10 +76,23 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
     if (!sessionID) return false
     return codexSessionInteractionBlocked(serverSync().external.data.snapshots[sessionID])
   })
+  const prompt = usePrompt()
+  const canCopyCodexDeliveryText = () =>
+    prompt.current().every((part) => part.type === "text" && part.content.length === 0) &&
+    prompt.context.items().length === 0
 
   return (
     <div class="flex flex-col gap-3">
-      <CodexSessionControls sessionID={props.controller.sessionID()} engine={props.controller.engine()} />
+      <CodexSessionControls
+        sessionID={props.controller.sessionID()}
+        engine={props.controller.engine()}
+        onCopyDeliveryText={(delivery) => {
+          if (!canCopyCodexDeliveryText()) return
+          props.controller.onInput(delivery.input.prompt.text)
+          props.controller.restoreFocus()
+        }}
+        canCopyDeliveryText={canCopyCodexDeliveryText}
+      />
       <Show when={!codexBlocked()}>
         <PromptInputV2
           controller={props.controller}

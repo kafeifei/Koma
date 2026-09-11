@@ -222,6 +222,16 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.shutdown.title": "Quit OpenCode Lab?",
+  "desktop.shutdown.active.message": "Tasks are still running.",
+  "desktop.shutdown.active.detail":
+    "Quitting stops tasks in all windows and web or terminal clients connected to this app's local backend.",
+  "desktop.shutdown.unknown.message": "Task status could not be checked.",
+  "desktop.shutdown.unknown.detail":
+    "Quitting may stop tasks in all windows and web or terminal clients connected to this app's local backend.",
+  "desktop.shutdown.cancel": "Cancel",
+  "desktop.shutdown.stopAndQuit": "Stop tasks and quit",
+  "desktop.shutdown.quitAnyway": "Quit anyway",
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "File",
   "desktop.menu.edit": "Edit",

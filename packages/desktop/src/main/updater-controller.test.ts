@@ -29,14 +29,35 @@ function setup(input?: { currentVersion?: string; ready?: UpdaterReadyRecord }) 
         ready = undefined
       },
     },
-    stop: async () => {
+    shutdown: async (quit) => {
       calls.push("stop")
+      quit()
     },
   })
   return { controller, calls, getReady: () => ready }
 }
 
 describe("updater controller", () => {
+  test("cancelled shutdown leaves the downloaded update ready and never installs", async () => {
+    let installed = false
+    const controller = createUpdaterController({
+      enabled: true,
+      currentVersion: "1.0.0",
+      backend: {
+        checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: "2.0.0" } }),
+        downloadUpdate: async () => undefined,
+        quitAndInstall: () => {
+          installed = true
+        },
+      },
+      persistence: { get: () => undefined, set() {}, clear() {} },
+      shutdown: async () => false,
+    })
+    await controller.start()
+    await controller.install()
+    expect(installed).toBe(false)
+    expect(controller.getState()).toEqual({ status: "ready", version: "2.0.0" })
+  })
   test("checks, downloads, persists, and publishes one authoritative ready state", async () => {
     const app = setup()
     const states: ReturnType<typeof app.controller.getState>[] = []
@@ -99,7 +120,7 @@ describe("updater controller", () => {
         quitAndInstall() {},
       },
       persistence: { get: () => undefined, set() {}, clear() {} },
-      stop: async () => {
+      shutdown: async () => {
         throw new Error("stop failed")
       },
     })

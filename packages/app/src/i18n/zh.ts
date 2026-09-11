@@ -3,6 +3,14 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "desktop.shutdown.title": "退出 OpenCode Lab？",
+  "desktop.shutdown.active.message": "仍有任务正在运行。",
+  "desktop.shutdown.active.detail": "退出将停止所有窗口，以及连接到此应用本地后端的网页和终端客户端中的任务。",
+  "desktop.shutdown.unknown.message": "无法检查任务状态。",
+  "desktop.shutdown.unknown.detail": "退出可能停止所有窗口，以及连接到此应用本地后端的网页和终端客户端中的任务。",
+  "desktop.shutdown.cancel": "取消",
+  "desktop.shutdown.stopAndQuit": "停止任务并退出",
+  "desktop.shutdown.quitAnyway": "仍然退出",
   "settings.experiments.title": "实验功能",
   "settings.experiments.scope":
     "作用于此 App 的本地 Lab 后端及连接它的所有客户端。更改将在完整退出并重新打开 App 后生效。退出也会停止该后端正在执行的任务，包括 CLI 任务。",
@@ -532,6 +540,9 @@ export const dict = {
   "codex.delivery.withdrawn": "已撤回",
   "codex.delivery.unknownHint": "不会自动重新发送此输入。",
   "codex.delivery.check": "检查状态",
+  "codex.delivery.unconfirmedActiveHint": "等待确认这条输入已进入会话。",
+  "codex.delivery.unconfirmedHint": "尚未确认送达。原始输入已保存，不会自动重发。",
+  "codex.delivery.copyText": "复制文本到输入框",
   "codex.interaction.title": "Codex 需要你的输入",
   "codex.interaction.reply": "回复",
   "codex.interaction.choice.allow": "允许一次",
