@@ -235,9 +235,11 @@ const layer = Layer.effect(
         ? disabled
         : !enabled
           ? disabled
-          : entry.native?.canAcceptDirectInput === false
-            ? { ...supported, prompt: false, steer: false, queue: "unavailable" }
-            : supported,
+          : unstartedBinding(entry.record.binding)
+            ? { ...supported, prompt: false, steer: false }
+            : entry.native?.canAcceptDirectInput === false
+              ? { ...supported, prompt: false, steer: false, queue: "unavailable" }
+              : supported,
       queuePaused: entry.record.binding.queuePaused,
       settings: effectiveSettings(entry),
       pendingSettings: pendingSettings(entry, effectiveSettings(entry)),
@@ -297,7 +299,9 @@ const layer = Layer.effect(
             ? "resolving"
             : record.binding.state === "unknown"
               ? "bindingUnavailable"
-              : "creating",
+              : unstartedBinding(record.binding)
+                ? "idle"
+                : "creating",
         revision: 0,
         view: mutableView(emptyView()),
         items: new Map(),
@@ -2234,6 +2238,10 @@ function interactionStatus(entry: Entry): RuntimeStatus {
 
 function unconfirmedExecution(entry: Entry) {
   return entry.record.binding.executionPending && !entry.executionObserved
+}
+
+function unstartedBinding(binding: SessionExternal.Binding) {
+  return binding.state === "pending" && !binding.executionPending
 }
 
 function runningTool(item: unknown): item is v2.ThreadItem & { status: "inProgress" } {

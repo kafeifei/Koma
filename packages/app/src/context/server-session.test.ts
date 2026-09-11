@@ -8,6 +8,34 @@ import { projectExternalMessages } from "@/utils/session-external"
 
 type MessageApi = ServerApi["message"]
 
+test("native status recovery does not claim execution while confirmed active states remain stoppable", () => {
+  const store = createServerSession(messageClient(response()))
+  const descriptor = {
+    sessionID: "child",
+    engine: "codex" as const,
+    epoch: "startup",
+    revision: 0,
+    capabilities: {
+      prompt: true,
+      steer: true,
+      queue: "host" as const,
+      compact: false,
+      images: true,
+      permissions: true,
+    },
+    queuePaused: false,
+    settings: {},
+  }
+  for (const runtimeStatus of ["resolving", "idle"] as const) {
+    store.external.descriptor({ ...descriptor, runtimeStatus })
+    expect(store.data.session_working("child")).toBe(false)
+  }
+  for (const runtimeStatus of ["creating", "active", "waitingApproval", "waitingInput", "interrupting"] as const) {
+    store.external.descriptor({ ...descriptor, runtimeStatus })
+    expect(store.data.session_working("child")).toBe(true)
+  }
+})
+
 test("archiving a running session keeps its status until the backend confirms it stopped", async () => {
   const store = createServerSession(messageClient(response()))
   const info = session("child")

@@ -889,6 +889,62 @@ describe("CodexHost native process boundaries", () => {
       expect((await rpc(home)).filter((call) => call.method === "thread/start")).toHaveLength(1)
     }))
 
+  test("a stopped never-bound session starts idle and waits for explicit queue resume", () =>
+    harness(async ({ host, sessions, home, scope }) => {
+      const created = await run(
+        sessions.create({
+          runtimeScope: scope,
+          requestID: "stopped",
+          engine: "codex",
+          location: location(),
+          payload: prompt,
+          delivery: "steer",
+        }),
+      )
+      await run(
+        sessions.admit({
+          sessionID: created.session.id,
+          requestID: "retained",
+          payload: prompt,
+          delivery: "queue",
+        }),
+      )
+      await run(sessions.withdraw({ sessionID: created.session.id, requestID: "stopped" }))
+      await run(sessions.pause(created.session.id))
+
+      const record = await run(sessions.get(created.session.id))
+      expect(record.binding).toMatchObject({
+        state: "pending",
+        queuePaused: true,
+        executionPending: false,
+      })
+      expect(record.binding.nativeThreadID).toBeUndefined()
+      const [descriptor] = await run(host.describe([created.session.id]))
+      expect(descriptor?.runtimeStatus).toBe("idle")
+      expect(descriptor?.capabilities).toMatchObject({ prompt: false, steer: false, queue: "host" })
+      expect(descriptor?.queuePaused).toBe(true)
+      expect(await rpc(home)).toHaveLength(0)
+
+      await expect(
+        run(host.submit(created.session.id, { requestID: "new", input: prompt, delivery: "steer" })),
+      ).rejects.toThrow("Native thread binding is not ready")
+      expect((await rpc(home)).some((call) => ["thread/start", "turn/start"].includes(call.method ?? ""))).toBe(false)
+
+      await run(
+        host.queue(created.session.id, {
+          action: "resume",
+          requestID: "retained",
+          revision: descriptor!.revision,
+        }),
+      )
+      await until(
+        () => run(host.delivery(created.session.id, "retained")),
+        (delivery) => delivery.state === "accepted",
+      )
+      expect((await rpc(home)).filter((call) => call.method === "thread/start")).toHaveLength(1)
+      expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
+    }))
+
   test("bound session lease refusal leaves admitted delivery pending", () =>
     harness(async ({ host, sessions, home, scope, gate }) => {
       const id = await seed(sessions, scope)
