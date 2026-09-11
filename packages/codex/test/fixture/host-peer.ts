@@ -32,6 +32,9 @@ type Config = {
   reflectSettings?: boolean
   turnRequests?: Array<{ id: string; method: string; params: Record<string, unknown> }>
   waitForApprovals?: boolean
+  deletedThreads?: string[]
+  deleteDisconnectOnce?: boolean
+  deleteError?: { code: number; message: string }
 }
 const read = () => JSON.parse(readFileSync(configPath, "utf8")) as Config
 const save = (value: Config) => writeFileSync(configPath, JSON.stringify(value))
@@ -115,6 +118,15 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     return reply({ type: "chatgpt", loginId: "login-1", authUrl: "https://example.invalid/login" })
   if (message.method === "account/login/cancel") return reply({ status: "canceled" })
   const config = read()
+  if (
+    typeof message.params?.threadId === "string" &&
+    config.deletedThreads?.includes(message.params.threadId) &&
+    message.method === "thread/read"
+  )
+    return send({
+      id: message.id,
+      error: { code: -32600, message: `no rollout found for thread id ${message.params.threadId}` },
+    })
   if (typeof message.params?.threadId === "string" && config.threads?.[message.params.threadId])
     config.thread = config.threads[message.params.threadId]!
   if (message.method === "thread/start") {
@@ -145,6 +157,18 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     return reply(settings(config.thread))
   }
   if (message.method === "thread/unsubscribe") return reply({ status: "unsubscribed" })
+  if (message.method === "thread/delete") {
+    const threadID = String(message.params?.threadId)
+    if (config.deleteError) return send({ id: message.id, error: config.deleteError })
+    config.deletedThreads = [...new Set([...(config.deletedThreads ?? []), threadID])]
+    const disconnect = config.deleteDisconnectOnce
+    config.deleteDisconnectOnce = false
+    save(config)
+    send({ method: "thread/deleted", params: { threadId: threadID } })
+    send({ method: "thread/status/changed", params: { threadId: threadID, status: { type: "notLoaded" } } })
+    if (disconnect) return process.exit(17)
+    return reply({})
+  }
   if (message.method === "thread/resume") {
     if (config.reflectProvider) {
       config.selectedModel = String(message.params?.model ?? config.selectedModel ?? "native-model")

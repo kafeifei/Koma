@@ -133,6 +133,9 @@ export default {
           \`generation\` text,
           \`queue_paused\` integer DEFAULT false NOT NULL,
           \`execution_pending\` integer DEFAULT false NOT NULL,
+          \`deletion_state\` text,
+          \`deletion_generation\` text,
+          \`deletion_error\` text,
           \`settings\` text DEFAULT '{}' NOT NULL,
           \`projection_version\` integer DEFAULT 1 NOT NULL,
           \`time_updated\` integer NOT NULL,
@@ -159,6 +162,14 @@ export default {
           \`time_updated\` integer NOT NULL,
           CONSTRAINT \`session_external_delivery_pk\` PRIMARY KEY(\`session_id\`, \`request_id\`),
           CONSTRAINT \`fk_session_external_delivery_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`session_external_tombstone\` (
+          \`runtime_scope\` text NOT NULL,
+          \`native_thread_id\` text NOT NULL,
+          \`time_confirmed\` integer NOT NULL,
+          CONSTRAINT \`session_external_tombstone_pk\` PRIMARY KEY(\`runtime_scope\`, \`native_thread_id\`)
         );
       `)
       yield* tx.run(`

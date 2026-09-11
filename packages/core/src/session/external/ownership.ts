@@ -55,14 +55,20 @@ const layer = Layer.effect(
         }),
       isIdle: (sessionID) =>
         Effect.gen(function* () {
-          const state = idle.get(sessionID)
-          if (state === undefined || generations.get(state.runtimeScope) !== state.generation) return false
           const binding = yield* database.db
-            .select({ pending: SessionExternalBindingTable.execution_pending })
+            .select({
+              pending: SessionExternalBindingTable.execution_pending,
+              deletionState: SessionExternalBindingTable.deletion_state,
+            })
             .from(SessionExternalBindingTable)
             .where(eq(SessionExternalBindingTable.session_id, sessionID))
             .get()
             .pipe(Effect.orDie)
+          // A durable successful native deletion receipt proves this one native
+          // owner cannot still execute, including after the Host process restarts.
+          if (binding?.deletionState === "confirmed") return true
+          const state = idle.get(sessionID)
+          if (state === undefined || generations.get(state.runtimeScope) !== state.generation) return false
           return binding?.pending !== true
         }),
     })

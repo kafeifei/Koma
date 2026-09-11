@@ -286,6 +286,10 @@ export function MessageTimeline(props: {
   const sessionArchive = useSessionArchive()
   const language = useLanguage()
   const { params, sessionKey } = useSessionKey()
+  const canDeleteSession = (sessionID: string) =>
+    sessionArchive.canDelete() &&
+    (!serverSync().external.isExternal(sessionID) ||
+      serverSync().external.data.descriptors[sessionID]?.capabilities.delete === true)
   const ownerSessionKey = sessionKey()
   const cached = timelineCache.get(ownerSessionKey)
   const initialMeasurements = cached?.measurements
@@ -842,7 +846,7 @@ export function MessageTimeline(props: {
   }
 
   const deleteSession = async (sessionID: string) => {
-    if (serverSync().external.isExternal(sessionID)) return
+    if (!canDeleteSession(sessionID)) return false
     const session = sync().session.get(sessionID)
     if (!session) return false
 
@@ -919,7 +923,7 @@ export function MessageTimeline(props: {
       () => sessionTitle(sync().session.get(props.sessionID)?.title) ?? language.t("command.session.new"),
     )
     const handleDelete = async () => {
-      await deleteSession(props.sessionID)
+      if (!(await deleteSession(props.sessionID))) return
       dialog.close()
     }
 
@@ -1601,10 +1605,10 @@ export function MessageTimeline(props: {
                                   >
                                     <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                                   </DropdownMenu.Item>
-                                  <Show when={!external()}>
+                                  <Show when={!serverSync().external.isExternal(id) || canDeleteSession(id)}>
                                     <DropdownMenu.Separator />
                                     <DropdownMenu.Item
-                                      disabled={!sessionArchive.canDelete()}
+                                      disabled={!canDeleteSession(id)}
                                       onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
                                     >
                                       <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
@@ -1681,10 +1685,10 @@ export function MessageTimeline(props: {
                                 >
                                   {language.t("common.archive")}
                                 </MenuV2.Item>
-                                <Show when={!external()}>
+                                <Show when={!serverSync().external.isExternal(id) || canDeleteSession(id)}>
                                   <MenuV2.Separator />
                                   <MenuV2.Item
-                                    disabled={!sessionArchive.canDelete()}
+                                    disabled={!canDeleteSession(id)}
                                     onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
                                   >
                                     {language.t("common.delete")}...

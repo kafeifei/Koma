@@ -13,6 +13,8 @@ export const node = makeGlobalNode({
         claim: (input) => lifecycle.claim(input),
         acquire: (input) => lifecycle.acquire(input),
         release: (input) => lifecycle.release(input),
+        prepareDelete: (sessionID) => lifecycle.prepareDelete(sessionID),
+        finalizeDelete: (sessionID) => lifecycle.finalizeDelete(sessionID),
       })
     }),
   ),

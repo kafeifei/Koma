@@ -43,5 +43,7 @@ export const migrations = (
     import("./migration/20260906081302_session-permission-mode"),
     import("./migration/20260906155326_session-external"),
     import("./migration/20260906175458_external-execution-pending"),
+    import("./migration/20260911165051_external-deletion-state"),
+    import("./migration/20260911172111_external-tombstone"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

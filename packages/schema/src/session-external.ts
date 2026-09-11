@@ -32,6 +32,7 @@ export const Capabilities = Schema.Struct({
   compact: Schema.Boolean,
   images: Schema.Boolean,
   permissions: Schema.Boolean,
+  delete: Schema.Boolean.pipe(optional),
 }).annotate({ identifier: "SessionExternal.Capabilities" })
 export interface Capabilities extends Schema.Schema.Type<typeof Capabilities> {}
 

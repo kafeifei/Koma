@@ -369,6 +369,77 @@ describe("WorktreeLifecycle", () => {
     }),
   )
 
+  it.live("archives a registered checkout after its branch is renamed", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const storage = yield* Storage.Service
+      const renamed = `archive-retry-${crypto.randomUUID().slice(0, 8)}`
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "draft.txt"), "renamed branch state"))
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* git(input.directory, ["branch", "-m", renamed])
+      yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+        ...(yield* input.lifecycle.get(input.sessionID)),
+        lastError: `worktree branch changed from ${input.branch} to ${renamed}`,
+      })
+
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true })
+
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+        branch: renamed,
+        branchOwned: false,
+        intent: "archive",
+        phase: "removed",
+      })
+    }),
+  )
+
+  it.live("archives an unchanged captured snapshot after its branch is renamed", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      const archive = yield* WorktreeArchive.Service
+      const storage = yield* Storage.Service
+      const renamed = `captured-rename-${crypto.randomUUID().slice(0, 8)}`
+      yield* Effect.promise(() => Bun.write(path.join(input.directory, "draft.txt"), "captured state"))
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      const saved = yield* archive.capture({
+        directory: input.directory,
+        branch: input.branch,
+        sessionID: input.sessionID,
+      })
+      yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+        ...(yield* input.lifecycle.get(input.sessionID)),
+        phase: "captured",
+        oid: saved.oid,
+      })
+      yield* git(input.directory, ["branch", "-m", renamed])
+
+      expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true })
+
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
+      expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+        branch: renamed,
+        branchOwned: false,
+        intent: "archive",
+        phase: "removed",
+        oid: saved.oid,
+      })
+    }),
+  )
+
   it.live("recreates a missing owned branch at the archived base before restoring state", () =>
     Effect.gen(function* () {
       const input = yield* fixture()
@@ -815,11 +886,12 @@ it.live("allows explicit work with historical sessions while protecting parent a
   }),
 )
 
-it.live("preserves files changed externally after a persisted archive capture", () =>
+it.live("preserves files changed after a persisted capture and branch rename", () =>
   Effect.gen(function* () {
     const input = yield* fixture()
     const archive = yield* WorktreeArchive.Service
     const storage = yield* Storage.Service
+    const renamed = `changed-capture-${crypto.randomUUID().slice(0, 8)}`
     yield* input.lifecycle.prepareArchive(input.sessionID)
     yield* input.db
       .update(SessionTable)
@@ -838,6 +910,7 @@ it.live("preserves files changed externally after a persisted archive capture", 
       phase: "captured",
       oid: saved.oid,
     })
+    yield* git(input.directory, ["branch", "-m", renamed])
     yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "external writer after capture"))
     const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
     expect(failed.reason).toBe("git")
@@ -845,6 +918,13 @@ it.live("preserves files changed externally after a persisted archive capture", 
       "external writer after capture",
     )
     expect(yield* git(input.root, ["rev-parse", `refs/opencode/worktree-archive/${input.sessionID}`])).toBe(saved.oid)
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+      branch: renamed,
+      branchOwned: false,
+      intent: "archive",
+      phase: "captured",
+      oid: saved.oid,
+    })
 
     // Reproduce a crash after the private ref was cleared but before the lifecycle record was rewritten.
     yield* git(input.root, ["update-ref", "-d", `refs/opencode/worktree-archive/${input.sessionID}`, saved.oid])
@@ -1013,6 +1093,7 @@ it.live("cancels a failed archive while preserving a locked checkout", () =>
 it.live("deletes a renamed checkout after its archive failed", () =>
   Effect.gen(function* () {
     const input = yield* fixture()
+    const storage = yield* Storage.Service
     const renamed = `archive-delete-${crypto.randomUUID().slice(0, 8)}`
     yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "delete after rename"))
     yield* input.lifecycle.prepareArchive(input.sessionID)
@@ -1023,12 +1104,15 @@ it.live("deletes a renamed checkout after its archive failed", () =>
       .run()
       .pipe(Effect.orDie)
     yield* git(input.directory, ["branch", "-m", renamed])
-    const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
-    expect(failed.reason).toBe("git")
+    yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+      ...(yield* input.lifecycle.get(input.sessionID)),
+      lastError: `worktree branch changed from ${input.branch} to ${renamed}`,
+    })
     expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
       branch: input.branch,
       intent: "archive",
       phase: "resident",
+      lastError: `worktree branch changed from ${input.branch} to ${renamed}`,
     })
 
     expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
@@ -1050,7 +1134,7 @@ it.live("deletes a renamed checkout after its archive failed", () =>
   }),
 )
 
-it.live("preserves an existing branch selected before a failed archive is deleted", () =>
+it.live("archives an existing user branch and preserves both branches on delete", () =>
   Effect.gen(function* () {
     const input = yield* fixture()
     const existing = `user-branch-${crypto.randomUUID().slice(0, 8)}`
@@ -1064,8 +1148,14 @@ it.live("preserves an existing branch selected before a failed archive is delete
       .pipe(Effect.orDie)
     yield* git(input.directory, ["switch", existing])
     yield* Effect.promise(() => fs.writeFile(`${input.directory}/tracked.txt`, "user branch state"))
-    const failed = yield* input.lifecycle.continueArchive(input.sessionID).pipe(Effect.flip)
-    expect(failed.reason).toBe("git")
+    expect(yield* input.lifecycle.continueArchive(input.sessionID)).toEqual({ managed: true })
+    expect(yield* exists(input.directory)).toBe(false)
+    expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+      branch: existing,
+      branchOwned: false,
+      intent: "archive",
+      phase: "removed",
+    })
 
     expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
     expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({

@@ -475,6 +475,9 @@ function TaskSession(props: {
   }
   const title = () => sessionTitle(props.session.title) || language.t("workspace.newTask")
   const external = () => props.session.engine === "codex" || props.context.sync.external.isExternal(props.session.id)
+  const canDelete = () =>
+    capabilities()?.delete === true &&
+    (!external() || props.context.sync.external.data.descriptors[props.session.id]?.capabilities.delete === true)
   const tab = () => ({ type: "session" as const, server: props.server, sessionId: props.session.id })
   const lifecycle = async (operation: TaskLifecycleOperation) => {
     if (mutation.pending) return
@@ -507,7 +510,7 @@ function TaskSession(props: {
       }}
       onDelete={() => lifecycle("delete")}
       canMutate={!!capabilities()?.archive && !!capabilities()?.restore}
-      canDelete={!!capabilities()?.delete && !external()}
+      canDelete={canDelete()}
       onRetryCapabilities={() => void capabilitiesAction.refetch()}
       onPin={() => props.context.tasks.togglePin(props.session.id)}
       onRename={async (title) => {

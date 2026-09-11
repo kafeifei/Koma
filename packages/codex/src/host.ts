@@ -74,6 +74,7 @@ export interface Interface {
   readonly interrupt: (sessionID: SessionSchema.ID) => Result<Descriptor>
   readonly reply: (sessionID: SessionSchema.ID, interactionID: string, input: Reply) => Result<Snapshot>
   readonly settings: (sessionID: SessionSchema.ID, input: Settings) => Result<Descriptor>
+  readonly remove: (sessionID: SessionSchema.ID) => Result<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/CodexHost") {}
@@ -85,6 +86,7 @@ const disabled: Capabilities = {
   compact: false,
   images: false,
   permissions: false,
+  delete: false,
 }
 const supported: Capabilities = {
   prompt: true,
@@ -93,7 +95,9 @@ const supported: Capabilities = {
   compact: false,
   images: true,
   permissions: true,
+  delete: true,
 }
+const blocked: Capabilities = { ...disabled, delete: true }
 const decodeInput = Schema.decodeUnknownSync(Input)
 const decodeSettings = (value: unknown): Settings => {
   const settings = Schema.decodeUnknownSync(Settings)(value)
@@ -129,6 +133,7 @@ type Entry = {
   refreshTimer?: ReturnType<typeof setTimeout>
   refreshPending: boolean
   refreshing?: Promise<void>
+  deletionChecks: number
   idleConfirmed: boolean
   appliedSettings: Settings
   nativeProvider?: string
@@ -231,20 +236,22 @@ const layer = Layer.effect(
       revision: entry.revision,
       runtimeStatus: interactionStatus(entry),
       bindingState: entry.record.binding.state,
-      capabilities: unconfirmedExecution(entry)
+      capabilities: !enabled
         ? disabled
-        : !enabled
-          ? disabled
-          : unstartedBinding(entry.record.binding)
-            ? { ...supported, prompt: false, steer: false }
-            : entry.native?.canAcceptDirectInput === false
-              ? { ...supported, prompt: false, steer: false, queue: "unavailable" }
-              : supported,
+        : entry.record.binding.deletionState
+          ? blocked
+          : unconfirmedExecution(entry)
+            ? blocked
+            : unstartedBinding(entry.record.binding)
+              ? { ...supported, prompt: false, steer: false }
+              : entry.native?.canAcceptDirectInput === false
+                ? { ...supported, prompt: false, steer: false, queue: "unavailable" }
+                : supported,
       queuePaused: entry.record.binding.queuePaused,
       settings: effectiveSettings(entry),
       pendingSettings: pendingSettings(entry, effectiveSettings(entry)),
       inputWaitReason: entry.inputWaitReason,
-      error: entry.error,
+      error: entry.error ?? entry.record.binding.deletionError,
     })
 
     function effectiveSettings(entry: Entry): Settings {
@@ -284,6 +291,16 @@ const layer = Layer.effect(
       return operation
     }
 
+    function serializeFamily<A>(family: Entry[], fn: () => Promise<A>) {
+      const acquire = (index: number): Promise<A> => {
+        // SessionExternal.family returns ancestry preorder. Match the existing
+        // parent -> child notification nesting so overlapping work cannot cycle.
+        const entry = family[index]
+        return entry ? serialize(entry, () => acquire(index + 1)) : fn()
+      }
+      return acquire(0)
+    }
+
     async function getEntry(sessionID: SessionSchema.ID) {
       const cached = entries.get(sessionID)
       if (cached) return cached
@@ -310,6 +327,7 @@ const layer = Layer.effect(
         coveredSequence: 0,
         dirty: true,
         refreshPending: false,
+        deletionChecks: 0,
         idleConfirmed: false,
         activeTools: new Map(),
         executionObserved: !record.binding.executionPending,
@@ -384,6 +402,16 @@ const layer = Layer.effect(
         }
         entry.idleConfirmed = true
         if (!entry.lease) return
+        const target = entry.leaseTarget
+        entry.lease = false
+        entry.leaseTarget = undefined
+        if (target) await run(worktrees.release(target))
+      })
+    }
+
+    function release(entry: Entry) {
+      return serializeLease(entry, async () => {
+        await run(ownership.invalidate(entry.record.session.id))
         const target = entry.leaseTarget
         entry.lease = false
         entry.leaseTarget = undefined
@@ -782,7 +810,8 @@ const layer = Layer.effect(
 
     function scheduleRefresh(entry: Entry) {
       const connected = state.runtime
-      if (!connected || !current(connected) || entry.refreshTimer || entry.refreshPending) return
+      if (!connected || !current(connected) || entry.refreshTimer || entry.refreshPending || entry.deletionChecks)
+        return
       // No native cursor exists. Coalesce uncertain deltas into at most one read
       // every 200 ms; established new items still use the constant-size delta path.
       entry.refreshTimer = setTimeout(() => {
@@ -800,10 +829,10 @@ const layer = Layer.effect(
       }, 200)
     }
 
-    async function refresh(entry: Entry, resume = false): Promise<boolean> {
+    async function refresh(entry: Entry, resume = false, dispatchReady = true): Promise<boolean> {
       if (entry.refreshing) {
         await entry.refreshing
-        if (resume && !entry.resumed) return refresh(entry, true)
+        if (resume && !entry.resumed) return refresh(entry, true, dispatchReady)
         return entry.dirty
       }
       entry.refreshPending = true
@@ -815,7 +844,7 @@ const layer = Layer.effect(
         if (entry.refreshing === operation) entry.refreshing = undefined
         entry.refreshPending = false
       }
-      if (["idle", "active"].includes(entry.status)) dispatch(entry)
+      if (dispatchReady && !entry.deletionChecks && ["idle", "active"].includes(entry.status)) dispatch(entry)
       if (entry.dirty) scheduleRefresh(entry)
       return entry.dirty
     }
@@ -1277,6 +1306,7 @@ const layer = Layer.effect(
     }
 
     async function pump(entry: Entry) {
+      if (entry.deletionChecks) return
       entry.record = await run(sessions.get(entry.record.session.id))
       const status = interactionStatus(entry)
       const deliveries = await run(sessions.deliveries(entry.record.session.id))
@@ -1312,6 +1342,10 @@ const layer = Layer.effect(
     }
 
     async function resolveNative(threadID: string): Promise<Entry | undefined> {
+      if (await run(sessions.wasDeleted({ runtimeScope, nativeThreadID: threadID }))) {
+        buffered.delete(threadID)
+        return
+      }
       const known = nativeSessions.get(threadID)
       if (known) return getEntry(known)
       const connected = state.runtime
@@ -1334,7 +1368,14 @@ const layer = Layer.effect(
             title: native.name ?? native.preview ?? undefined,
             settings: parent.record.binding.settings,
           }),
-        )
+        ).catch(async (error) => {
+          if (await run(sessions.wasDeleted({ runtimeScope, nativeThreadID: threadID }))) return
+          throw error
+        })
+        if (!child) {
+          buffered.delete(threadID)
+          return
+        }
         const entry = await getEntry(child.session.id)
         await serialize(entry, async () => {
           if (!current(connected)) return
@@ -1363,8 +1404,23 @@ const layer = Layer.effect(
         if (child.nativeThreadID === entry.record.binding.nativeThreadID) continue
         // Failure keeps the parent lease: an undiscovered child must not make a
         // shared worktree appear safe to archive.
-        if (!(await resolveNative(child.nativeThreadID)))
-          throw new Error("Native child ownership could not be resolved")
+        if (await resolveNative(child.nativeThreadID)) continue
+        if (await run(sessions.wasDeleted({ runtimeScope, nativeThreadID: child.nativeThreadID }))) continue
+        throw new Error("Native child ownership could not be resolved")
+      }
+    }
+
+    async function resolveKnownFamily(entry: Entry, seen = new Set<string>()) {
+      const nativeThreadID = entry.record.binding.nativeThreadID
+      if (!nativeThreadID || seen.has(nativeThreadID)) return
+      seen.add(nativeThreadID)
+      for (const child of entry.view.nativeChildren) {
+        const resolved = await resolveNative(child.nativeThreadID)
+        if (!resolved) {
+          if (await run(sessions.wasDeleted({ runtimeScope, nativeThreadID: child.nativeThreadID }))) continue
+          return fail("conflict", "Native child ownership could not be resolved")
+        }
+        await resolveKnownFamily(resolved, seen)
       }
     }
 
@@ -1451,6 +1507,14 @@ const layer = Layer.effect(
     async function notificationReceived(entry: Entry, notification: Received) {
       const connected = state.runtime
       if (!connected || notification.generation !== connected.generation) return
+      if (
+        entries.get(entry.record.session.id) !== entry ||
+        entry.deletionChecks ||
+        entry.record.binding.deletionState
+      ) {
+        entry.dirty = true
+        return
+      }
       attach(entry, connected)
       observeSettings(entry, notification)
       const params = record(notification.params) ? notification.params : {}
@@ -1741,6 +1805,7 @@ const layer = Layer.effect(
     }
 
     async function approveAutomatically(entry: Entry) {
+      if (entry.deletionChecks) return
       if (effectiveSettings(entry).permission !== "auto") return
       for (const pending of entry.pending.values()) {
         if (pending.view.state !== "pending" || !["command", "file", "permissions"].includes(pending.view.kind))
@@ -1762,6 +1827,10 @@ const layer = Layer.effect(
     // Both callers hold the interaction lane, including settings changes.
     // Auto only accepts a native one-shot choice; it never creates rule grants.
     async function replyPending(entry: Entry, id: string, input: Reply, automatic = false) {
+      if (entry.deletionChecks) {
+        if (automatic) return
+        return fail("conflict", "Session family deletion is being checked")
+      }
       entry.record = await run(sessions.get(entry.record.session.id))
       entry.desiredSettings = decodeSettings(entry.record.binding.settings)
       const connected = state.runtime
@@ -1796,7 +1865,9 @@ const layer = Layer.effect(
     }
 
     function dispatch(entry: Entry, requestID = "advance", retry = false) {
+      if (entry.deletionChecks) return
       void serialize(entry, async () => {
+        if (entry.deletionChecks) return
         await (async () => {
           if (retry) {
             const receipt = await run(sessions.getDelivery({ sessionID: entry.record.session.id, requestID }))
@@ -2129,6 +2200,206 @@ const layer = Layer.effect(
             return descriptor(entry)
           })
         }),
+      remove: (sessionID) =>
+        result(async () => {
+          const root = await getEntry(sessionID)
+          const checked = new Set<Entry>()
+          const hold = (entry: Entry) => {
+            if (checked.has(entry)) return entry
+            checked.add(entry)
+            entry.deletionChecks++
+            if (entry.refreshTimer) clearTimeout(entry.refreshTimer)
+            entry.refreshTimer = undefined
+            return entry
+          }
+          hold(root)
+          try {
+            if (!root.record.binding.deletionState) {
+              await refresh(root, false, false).catch((error) => {
+                if (!nativeThreadMissing(error, root.record.binding.nativeThreadID)) throw error
+                return fail("conflict", "The bound native thread could not be found; the Session was preserved")
+              })
+              await resolveKnownFamily(root)
+            }
+            const family = await run(sessions.family(sessionID))
+            const entriesInFamily = await Promise.all(
+              family.records.map(async (record) => hold(await getEntry(record.session.id))),
+            )
+            if (!family.records.some((record) => record.binding.deletionState)) {
+              for (const entry of entriesInFamily) {
+                if (entry.record.binding.nativeThreadID) await refresh(entry, false, false)
+              }
+            }
+            await Promise.all(entriesInFamily.flatMap((entry) => (entry.refreshing ? [entry.refreshing] : [])))
+            return await serializeFamily(entriesInFamily, async () => {
+              const latest = await run(sessions.family(sessionID))
+              if (!sameSessionIDs(family.records, latest.records))
+                return fail("conflict", "Session family changed while deletion was starting")
+              const byID = new Map(entriesInFamily.map((entry) => [entry.record.session.id, entry]))
+              latest.records.forEach((record) => {
+                const entry = byID.get(record.session.id)
+                if (entry) entry.record = record
+              })
+              const connected = latest.records.some((record) => record.binding.nativeThreadID)
+                ? await runtime()
+                : undefined
+              const observed = receiveSequence
+              const absent = new Set<SessionSchema.ID>()
+              for (const record of latest.records) {
+                const entry = byID.get(record.session.id)!
+                if (record.binding.runtimeScope !== runtimeScope)
+                  return fail("conflict", "A native child belongs to another Codex storage scope")
+                if (entry.refreshPending || entry.activeTurnID || entry.activeTools.size || entry.lease)
+                  return fail("conflict", "Session family execution is active; stop it before deleting")
+                if ([...entry.pending.values()].some((pending) => ["pending", "replying"].includes(pending.view.state)))
+                  return fail("conflict", "Session family has a pending native interaction")
+                if (record.binding.executionPending)
+                  return fail(
+                    "conflict",
+                    `Native execution for ${record.session.id} has not been confirmed idle; the Session family was preserved`,
+                  )
+                if (record.binding.deletionState === "confirmed") {
+                  absent.add(record.session.id)
+                  continue
+                }
+                if (unstartedBinding(record.binding)) continue
+                if (record.binding.state !== "bound" || !record.binding.nativeThreadID)
+                  return fail("conflict", "A native Session binding is unresolved; the Session family was preserved")
+                const metadata = await connected!
+                  .readThread(record.binding.nativeThreadID, false, { timeoutMs: 15_000 })
+                  .catch((error) => {
+                    if (!record.binding.deletionState || !nativeThreadMissing(error, record.binding.nativeThreadID))
+                      throw error
+                    absent.add(record.session.id)
+                    return undefined
+                  })
+                if (!metadata) continue
+                if (metadata.thread.id !== record.binding.nativeThreadID)
+                  return fail("conflict", "Codex returned a different native thread during deletion")
+                if (!["idle", "notLoaded"].includes(metadata.thread.status.type))
+                  return fail("conflict", "Session family execution is active; stop it before deleting")
+                if (
+                  !(await run(
+                    ownership.confirmIdle({
+                      runtimeScope,
+                      generation: generation(connected!),
+                      sessionID: record.session.id,
+                    }),
+                  ))
+                )
+                  return fail("unavailable", "Codex connection changed while confirming deletion safety")
+              }
+              if (
+                latest.records.some(
+                  (record) =>
+                    record.binding.nativeThreadID && (signals.get(record.binding.nativeThreadID) ?? 0) > observed,
+                )
+              )
+                return fail("conflict", "Session family changed while deletion was being checked")
+              const token =
+                latest.root.binding.deletionGeneration ??
+                (connected ? generation(connected) : `${epoch}:unstarted:${randomUUID()}`)
+              const bindings = await run(
+                sessions.beginDelete({
+                  rootID: sessionID,
+                  sessionIDs: latest.records.map((record) => record.session.id),
+                  generation: token,
+                }),
+              )
+              bindings.forEach((binding) => {
+                const entry = byID.get(binding.sessionID)
+                if (entry) entry.record.binding = binding
+              })
+              await Promise.all(entriesInFamily.map((entry) => emit(entry, { refresh: true })))
+              const bindingByID = new Map(bindings.map((binding) => [binding.sessionID, binding]))
+              for (const record of latest.records) {
+                const binding = bindingByID.get(record.session.id)!
+                if (binding.nativeThreadID && !absent.has(record.session.id)) continue
+                bindingByID.set(
+                  record.session.id,
+                  await run(sessions.markDeleteConfirmed({ sessionID: record.session.id, generation: token })),
+                )
+              }
+              try {
+                await run(worktrees.prepareDelete(sessionID))
+              } catch (error) {
+                const message = errorMessage(error)
+                await Promise.all(
+                  [...bindingByID.values()]
+                    .filter((value) => value.deletionState !== "confirmed")
+                    .map(async (member) => {
+                      const binding = await run(
+                        sessions.markDeleteUnknown({ sessionID: member.sessionID, generation: token, error: message }),
+                      )
+                      bindingByID.set(member.sessionID, binding)
+                      const entry = byID.get(member.sessionID)
+                      if (entry) {
+                        entry.record.binding = binding
+                        await emit(entry, { refresh: true })
+                      }
+                    }),
+                )
+                return fail("conflict", message)
+              }
+              const postorder = [...latest.records].reverse()
+              for (const record of postorder) {
+                const binding = bindingByID.get(record.session.id)!
+                if (!binding.nativeThreadID || absent.has(record.session.id)) continue
+                try {
+                  await connected!.deleteThread(binding.nativeThreadID, { timeoutMs: 15_000 })
+                  bindingByID.set(
+                    record.session.id,
+                    await run(sessions.markDeleteConfirmed({ sessionID: record.session.id, generation: token })),
+                  )
+                } catch (error) {
+                  if (nativeThreadMissing(error, binding.nativeThreadID)) {
+                    bindingByID.set(
+                      record.session.id,
+                      await run(sessions.markDeleteConfirmed({ sessionID: record.session.id, generation: token })),
+                    )
+                    continue
+                  }
+                  await Promise.all(
+                    [...bindingByID.values()]
+                      .filter((value) => value.deletionState !== "confirmed")
+                      .map(async (member) => {
+                        const binding = await run(
+                          sessions.markDeleteUnknown({
+                            sessionID: member.sessionID,
+                            generation: token,
+                            error: errorMessage(error),
+                          }),
+                        )
+                        bindingByID.set(member.sessionID, binding)
+                        const entry = byID.get(member.sessionID)
+                        if (entry) {
+                          entry.record.binding = binding
+                          await emit(entry, { refresh: true })
+                        }
+                      }),
+                  )
+                  return fail(error instanceof CodexRpcError ? "conflict" : "unavailable", errorMessage(error))
+                }
+              }
+              await Promise.all(entriesInFamily.map((entry) => release(entry)))
+              for (const record of postorder) {
+                const entry = byID.get(record.session.id)
+                if (entry?.refreshTimer) clearTimeout(entry.refreshTimer)
+                if (entry) entry.refreshTimer = undefined
+                await run(sessions.completeDelete({ sessionID: record.session.id, generation: token }))
+                entries.delete(record.session.id)
+                if (record.binding.nativeThreadID) nativeSessions.delete(record.binding.nativeThreadID)
+              }
+              await run(worktrees.finalizeDelete(sessionID)).catch((error) => fail("conflict", errorMessage(error)))
+            })
+          } finally {
+            checked.forEach((entry) => {
+              entry.deletionChecks--
+              if (entry.deletionChecks === 0 && entry.dirty && entries.get(entry.record.session.id) === entry)
+                scheduleRefresh(entry)
+            })
+          }
+        }),
     })
   }),
 )
@@ -2242,6 +2513,22 @@ function unconfirmedExecution(entry: Entry) {
 
 function unstartedBinding(binding: SessionExternal.Binding) {
   return binding.state === "pending" && !binding.executionPending
+}
+
+function sameSessionIDs(left: SessionExternal.Record[], right: SessionExternal.Record[]) {
+  const ids = new Set(left.map((record) => record.session.id))
+  return left.length === right.length && right.every((record) => ids.has(record.session.id))
+}
+
+function nativeThreadMissing(error: unknown, threadID?: string) {
+  if (!threadID) return false
+  const prefix = "no rollout found for thread id "
+  return (
+    error instanceof CodexRpcError &&
+    error.code === -32600 &&
+    error.message.startsWith(prefix) &&
+    error.message.slice(prefix.length).trim() === threadID
+  )
 }
 
 function runningTool(item: unknown): item is v2.ThreadItem & { status: "inProgress" } {

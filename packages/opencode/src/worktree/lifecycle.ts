@@ -431,6 +431,18 @@ const layer = Layer.effect(
       return resident
     })
 
+    const adoptArchiveBranch = Effect.fnUntraced(function* (owner: Owner) {
+      const resident = yield* assertResidentCheckoutIdentity(owner)
+      if (resident.branch === owner.branch) return owner
+      if (owner.oid) yield* verifyArchive(owner)
+      return yield* write({
+        ...owner,
+        branch: resident.branch,
+        branchOwned: false,
+        lastError: undefined,
+      })
+    })
+
     const removeCheckout = Effect.fnUntraced(function* (owner: Owner) {
       const exists = yield* directoryExists(owner)
       const registered = exists ? yield* assertResidentCheckout(owner) : yield* registeredCheckout(owner)
@@ -658,7 +670,9 @@ const layer = Layer.effect(
           if (!row?.archived) return { managed: true, pending: true }
 
           return yield* Effect.gen(function* () {
-            const captured = (yield* directoryExists(current)) ? yield* capture(current) : current
+            const present = yield* directoryExists(current)
+            const resident = present ? yield* adoptArchiveBranch(current) : current
+            const captured = present ? yield* capture(resident) : resident
             yield* verifyArchive(captured)
             if (yield* directoryExists(captured)) {
               yield* archive

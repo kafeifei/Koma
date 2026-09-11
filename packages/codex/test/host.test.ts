@@ -84,21 +84,22 @@ async function harness<A>(
     database: Database.Interface
     home: string
     scope: string
-    gate: { refuse: boolean; acquired: number; released: number }
+    gate: { refuse: boolean; acquired: number; released: number; prepared: number; finalized: number }
   }) => Promise<A>,
   homeOverride?: string,
   auth?: CodexAuth.Interface,
   providers?: CodexProviders.Interface,
+  databasePath = ":memory:",
 ) {
   const home = homeOverride ?? (await mkdtemp(path.join(directory, "home-")))
   await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages: [] }))
   process.env.OPENCODE_CODEX_HOME = home
   await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread() }))
-  const gate = { refuse: false, acquired: 0, released: 0 }
+  const gate = { refuse: false, acquired: 0, released: 0, prepared: 0, finalized: 0 }
   const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node, Database.node]), [
     ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
     ...(providers ? [[CodexProviders.node, Layer.succeed(CodexProviders.Service, providers)] as const] : []),
-    [Database.node, Database.layerFromPath(":memory:")],
+    [Database.node, Database.layerFromPath(databasePath)],
     [Global.node, Global.layerWith({ home, state: home })],
     [
       ProjectV2.node,
@@ -120,6 +121,8 @@ async function harness<A>(
           Effect.sync(() => {
             gate.released++
           }),
+        prepareDelete: () => Effect.sync(() => ({ managed: ++gate.prepared > 0 })),
+        finalizeDelete: () => Effect.sync(() => void gate.finalized++),
       }),
     ],
   ])
@@ -2356,5 +2359,348 @@ describe("CodexHost native process boundaries", () => {
       expect(snapshot.descriptor.capabilities.prompt).toBe(true)
       expect((await run(sessions.get(child.session.id))).binding.executionPending).toBe(false)
       expect(JSON.stringify(snapshot.messages)).toContain("child-command")
+    }))
+
+  test("deletes an idle native family leaf first and finalizes its managed root once", () =>
+    harness(async ({ host, sessions, scope, home, gate }) => {
+      const parent = await seed(sessions, scope)
+      const child = await run(
+        sessions.adoptChild({
+          parentID: parent,
+          runtimeScope: scope,
+          nativeThreadID: "native-child",
+          location: location(),
+        }),
+      )
+      const spawn: v2.ThreadItem = {
+        type: "collabAgentToolCall",
+        id: "spawn",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "native-thread",
+        receiverThreadIds: ["native-child"],
+        prompt: null,
+        model: null,
+        reasoningEffort: null,
+        agentsStates: {},
+      }
+      await configure(home, {
+        thread: {
+          ...thread(),
+          turns: [
+            {
+              id: "parent-turn",
+              items: [spawn],
+              itemsView: "full",
+              status: "completed",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1,
+            },
+          ],
+        },
+        threads: {
+          "native-thread": {
+            ...thread(),
+            turns: [
+              {
+                id: "parent-turn",
+                items: [spawn],
+                itemsView: "full",
+                status: "completed",
+                error: null,
+                startedAt: 1,
+                completedAt: 2,
+                durationMs: 1,
+              },
+            ],
+          },
+          "native-child": {
+            ...thread(),
+            id: "native-child",
+            parentThreadId: "native-thread",
+            historyMode: "paginated",
+          },
+        },
+      })
+
+      await run(host.remove(parent))
+      await expect(run(sessions.get(parent))).rejects.toThrow("Session not found")
+      await expect(run(sessions.get(child.session.id))).rejects.toThrow("Session not found")
+      expect(
+        (await rpc(home)).filter((call) => call.method === "thread/delete").map((call) => call.params?.threadId),
+      ).toEqual(["native-child", "native-thread"])
+      expect(gate.prepared).toBe(1)
+      expect(gate.finalized).toBe(1)
+      await Bun.sleep(20)
+      expect(gate.released).toBe(gate.acquired)
+    }))
+
+  test("a deleted child tombstone lets the surviving parent refresh and delete after Host restart", async () => {
+    const home = await mkdtemp(path.join(directory, "tombstone-home-"))
+    const databasePath = path.join(home, "opencode-test.db")
+    const spawn: v2.ThreadItem = {
+      type: "collabAgentToolCall",
+      id: "spawn-deleted-child",
+      tool: "spawnAgent",
+      status: "completed",
+      senderThreadId: "native-thread",
+      receiverThreadIds: ["native-child"],
+      prompt: null,
+      model: null,
+      reasoningEffort: null,
+      agentsStates: {},
+    }
+    const parentThread = {
+      ...thread(),
+      turns: [
+        {
+          id: "parent-turn",
+          items: [spawn],
+          itemsView: "full" as const,
+          status: "completed" as const,
+          error: null,
+          startedAt: 1,
+          completedAt: 2,
+          durationMs: 1,
+        },
+      ],
+    }
+    const first = await harness(
+      async ({ host, sessions, scope, home }) => {
+        const parent = await seed(sessions, scope)
+        const child = await run(
+          sessions.adoptChild({
+            parentID: parent,
+            runtimeScope: scope,
+            nativeThreadID: "native-child",
+            location: location(),
+          }),
+        )
+        await run(sessions.setExecutionPending(child.session.id, false))
+        await configure(home, {
+          thread: parentThread,
+          threads: {
+            "native-thread": parentThread,
+            "native-child": {
+              ...thread(),
+              id: "native-child",
+              parentThreadId: "native-thread",
+              historyMode: "paginated",
+            },
+          },
+        })
+
+        await run(host.remove(child.session.id))
+        await expect(run(sessions.get(child.session.id))).rejects.toThrow("Session not found")
+        expect(await run(sessions.wasDeleted({ runtimeScope: scope, nativeThreadID: "native-child" }))).toBe(true)
+        expect((await run(sessions.get(parent))).session.id).toBe(parent)
+        return {
+          parent,
+          childReads: (await rpc(home)).filter(
+            (call) => call.method === "thread/read" && call.params?.threadId === "native-child",
+          ).length,
+        }
+      },
+      home,
+      undefined,
+      undefined,
+      databasePath,
+    )
+
+    await harness(
+      async ({ host, sessions, home }) => {
+        await configure(home, {
+          thread: parentThread,
+          threads: { "native-thread": parentThread },
+          deletedThreads: ["native-child"],
+        })
+
+        const snapshot = await run(host.snapshot(first.parent))
+        expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+        expect(snapshot.children).toEqual([])
+        expect(
+          (await rpc(home)).filter((call) => call.method === "thread/read" && call.params?.threadId === "native-child"),
+        ).toHaveLength(first.childReads)
+        await run(host.remove(first.parent))
+        await expect(run(sessions.get(first.parent))).rejects.toThrow("Session not found")
+        expect(
+          (await rpc(home)).filter((call) => call.method === "thread/delete").map((call) => call.params?.threadId),
+        ).toEqual(["native-child", "native-thread"])
+      },
+      home,
+      undefined,
+      undefined,
+      databasePath,
+    )
+  }, 10_000)
+
+  test("an active native child preserves the entire family before any delete or fence", () =>
+    harness(async ({ host, sessions, scope, home, gate }) => {
+      const parent = await seed(sessions, scope)
+      const child = await run(
+        sessions.adoptChild({
+          parentID: parent,
+          runtimeScope: scope,
+          nativeThreadID: "native-child",
+          location: location(),
+        }),
+      )
+      const active = thread()
+      active.id = "native-child"
+      active.parentThreadId = "native-thread"
+      active.status = { type: "active", activeFlags: [] }
+      await run(sessions.setExecutionPending(child.session.id, false))
+      await configure(home, { threads: { "native-thread": thread(), "native-child": active } })
+
+      await expect(run(host.remove(parent))).rejects.toThrow("execution is active")
+      expect((await run(sessions.get(parent))).binding.deletionState).toBeUndefined()
+      expect((await run(sessions.get(child.session.id))).binding.deletionState).toBeUndefined()
+      expect((await rpc(home)).some((call) => call.method === "thread/delete")).toBe(false)
+      expect(gate.prepared).toBe(0)
+    }))
+
+  test("family deletion cannot deadlock a parent notification resolving its child", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const parent = await seed(sessions, scope)
+      await run(
+        sessions.adoptChild({
+          parentID: parent,
+          runtimeScope: scope,
+          nativeThreadID: "native-child",
+          location: location(),
+        }),
+      )
+      const active = thread()
+      active.status = { type: "active", activeFlags: [] }
+      active.turns = [
+        {
+          id: "parent-turn",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      ]
+      const child = {
+        ...thread(),
+        id: "native-child",
+        parentThreadId: "native-thread",
+        historyMode: "paginated" as const,
+      }
+      await configure(home, { thread: active, threads: { "native-thread": active, "native-child": child } })
+      expect((await run(host.snapshot(parent))).descriptor.runtimeStatus).toBe("active")
+      const spawn: v2.ThreadItem = {
+        type: "collabAgentToolCall",
+        id: "spawn-during-delete",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "native-thread",
+        receiverThreadIds: ["native-child"],
+        prompt: null,
+        model: null,
+        reasoningEffort: null,
+        agentsStates: {},
+      }
+      await command(home, [
+        { method: "item/completed", params: { threadId: "native-thread", turnId: "parent-turn", item: spawn } },
+      ])
+      await until(
+        () => run(host.snapshot(parent)),
+        (snapshot) => JSON.stringify(snapshot.messages).includes("spawn-during-delete"),
+      )
+      const idle = {
+        ...active,
+        status: { type: "idle" } as const,
+        turns: active.turns.map((turn) => ({ ...turn, status: "completed" as const, completedAt: 2, durationMs: 1 })),
+      }
+      await configure(home, { readDelayMs: 300, threads: { "native-thread": idle, "native-child": child } })
+      await command(home, [
+        { method: "thread/status/changed", params: { threadId: "native-thread", status: { type: "idle" } } },
+      ])
+      await until(
+        () => rpc(home),
+        (calls) => calls.some((call) => call.method === "thread/read" && call.params?.threadId === "native-child"),
+      )
+
+      await within(run(host.remove(parent)), 4_000)
+      await expect(run(sessions.get(parent))).rejects.toThrow("Session not found")
+    }))
+
+  test("delete observation never starts a pending queue and the fence withdraws it", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await run(sessions.admit({ sessionID: id, requestID: "queued", payload: prompt, delivery: "queue" }))
+      await configure(home, { deleteError: { code: -32600, message: "working directory not found" } })
+
+      await expect(run(host.remove(id))).rejects.toThrow("working directory not found")
+      expect((await run(host.delivery(id, "queued"))).state).toBe("withdrawn")
+      expect((await run(sessions.get(id))).binding.deletionState).toBe("unknown")
+      expect((await run(host.snapshot(id))).descriptor).toMatchObject({
+        capabilities: { prompt: false, steer: false, delete: true },
+        error: "working directory not found",
+      })
+      expect((await rpc(home)).some((call) => ["turn/start", "turn/steer"].includes(call.method ?? ""))).toBe(false)
+    }))
+
+  test("reconciles a lost native delete response without repeating the non-idempotent request", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, { deleteDisconnectOnce: true })
+
+      await expect(run(host.remove(id))).rejects.toThrow()
+      expect((await run(sessions.get(id))).binding.deletionState).toBe("unknown")
+      await run(host.remove(id))
+      await expect(run(sessions.get(id))).rejects.toThrow("Session not found")
+      expect((await rpc(home)).filter((call) => call.method === "thread/delete")).toHaveLength(1)
+    }))
+
+  test("uses a durable native deletion receipt after a crash before local completion", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const token = "prior-delete"
+      await run(sessions.beginDelete({ rootID: id, sessionIDs: [id], generation: token }))
+      await run(sessions.markDeleteConfirmed({ sessionID: id, generation: token }))
+
+      await run(host.remove(id))
+      await expect(run(sessions.get(id))).rejects.toThrow("Session not found")
+      expect((await rpc(home)).some((call) => call.method === "thread/delete")).toBe(false)
+    }))
+
+  test("restores the frozen descriptor from a durable unknown deletion attempt", () =>
+    harness(async ({ host, sessions, scope }) => {
+      const id = await seed(sessions, scope)
+      await run(sessions.beginDelete({ rootID: id, sessionIDs: [id], generation: "prior-delete" }))
+      await run(
+        sessions.markDeleteUnknown({
+          sessionID: id,
+          generation: "prior-delete",
+          error: "native delete outcome needs reconciliation",
+        }),
+      )
+
+      expect((await run(host.snapshot(id))).descriptor).toMatchObject({
+        capabilities: { prompt: false, steer: false, delete: true },
+        error: "native delete outcome needs reconciliation",
+      })
+    }))
+
+  test("deletes a stopped archived thread from its missing checkout without resuming it", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const missing = path.join(home, "archived-worktree")
+      const id = await seed(sessions, scope, Location.Ref.make({ directory: AbsolutePath.make(missing) }))
+      const unloaded = thread()
+      unloaded.cwd = missing
+      unloaded.status = { type: "notLoaded" }
+      await configure(home, { thread: unloaded, threads: { "native-thread": unloaded } })
+
+      await run(host.remove(id))
+      await expect(run(sessions.get(id))).rejects.toThrow("Session not found")
+      expect((await rpc(home)).filter((call) => call.method === "thread/delete")).toHaveLength(1)
+      expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(false)
     }))
 })

@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "038a8e97-756a-4d05-abb0-9a76fe61ff9a",
+  "id": "7c515073-1ad2-423a-b660-969b90ec8ea0",
   "prevIds": [
-    "bd2f86c3-5e7a-430a-b12c-f2cb930d8f1e"
+    "06ecd7e6-36bc-4565-9ca5-abddde45bab3"
   ],
   "ddl": [
     {
@@ -56,6 +56,10 @@
     },
     {
       "name": "session_external_delivery",
+      "entityType": "tables"
+    },
+    {
+      "name": "session_external_tombstone",
       "entityType": "tables"
     },
     {
@@ -852,6 +856,36 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "deletion_state",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "deletion_generation",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "deletion_error",
+      "entityType": "columns",
+      "table": "session_external_binding"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": "'{}'",
@@ -1039,6 +1073,36 @@
       "name": "time_updated",
       "entityType": "columns",
       "table": "session_external_delivery"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "runtime_scope",
+      "entityType": "columns",
+      "table": "session_external_tombstone"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "native_thread_id",
+      "entityType": "columns",
+      "table": "session_external_tombstone"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_confirmed",
+      "entityType": "columns",
+      "table": "session_external_tombstone"
     },
     {
       "type": "text",
@@ -2024,6 +2088,16 @@
       "name": "session_external_delivery_pk",
       "entityType": "pks",
       "table": "session_external_delivery"
+    },
+    {
+      "columns": [
+        "runtime_scope",
+        "native_thread_id"
+      ],
+      "nameExplicit": false,
+      "name": "session_external_tombstone_pk",
+      "entityType": "pks",
+      "table": "session_external_tombstone"
     },
     {
       "columns": [

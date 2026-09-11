@@ -683,6 +683,110 @@ describe("SessionExternal", () => {
       expect((yield* external.deliveries(key.sessionID))[0]?.payload).toEqual(input.payload)
     }),
   )
+
+  it.effect("atomically freezes a native family and deletes every confirmed member in postorder", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const parent = yield* external.create(input)
+      yield* external.claimBinding({ sessionID: parent.session.id, generation: "host:1" })
+      yield* external.bind({ sessionID: parent.session.id, generation: "host:1", nativeThreadID: "parent" })
+      const child = yield* external.adoptChild({
+        parentID: parent.session.id,
+        runtimeScope: input.runtimeScope,
+        nativeThreadID: "child",
+        location: input.location,
+      })
+      yield* external.setExecutionPending(child.session.id, false)
+      const family = yield* external.family(parent.session.id)
+      expect(family.records.map((record) => record.session.id)).toEqual([parent.session.id, child.session.id])
+
+      const raced = yield* Effect.all(
+        [
+          Effect.exit(
+            external.admit({
+              sessionID: child.session.id,
+              requestID: "raced-input",
+              payload: input.payload,
+              delivery: "steer",
+            }),
+          ),
+          external.beginDelete({
+            rootID: parent.session.id,
+            sessionIDs: family.records.map((record) => record.session.id),
+            generation: "delete:1",
+          }),
+        ],
+        { concurrency: "unbounded" },
+      )
+      expect(raced[1].every((binding) => binding.deletionState === "deleting")).toBe(true)
+      expect(yield* external.pending(child.session.id)).toEqual([])
+      expect((yield* external.deliveries(child.session.id)).every((delivery) => delivery.state === "withdrawn")).toBe(
+        true,
+      )
+      expect(
+        Exit.isFailure(
+          yield* Effect.exit(
+            external.adoptChild({
+              parentID: child.session.id,
+              runtimeScope: input.runtimeScope,
+              nativeThreadID: "late-child",
+              location: input.location,
+            }),
+          ),
+        ),
+      ).toBe(true)
+      expect(
+        yield* external.claim({ sessionID: child.session.id, requestID: "raced-input", generation: "host:1" }),
+      ).toBeUndefined()
+
+      yield* external.markDeleteConfirmed({ sessionID: child.session.id, generation: "delete:1" })
+      yield* external.markDeleteConfirmed({ sessionID: parent.session.id, generation: "delete:1" })
+      yield* external.completeDelete({ sessionID: child.session.id, generation: "delete:1" })
+      yield* external.completeDelete({ sessionID: parent.session.id, generation: "delete:1" })
+      expect(Exit.isFailure(yield* Effect.exit(external.get(child.session.id)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(external.get(parent.session.id)))).toBe(true)
+    }),
+  )
+
+  it.effect("keeps an exact native tombstone when a child Session is deleted", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const parent = yield* external.create(input)
+      yield* external.claimBinding({ sessionID: parent.session.id, generation: "host:1" })
+      yield* external.bind({ sessionID: parent.session.id, generation: "host:1", nativeThreadID: "parent" })
+      const child = yield* external.adoptChild({
+        parentID: parent.session.id,
+        runtimeScope: input.runtimeScope,
+        nativeThreadID: "deleted-child",
+        location: input.location,
+      })
+      yield* external.setExecutionPending(child.session.id, false)
+      yield* external.beginDelete({
+        rootID: child.session.id,
+        sessionIDs: [child.session.id],
+        generation: "delete:child",
+      })
+      yield* external.markDeleteConfirmed({ sessionID: child.session.id, generation: "delete:child" })
+      expect(yield* external.wasDeleted({ runtimeScope: input.runtimeScope, nativeThreadID: "deleted-child" })).toBe(
+        false,
+      )
+      yield* external.completeDelete({ sessionID: child.session.id, generation: "delete:child" })
+      expect(yield* external.wasDeleted({ runtimeScope: input.runtimeScope, nativeThreadID: "deleted-child" })).toBe(
+        true,
+      )
+      expect(yield* external.wasDeleted({ runtimeScope: "other", nativeThreadID: "deleted-child" })).toBe(false)
+      expect(yield* external.wasDeleted({ runtimeScope: input.runtimeScope, nativeThreadID: "other" })).toBe(false)
+      const rejected = yield* Effect.flip(
+        external.adoptChild({
+          parentID: parent.session.id,
+          runtimeScope: input.runtimeScope,
+          nativeThreadID: "deleted-child",
+          location: input.location,
+        }),
+      )
+      expect(rejected.message).toContain("already deleted")
+    }),
+  )
 })
 
 describe("SessionExternalOwnership", () => {

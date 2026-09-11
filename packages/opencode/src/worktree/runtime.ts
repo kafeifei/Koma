@@ -3,8 +3,9 @@ export * as WorktreeRuntime from "./runtime"
 import { DirectoryLease } from "@opencode-ai/core/directory-lease"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionLifecycle } from "@opencode-ai/server/session-lifecycle"
-import { ConflictError, SessionNotFoundError } from "@opencode-ai/protocol/errors"
-import { Effect, Layer } from "effect"
+import { CodexHost } from "@opencode-ai/codex/host"
+import { ConflictError, ServiceUnavailableError, SessionNotFoundError } from "@opencode-ai/protocol/errors"
+import { Effect, Layer, Option } from "effect"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { WorktreeLifecycle } from "./lifecycle"
@@ -38,6 +39,7 @@ export const sessionLayer = Layer.effect(
     const lifecycle = yield* WorktreeLifecycle.Service
     const session = yield* Session.Service
     const v2 = yield* SessionV2.Service
+    const codex = yield* CodexHost.Service
     const conflict = (error: WorktreeLifecycle.LifecycleFailedError) =>
       new ConflictError({ message: error.message, resource: error.directory })
     const requireSession = (id: SessionID) =>
@@ -65,6 +67,27 @@ export const sessionLayer = Layer.effect(
       restore: (id) => archived(id),
       remove: (id) =>
         Effect.gen(function* () {
+          const current = yield* requireSession(id).pipe(Effect.option)
+          if (Option.isNone(current)) {
+            const owner = yield* lifecycle.get(id).pipe(Effect.mapError(conflict))
+            if (owner?.intent === "delete") {
+              yield* lifecycle.finalizeDelete(id).pipe(Effect.mapError(conflict))
+              return
+            }
+            return yield* new SessionNotFoundError({ sessionID: id, message: `Session not found: ${id}` })
+          }
+          if (current.value.engine === "codex") {
+            yield* codex.remove(id).pipe(
+              Effect.mapError((error) => {
+                if (error.code === "notFound")
+                  return new SessionNotFoundError({ sessionID: id, message: error.message })
+                if (error.code === "unavailable")
+                  return new ServiceUnavailableError({ service: "codex", message: error.message })
+                return new ConflictError({ resource: id, message: error.message })
+              }),
+            )
+            return
+          }
           const active = yield* v2.active
           const check = Effect.fnUntraced(function* (sessionID: SessionID): Effect.fn.Return<void, ConflictError> {
             if (active.has(sessionID))

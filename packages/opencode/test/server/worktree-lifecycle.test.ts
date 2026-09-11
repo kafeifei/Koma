@@ -28,7 +28,7 @@ const json = (method: string, body: unknown) => ({
 })
 
 describe("managed worktree HTTP lifecycle", () => {
-  it.live("recovers a failed archive after a task renames its branch, then archives and restores it again", () =>
+  it.live("archives and restores a task after it renames its branch", () =>
     Effect.gen(function* () {
       const temp = yield* tmpdirScoped({ git: true })
       const created = yield* requestInDirectory("/experimental/worktree", temp, json("POST", { wait: true }))
@@ -46,19 +46,14 @@ describe("managed worktree HTTP lifecycle", () => {
       yield* Effect.promise(() => $`git branch -m ${branch}`.cwd(worktree.directory).quiet())
       yield* Effect.promise(() => Bun.write(`${worktree.directory}/draft.txt`, "preserve renamed branch draft"))
 
-      const failed = yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: Date.now() } }))
-      expect(failed.status).toBe(409)
+      expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: Date.now() } }))).status).toBe(
+        200,
+      )
+      expect(yield* Effect.promise(() => Bun.file(`${worktree.directory}/draft.txt`).exists())).toBe(false)
       expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: null } }))).status).toBe(200)
       expect(yield* Effect.promise(() => $`git branch --show-current`.cwd(worktree.directory).text())).toBe(
         `${branch}\n`,
       )
-      expect(yield* Effect.promise(() => Bun.file(`${worktree.directory}/draft.txt`).text())).toBe(
-        "preserve renamed branch draft",
-      )
-      expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: Date.now() } }))).status).toBe(
-        200,
-      )
-      expect((yield* requestInDirectory(route, temp, json("PATCH", { time: { archived: null } }))).status).toBe(200)
       expect(yield* Effect.promise(() => Bun.file(`${worktree.directory}/draft.txt`).text())).toBe(
         "preserve renamed branch draft",
       )
@@ -160,6 +155,56 @@ describe("managed worktree V2 lifecycle", () => {
       ).toBe(false)
       expect((yield* requestInDirectory(`${route}/restore`, temp, { method: "POST" })).status).toBe(404)
     }),
+  )
+
+  it.live(
+    "retries checkout finalization after the Session row was already deleted",
+    () =>
+      Effect.gen(function* () {
+        const temp = yield* tmpdirScoped({ git: true })
+        const created = yield* requestInDirectory("/experimental/worktree", temp, json("POST", { wait: true }))
+        expect(created.status).toBe(200)
+        const worktree = (yield* created.json) as { directory: string }
+        const admitted = yield* requestInDirectory(
+          "/api/session",
+          temp,
+          json("POST", { location: { directory: worktree.directory } }),
+        )
+        expect(admitted.status).toBe(200)
+        const session = (yield* admitted.json) as { data: { id: string } }
+        const route = `/api/session/${session.data.id}`
+        const status = `/experimental/session/${session.data.id}/worktree`
+        yield* Effect.promise(() =>
+          $`git worktree lock --reason delete-finalizer-test ${worktree.directory}`.cwd(temp).quiet(),
+        )
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(() => $`git worktree unlock ${worktree.directory}`.cwd(temp).quiet().nothrow()).pipe(
+            Effect.ignore,
+          ),
+        )
+
+        expect((yield* requestInDirectory(route, temp, { method: "DELETE" })).status).toBe(409)
+        expect((yield* requestInDirectory(route, temp)).status).toBe(404)
+        expect(yield* (yield* requestInDirectory(status, temp)).json).toMatchObject({
+          managed: true,
+          state: "failed",
+          operation: "delete",
+        })
+        expect(yield* Effect.promise(() => fs.access(worktree.directory).then(() => true))).toBe(true)
+
+        yield* Effect.promise(() => $`git worktree unlock ${worktree.directory}`.cwd(temp).quiet())
+        expect((yield* requestInDirectory(route, temp, { method: "DELETE" })).status).toBe(204)
+        expect(
+          yield* Effect.promise(() =>
+            fs.access(worktree.directory).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        ).toBe(false)
+        expect(yield* (yield* requestInDirectory(status, temp)).json).toEqual({ managed: false })
+      }),
+    15_000,
   )
 
   it.live(

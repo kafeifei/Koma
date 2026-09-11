@@ -1,6 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Agent } from "@/agent/agent"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionLifecycle } from "@opencode-ai/server/session-lifecycle"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
@@ -48,6 +49,7 @@ const tryParseJson = (text: string) =>
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
+    const lifecycle = yield* SessionLifecycle.Service
     const shareSvc = yield* SessionShare.Service
     const promptSvc = yield* SessionPrompt.Service
     const revertSvc = yield* SessionRevert.Service
@@ -206,10 +208,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const remove = Effect.fn("SessionHttpApi.remove")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* requireOpenCode(ctx.params.sessionID)
-      yield* SessionError.mapStorageNotFound(
-        SessionError.mapLifecycle(session.remove(ctx.params.sessionID), ctx.params.sessionID),
-      )
+      yield* lifecycle
+        .remove(ctx.params.sessionID)
+        .pipe(
+          Effect.mapError((error) =>
+            error._tag === "SessionNotFoundError"
+              ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+              : new ConflictError({ resource: ctx.params.sessionID, message: error.message }),
+          ),
+        )
       return true
     })
 

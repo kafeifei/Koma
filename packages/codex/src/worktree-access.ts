@@ -10,6 +10,8 @@ export interface Interface {
   readonly claim: (input: Target) => Effect.Effect<unknown, unknown>
   readonly acquire: (input: Target) => Effect.Effect<void, unknown>
   readonly release: (input: Target) => Effect.Effect<void>
+  readonly prepareDelete: (sessionID: string) => Effect.Effect<{ managed: boolean }, unknown>
+  readonly finalizeDelete: (sessionID: string) => Effect.Effect<void, unknown>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/CodexWorktreeAccess") {}
@@ -20,10 +22,15 @@ export const node = LayerNode.unbound(Service, Node.tags.values.global)
 // The desktop's default backend must bind its real lifecycle service instead.
 export const unmanagedNode = makeGlobalNode({
   service: Service,
-  layer: Layer.succeed(Service, Service.of({
-    claim: () => Effect.succeed(false),
-    acquire: () => Effect.void,
-    release: () => Effect.void,
-  })),
+  layer: Layer.succeed(
+    Service,
+    Service.of({
+      claim: () => Effect.succeed(false),
+      acquire: () => Effect.void,
+      release: () => Effect.void,
+      prepareDelete: () => Effect.succeed({ managed: false }),
+      finalizeDelete: () => Effect.void,
+    }),
+  ),
   deps: [],
 })

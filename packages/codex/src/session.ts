@@ -4,6 +4,7 @@ import type { ThreadQueueDeleteResponse } from "./protocol/generated/v2/ThreadQu
 import type { ThreadQueueListResponse } from "./protocol/generated/v2/ThreadQueueListResponse.js"
 import type { ThreadQueueStartResponse } from "./protocol/generated/v2/ThreadQueueStartResponse.js"
 import type { ThreadReadResponse } from "./protocol/generated/v2/ThreadReadResponse.js"
+import type { ThreadDeleteResponse } from "./protocol/generated/v2/ThreadDeleteResponse.js"
 import type { ThreadResumeParams } from "./protocol/generated/v2/ThreadResumeParams.js"
 import type { ThreadResumeResponse } from "./protocol/generated/v2/ThreadResumeResponse.js"
 import type { ThreadStartParams } from "./protocol/generated/v2/ThreadStartParams.js"
@@ -15,11 +16,7 @@ import type { TurnSteerParams } from "./protocol/generated/v2/TurnSteerParams.js
 import type { TurnSteerResponse } from "./protocol/generated/v2/TurnSteerResponse.js"
 import type { UserInput } from "./protocol/generated/v2/UserInput.js"
 import { projectNotification, projectThread } from "./projection.js"
-import type {
-  CodexProjectionOptions,
-  CodexProjectionUpdate,
-  CodexThreadSnapshot,
-} from "./projection.js"
+import type { CodexProjectionOptions, CodexProjectionUpdate, CodexThreadSnapshot } from "./projection.js"
 import { connectCodexAppServer } from "./transport.js"
 import type {
   CodexAppServerConnection,
@@ -78,11 +75,11 @@ export class CodexRuntime {
     )
   }
 
-  resumeThread(
-    threadID: string,
-    params: Omit<ThreadResumeParams, "threadId"> = {},
-    options?: CodexRequestOptions,
-  ) {
+  deleteThread(threadID: string, options?: CodexRequestOptions) {
+    return this.client.request<"thread/delete", ThreadDeleteResponse>("thread/delete", { threadId: threadID }, options)
+  }
+
+  resumeThread(threadID: string, params: Omit<ThreadResumeParams, "threadId"> = {}, options?: CodexRequestOptions) {
     return this.client.request<"thread/resume", ThreadResumeResponse>(
       "thread/resume",
       { ...params, threadId: threadID },
@@ -189,7 +186,11 @@ export class CodexRuntimeManager {
     this.runtime = undefined
     this.pending = undefined
     if (runtime) await runtime.close()
-    if (pending) await pending.then((connecting) => connecting.close(), () => undefined)
+    if (pending)
+      await pending.then(
+        (connecting) => connecting.close(),
+        () => undefined,
+      )
     return this.get()
   }
 
@@ -200,6 +201,10 @@ export class CodexRuntimeManager {
     this.runtime = undefined
     this.pending = undefined
     if (runtime) await runtime.close()
-    if (pending) await pending.then((connecting) => connecting.close(), () => undefined)
+    if (pending)
+      await pending.then(
+        (connecting) => connecting.close(),
+        () => undefined,
+      )
   }
 }

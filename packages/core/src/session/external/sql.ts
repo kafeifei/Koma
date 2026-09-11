@@ -16,6 +16,9 @@ export const SessionExternalBindingTable = sqliteTable(
     generation: text(),
     queue_paused: integer({ mode: "boolean" }).notNull().default(false),
     execution_pending: integer({ mode: "boolean" }).notNull().default(false),
+    deletion_state: text().$type<"deleting" | "unknown" | "confirmed">(),
+    deletion_generation: text(),
+    deletion_error: text(),
     settings: text({ mode: "json" }).$type<Schema.Json>().notNull().default({}),
     projection_version: integer().notNull().default(1),
     time_updated: integer().notNull(),
@@ -58,4 +61,14 @@ export const SessionExternalDeliveryTable = sqliteTable(
     uniqueIndex("session_external_delivery_sequence_idx").on(table.session_id, table.sequence),
     index("session_external_delivery_pending_idx").on(table.session_id, table.state, table.sequence),
   ],
+)
+
+export const SessionExternalTombstoneTable = sqliteTable(
+  "session_external_tombstone",
+  {
+    runtime_scope: text().notNull(),
+    native_thread_id: text().notNull(),
+    time_confirmed: integer().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runtime_scope, table.native_thread_id] })],
 )

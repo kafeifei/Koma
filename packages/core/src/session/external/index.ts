@@ -19,7 +19,7 @@ import { fromRow } from "../info"
 import { SessionProjector } from "../projector"
 import { SessionSchema } from "../schema"
 import { SessionTable } from "../sql"
-import { SessionExternalBindingTable, SessionExternalDeliveryTable } from "./sql"
+import { SessionExternalBindingTable, SessionExternalDeliveryTable, SessionExternalTombstoneTable } from "./sql"
 
 export type Payload = typeof Schema.Json.Type
 export type BindingState = typeof SessionExternalBindingTable.$inferSelect.state
@@ -29,6 +29,7 @@ export type Delivery = ReturnType<typeof deliveryInfo>
 export type Descriptor = { session: SessionSchema.Info; binding?: Binding }
 export type Record = { session: SessionSchema.Info; binding: Binding }
 export type Created = Record & { delivery: Delivery }
+export type Family = { root: Record; records: Record[] }
 
 export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("SessionExternal.NotFound", {
   sessionID: SessionSchema.ID,
@@ -121,6 +122,23 @@ export interface Interface {
     error?: string
   }) => Effect.Effect<Delivery, Error>
   readonly setExecutionPending: (sessionID: SessionSchema.ID, pending: boolean) => Effect.Effect<Binding, Error>
+  readonly family: (sessionID: SessionSchema.ID) => Effect.Effect<Family, Error>
+  readonly beginDelete: (input: {
+    rootID: SessionSchema.ID
+    sessionIDs: ReadonlyArray<SessionSchema.ID>
+    generation: string
+  }) => Effect.Effect<Binding[], Error>
+  readonly markDeleteUnknown: (input: {
+    sessionID: SessionSchema.ID
+    generation: string
+    error?: string
+  }) => Effect.Effect<Binding, Error>
+  readonly markDeleteConfirmed: (input: {
+    sessionID: SessionSchema.ID
+    generation: string
+  }) => Effect.Effect<Binding, Error>
+  readonly completeDelete: (input: { sessionID: SessionSchema.ID; generation: string }) => Effect.Effect<void, Error>
+  readonly wasDeleted: (input: { runtimeScope: string; nativeThreadID: string }) => Effect.Effect<boolean>
   readonly setQueuePaused: (sessionID: SessionSchema.ID, paused: boolean) => Effect.Effect<void, Error>
   readonly recover: (runtimeScope: string) => Effect.Effect<void>
   readonly syncTitle: (input: {
@@ -137,6 +155,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Se
 
 class CreationRace extends Error {}
 class BindingRace extends Error {}
+class DeletionRace extends Error {}
+class TombstoneRace extends Error {}
 
 const layer = Layer.effect(
   Service,
@@ -162,6 +182,19 @@ const layer = Layer.effect(
           and(
             eq(SessionExternalDeliveryTable.session_id, input.sessionID),
             eq(SessionExternalDeliveryTable.request_id, input.requestID),
+          ),
+        )
+        .get()
+        .pipe(Effect.orDie)
+
+    const readTombstone = (input: { runtimeScope: string; nativeThreadID: string }) =>
+      db
+        .select({ nativeThreadID: SessionExternalTombstoneTable.native_thread_id })
+        .from(SessionExternalTombstoneTable)
+        .where(
+          and(
+            eq(SessionExternalTombstoneTable.runtime_scope, input.runtimeScope),
+            eq(SessionExternalTombstoneTable.native_thread_id, input.nativeThreadID),
           ),
         )
         .get()
@@ -292,35 +325,46 @@ const layer = Layer.effect(
     })
 
     const admit = Effect.fn("SessionExternal.admit")(function* (input: DeliveryInput) {
-      const record = yield* get(input.sessionID)
-      if (record.session.time.archived !== undefined)
-        return yield* new ConflictError({
-          message: `Session ${input.sessionID} is archived; restore it before sending input`,
-        })
       if (!input.requestID) return yield* new ConflictError({ message: "Input requires a request ID" })
       const payload = yield* decodePayload(input.payload)
       const fingerprint = digest({ payload, delivery: input.delivery })
       const time = Date.now()
-      yield* db
-        .insert(SessionExternalDeliveryTable)
-        .values({
-          session_id: input.sessionID,
-          request_id: input.requestID,
-          sequence: sql`(SELECT coalesce(max(sequence), 0) + 1 FROM session_external_delivery WHERE session_id = ${input.sessionID})`,
-          fingerprint,
-          payload,
-          delivery: input.delivery,
-          state: "pending",
-          time_created: time,
-          time_updated: time,
-        })
-        .onConflictDoNothing()
-        .run()
-        .pipe(Effect.orDie)
-      const recorded = yield* readDelivery(input)
-      if (!recorded || recorded.fingerprint !== fingerprint)
-        return yield* new ConflictError({ message: `Input request ${input.requestID} was reused with different input` })
-      return deliveryInfo(recorded)
+      return yield* db
+        .transaction(
+          () =>
+            Effect.gen(function* () {
+              const record = yield* get(input.sessionID)
+              if (record.binding.deletionState)
+                return yield* new ConflictError({ message: `Session ${input.sessionID} is being deleted` })
+              if (record.session.time.archived !== undefined)
+                return yield* new ConflictError({
+                  message: `Session ${input.sessionID} is archived; restore it before sending input`,
+                })
+              yield* db
+                .insert(SessionExternalDeliveryTable)
+                .values({
+                  session_id: input.sessionID,
+                  request_id: input.requestID,
+                  sequence: sql`(SELECT coalesce(max(sequence), 0) + 1 FROM session_external_delivery WHERE session_id = ${input.sessionID})`,
+                  fingerprint,
+                  payload,
+                  delivery: input.delivery,
+                  state: "pending",
+                  time_created: time,
+                  time_updated: time,
+                })
+                .onConflictDoNothing()
+                .run()
+              const recorded = yield* readDelivery(input)
+              if (!recorded || recorded.fingerprint !== fingerprint)
+                return yield* new ConflictError({
+                  message: `Input request ${input.requestID} was reused with different input`,
+                })
+              return deliveryInfo(recorded)
+            }),
+          { behavior: "immediate" },
+        )
+        .pipe(Effect.catchTag("EffectDrizzleQueryError", Effect.die), Effect.catchTag("SqlError", Effect.die))
     })
 
     const syncTitle = Effect.fn("SessionExternal.syncTitle")(function* (input: Parameters<Interface["syncTitle"]>[0]) {
@@ -451,8 +495,12 @@ const layer = Layer.effect(
       }),
       adoptChild: Effect.fn("SessionExternal.adoptChild")(function* (input) {
         const parent = yield* get(input.parentID)
+        if (parent.binding.deletionState)
+          return yield* new ConflictError({ message: "Cannot adopt a native child while its parent is being deleted" })
         if (!input.nativeThreadID || parent.binding.runtimeScope !== input.runtimeScope)
           return yield* new ConflictError({ message: "Native child must belong to its parent's runtime scope" })
+        if (yield* readTombstone(input))
+          return yield* new ConflictError({ message: "Cannot adopt a native child that was already deleted" })
         const project = yield* projects.resolve(input.location.directory)
         if (
           project.id !== parent.session.projectID ||
@@ -501,6 +549,9 @@ const layer = Layer.effect(
                 location: input.location,
                 commit: () =>
                   Effect.gen(function* () {
+                    const currentParent = yield* readBinding(input.parentID)
+                    if (!currentParent || currentParent.deletion_state) return yield* Effect.die(new DeletionRace())
+                    if (yield* readTombstone(input)) return yield* Effect.die(new TombstoneRace())
                     const inserted = yield* db
                       .insert(SessionExternalBindingTable)
                       .values({
@@ -520,7 +571,16 @@ const layer = Layer.effect(
                   }),
               },
             )
-            .pipe(Effect.catchDefect((error) => (error instanceof BindingRace ? Effect.void : Effect.die(error))))
+            .pipe(
+              Effect.catchDefect((error) => {
+                if (error instanceof BindingRace) return Effect.void
+                if (error instanceof DeletionRace)
+                  return new ConflictError({ message: "Cannot adopt a native child while its parent is being deleted" })
+                if (error instanceof TombstoneRace)
+                  return new ConflictError({ message: "Cannot adopt a native child that was already deleted" })
+                return Effect.die(error)
+              }),
+            )
         }
         const binding = existing ?? (yield* find())
         if (!binding) return yield* new ConflictError({ message: "Native child binding was not persisted" })
@@ -562,6 +622,7 @@ const layer = Layer.effect(
       }),
       pending: Effect.fn("SessionExternal.pending")(function* (sessionID) {
         const record = yield* get(sessionID)
+        if (record.binding.deletionState) return []
         const rows = yield* db
           .select()
           .from(SessionExternalDeliveryTable)
@@ -637,11 +698,16 @@ const layer = Layer.effect(
           .pipe(Effect.orDie)
       }),
       resume: Effect.fn("SessionExternal.resume")(function* (input) {
-        yield* get(input.sessionID)
+        const record = yield* get(input.sessionID)
+        if (record.binding.deletionState)
+          return yield* new ConflictError({ message: `Session ${input.sessionID} is being deleted` })
         return yield* db
           .transaction(
             () =>
               Effect.gen(function* () {
+                const binding = yield* readBinding(input.sessionID)
+                if (binding?.deletion_state)
+                  return yield* new ConflictError({ message: `Session ${input.sessionID} is being deleted` })
                 const row = yield* db
                   .update(SessionExternalDeliveryTable)
                   .set({
@@ -676,12 +742,19 @@ const layer = Layer.effect(
           .pipe(Effect.orDie)
       }),
       setSettings: Effect.fn("SessionExternal.setSettings")(function* (sessionID, value) {
-        yield* get(sessionID)
+        const record = yield* get(sessionID)
+        if (record.binding.deletionState)
+          return yield* new ConflictError({ message: `Session ${sessionID} is being deleted` })
         const settings = yield* decodePayload(value)
         const row = yield* db
           .update(SessionExternalBindingTable)
           .set({ settings, time_updated: Date.now() })
-          .where(eq(SessionExternalBindingTable.session_id, sessionID))
+          .where(
+            and(
+              eq(SessionExternalBindingTable.session_id, sessionID),
+              isNull(SessionExternalBindingTable.deletion_state),
+            ),
+          )
           .returning()
           .get()
           .pipe(Effect.orDie)
@@ -689,7 +762,8 @@ const layer = Layer.effect(
         return bindingInfo(row)
       }),
       claimBinding: Effect.fn("SessionExternal.claimBinding")(function* (input) {
-        yield* get(input.sessionID)
+        const record = yield* get(input.sessionID)
+        if (record.binding.deletionState) return undefined
         const row = yield* db
           .update(SessionExternalBindingTable)
           .set({ state: "creating", generation: input.generation, time_updated: Date.now() })
@@ -697,6 +771,7 @@ const layer = Layer.effect(
             and(
               eq(SessionExternalBindingTable.session_id, input.sessionID),
               eq(SessionExternalBindingTable.state, "pending"),
+              isNull(SessionExternalBindingTable.deletion_state),
             ),
           )
           .returning()
@@ -776,13 +851,14 @@ const layer = Layer.effect(
         return bindingInfo(row)
       }),
       claim: Effect.fn("SessionExternal.claim")(function* (input) {
-        yield* get(input.sessionID)
+        const record = yield* get(input.sessionID)
+        if (record.binding.deletionState) return undefined
         return yield* db
           .transaction(
             () =>
               Effect.gen(function* () {
                 const binding = yield* readBinding(input.sessionID)
-                if (binding?.state !== "bound") return undefined
+                if (binding?.state !== "bound" || binding.deletion_state) return undefined
                 const uncertain = yield* db
                   .select({ requestID: SessionExternalDeliveryTable.request_id })
                   .from(SessionExternalDeliveryTable)
@@ -876,16 +952,210 @@ const layer = Layer.effect(
         })
       }),
       setExecutionPending: Effect.fn("SessionExternal.setExecutionPending")(function* (sessionID, pending) {
-        yield* get(sessionID)
+        const record = yield* get(sessionID)
+        if (pending && record.binding.deletionState)
+          return yield* new ConflictError({ message: `Session ${sessionID} is being deleted` })
         const row = yield* db
           .update(SessionExternalBindingTable)
           .set({ execution_pending: pending, time_updated: Date.now() })
-          .where(eq(SessionExternalBindingTable.session_id, sessionID))
+          .where(
+            and(
+              eq(SessionExternalBindingTable.session_id, sessionID),
+              pending ? isNull(SessionExternalBindingTable.deletion_state) : undefined,
+            ),
+          )
           .returning()
           .get()
           .pipe(Effect.orDie)
         if (!row) return yield* new NotFoundError({ sessionID, message: "External Session binding disappeared" })
         return bindingInfo(row)
+      }),
+      family: Effect.fn("SessionExternal.family")(function* (sessionID) {
+        const root = yield* get(sessionID)
+        const rows = yield* db.select().from(SessionTable).all().pipe(Effect.orDie)
+        const ordered = familyRows(rows, sessionID)
+        const bindings = new Map(
+          (yield* db
+            .select()
+            .from(SessionExternalBindingTable)
+            .where(
+              inArray(
+                SessionExternalBindingTable.session_id,
+                ordered.map((row) => row.id),
+              ),
+            )
+            .all()
+            .pipe(Effect.orDie)).map((row) => [row.session_id, row]),
+        )
+        const records = yield* Effect.forEach(
+          ordered,
+          Effect.fnUntraced(function* (row) {
+            if (row.engine !== "codex")
+              return yield* new ConflictError({ message: `Session ${row.id} is owned by ${row.engine}` })
+            const binding = bindings.get(row.id)
+            if (!binding)
+              return yield* new ConflictError({ message: `External Session ${row.id} has no native binding record` })
+            return { session: fromRow(row), binding: bindingInfo(binding) }
+          }),
+        )
+        return { root, records }
+      }),
+      beginDelete: Effect.fn("SessionExternal.beginDelete")(function* (input) {
+        if (!input.sessionIDs.length || !input.generation)
+          return yield* new ConflictError({ message: "External family deletion requires Sessions and a generation" })
+        return yield* db
+          .transaction(
+            () =>
+              Effect.gen(function* () {
+                const rows = yield* db.select().from(SessionTable).all()
+                const actual = familyRows(rows, input.rootID).map((row) => row.id)
+                if (!sameIDs(actual, input.sessionIDs))
+                  return yield* new ConflictError({ message: "Session family changed while deletion was starting" })
+                const existing = yield* db
+                  .select()
+                  .from(SessionExternalBindingTable)
+                  .where(inArray(SessionExternalBindingTable.session_id, actual))
+                  .all()
+                if (existing.length !== actual.length)
+                  return yield* new ConflictError({ message: "A Session family binding disappeared during deletion" })
+                if (existing.some((row) => row.execution_pending))
+                  return yield* new ConflictError({
+                    message: "Native execution has not been confirmed idle; the Session family was preserved",
+                  })
+                if (existing.some((row) => row.deletion_state)) {
+                  if (
+                    existing.every(
+                      (row) => row.deletion_state && row.deletion_generation === existing[0]?.deletion_generation,
+                    )
+                  )
+                    return existing.map(bindingInfo)
+                  return yield* new ConflictError({ message: "Session family has inconsistent deletion state" })
+                }
+                const uncertain = yield* db
+                  .select({ requestID: SessionExternalDeliveryTable.request_id })
+                  .from(SessionExternalDeliveryTable)
+                  .where(
+                    and(
+                      inArray(SessionExternalDeliveryTable.session_id, actual),
+                      or(
+                        inArray(SessionExternalDeliveryTable.state, ["sending", "unknown"]),
+                        and(
+                          eq(SessionExternalDeliveryTable.state, "accepted"),
+                          isNull(SessionExternalDeliveryTable.native_item_id),
+                        ),
+                      ),
+                    ),
+                  )
+                  .get()
+                if (uncertain)
+                  return yield* new ConflictError({
+                    message: "Native input delivery has not been confirmed; the Session was preserved",
+                  })
+                const row = yield* db
+                  .update(SessionExternalBindingTable)
+                  .set({
+                    deletion_state: "deleting",
+                    deletion_generation: input.generation,
+                    deletion_error: null,
+                    queue_paused: true,
+                    time_updated: Date.now(),
+                  })
+                  .where(
+                    and(
+                      inArray(SessionExternalBindingTable.session_id, actual),
+                      isNull(SessionExternalBindingTable.deletion_state),
+                    ),
+                  )
+                  .returning()
+                  .all()
+                if (row.length !== actual.length)
+                  return yield* new ConflictError({ message: "External family deletion fence could not be acquired" })
+                yield* db
+                  .update(SessionExternalDeliveryTable)
+                  .set({ state: "withdrawn", time_updated: Date.now() })
+                  .where(
+                    and(
+                      inArray(SessionExternalDeliveryTable.session_id, actual),
+                      inArray(SessionExternalDeliveryTable.state, ["pending", "paused", "returned"]),
+                    ),
+                  )
+                  .run()
+                return row.map(bindingInfo)
+              }),
+            { behavior: "immediate" },
+          )
+          .pipe(Effect.catchTag("EffectDrizzleQueryError", Effect.die), Effect.catchTag("SqlError", Effect.die))
+      }),
+      markDeleteUnknown: Effect.fn("SessionExternal.markDeleteUnknown")(function* (input) {
+        yield* get(input.sessionID)
+        const row = yield* db
+          .update(SessionExternalBindingTable)
+          .set({ deletion_state: "unknown", deletion_error: input.error, time_updated: Date.now() })
+          .where(
+            and(
+              eq(SessionExternalBindingTable.session_id, input.sessionID),
+              inArray(SessionExternalBindingTable.deletion_state, ["deleting", "unknown"]),
+              eq(SessionExternalBindingTable.deletion_generation, input.generation),
+            ),
+          )
+          .returning()
+          .get()
+          .pipe(Effect.orDie)
+        if (!row) return yield* new ConflictError({ message: "External deletion attempt is no longer current" })
+        return bindingInfo(row)
+      }),
+      markDeleteConfirmed: Effect.fn("SessionExternal.markDeleteConfirmed")(function* (input) {
+        yield* get(input.sessionID)
+        const row = yield* db
+          .update(SessionExternalBindingTable)
+          .set({ deletion_state: "confirmed", deletion_error: null, time_updated: Date.now() })
+          .where(
+            and(
+              eq(SessionExternalBindingTable.session_id, input.sessionID),
+              inArray(SessionExternalBindingTable.deletion_state, ["deleting", "unknown", "confirmed"]),
+              eq(SessionExternalBindingTable.deletion_generation, input.generation),
+            ),
+          )
+          .returning()
+          .get()
+          .pipe(Effect.orDie)
+        if (!row) return yield* new ConflictError({ message: "External deletion attempt is no longer current" })
+        return bindingInfo(row)
+      }),
+      completeDelete: Effect.fn("SessionExternal.completeDelete")(function* (input) {
+        const record = yield* get(input.sessionID)
+        if (record.binding.deletionState !== "confirmed" || record.binding.deletionGeneration !== input.generation)
+          return yield* new ConflictError({ message: "External deletion attempt is no longer current" })
+        const row = yield* db
+          .select()
+          .from(SessionTable)
+          .where(eq(SessionTable.id, input.sessionID))
+          .get()
+          .pipe(Effect.orDie)
+        if (!row) return yield* new NotFoundError({ sessionID: input.sessionID, message: "Session disappeared" })
+        yield* events.publish(
+          SessionV1.Event.Deleted,
+          { sessionID: input.sessionID, info: legacyInfo(row) },
+          {
+            commit: () =>
+              record.binding.nativeThreadID
+                ? db
+                    .insert(SessionExternalTombstoneTable)
+                    .values({
+                      runtime_scope: record.binding.runtimeScope,
+                      native_thread_id: record.binding.nativeThreadID,
+                      time_confirmed: Date.now(),
+                    })
+                    .onConflictDoNothing()
+                    .run()
+                    .pipe(Effect.orDie)
+                : Effect.void,
+          },
+        )
+        yield* events.remove(input.sessionID)
+      }),
+      wasDeleted: Effect.fn("SessionExternal.wasDeleted")(function* (input) {
+        return Boolean(yield* readTombstone(input))
       }),
       setQueuePaused: Effect.fn("SessionExternal.setQueuePaused")(function* (sessionID, paused) {
         yield* get(sessionID)
@@ -975,11 +1245,91 @@ function bindingInfo(row: typeof SessionExternalBindingTable.$inferSelect) {
     generation: row.generation ?? undefined,
     queuePaused: row.queue_paused,
     executionPending: row.execution_pending,
+    deletionState: row.deletion_state ?? undefined,
+    deletionGeneration: row.deletion_generation ?? undefined,
+    deletionError: row.deletion_error ?? undefined,
     settings: row.settings,
     projectionVersion: row.projection_version,
     updated: row.time_updated,
     error: row.error ?? undefined,
   }
+}
+
+function familyRows(rows: ReadonlyArray<typeof SessionTable.$inferSelect>, rootID: SessionSchema.ID) {
+  const children = Map.groupBy(rows, (row) => row.parent_id)
+  const ordered: Array<typeof SessionTable.$inferSelect> = []
+  const seen = new Set<SessionSchema.ID>()
+  const visit = (sessionID: SessionSchema.ID) => {
+    if (seen.has(sessionID)) return
+    seen.add(sessionID)
+    const row = rows.find((value) => value.id === sessionID)
+    if (!row) return
+    ordered.push(row)
+    children.get(sessionID)?.forEach((child) => visit(child.id))
+  }
+  visit(rootID)
+  return ordered
+}
+
+function sameIDs(left: ReadonlyArray<string>, right: ReadonlyArray<string>) {
+  const values = new Set(left)
+  return left.length === right.length && right.every((value) => values.has(value))
+}
+
+function legacyInfo(row: typeof SessionTable.$inferSelect) {
+  return SessionV1.SessionInfo.make({
+    id: row.id,
+    engine: row.engine,
+    projectID: row.project_id,
+    workspaceID: row.workspace_id ?? undefined,
+    parentID: row.parent_id ?? undefined,
+    slug: row.slug,
+    directory: row.directory,
+    path: row.path ?? undefined,
+    title: row.title,
+    agent: row.agent ?? undefined,
+    model: row.model
+      ? {
+          ...row.model,
+          id: ModelV2.ID.make(row.model.id),
+          providerID: ProviderV2.ID.make(row.model.providerID),
+        }
+      : undefined,
+    version: row.version,
+    share: row.share_url ? { url: row.share_url } : undefined,
+    summary:
+      row.summary_files === null
+        ? undefined
+        : {
+            additions: row.summary_additions ?? 0,
+            deletions: row.summary_deletions ?? 0,
+            files: row.summary_files,
+            diffs: row.summary_diffs ?? undefined,
+          },
+    metadata: row.metadata ?? undefined,
+    cost: row.cost,
+    tokens: {
+      input: row.tokens_input,
+      output: row.tokens_output,
+      reasoning: row.tokens_reasoning,
+      cache: { read: row.tokens_cache_read, write: row.tokens_cache_write },
+    },
+    revert: row.revert
+      ? {
+          ...row.revert,
+          messageID: SessionV1.MessageID.make(row.revert.messageID),
+          partID: row.revert.partID ? SessionV1.PartID.make(row.revert.partID) : undefined,
+        }
+      : undefined,
+    permission: row.permission ?? undefined,
+    permissionMode: row.permission_mode ?? undefined,
+    time: {
+      created: row.time_created,
+      updated: row.time_updated,
+      compacting: row.time_compacting ?? undefined,
+      archived: row.time_archived ?? undefined,
+    },
+  })
 }
 
 function deliveryInfo(row: typeof SessionExternalDeliveryTable.$inferSelect) {

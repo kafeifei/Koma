@@ -2911,6 +2911,7 @@ export type LabEnginesOutput = ReadonlyArray<{
     readonly compact: boolean
     readonly images: boolean
     readonly permissions: boolean
+    readonly delete?: boolean
   }
   readonly models: ReadonlyArray<{
     readonly id: string
@@ -2974,6 +2975,7 @@ export type LabDescribeOutput = ReadonlyArray<{
     readonly compact: boolean
     readonly images: boolean
     readonly permissions: boolean
+    readonly delete?: boolean
   }
   readonly queuePaused: boolean
   readonly settings: {
@@ -3161,6 +3163,7 @@ export type LabCreateOutput = {
       readonly compact: boolean
       readonly images: boolean
       readonly permissions: boolean
+      readonly delete?: boolean
     }
     readonly queuePaused: boolean
     readonly settings: {
@@ -3253,6 +3256,7 @@ export type LabSnapshotOutput = {
       readonly compact: boolean
       readonly images: boolean
       readonly permissions: boolean
+      readonly delete?: boolean
     }
     readonly queuePaused: boolean
     readonly settings: {
@@ -3630,6 +3634,7 @@ export type LabSubmitOutput = {
       readonly compact: boolean
       readonly images: boolean
       readonly permissions: boolean
+      readonly delete?: boolean
     }
     readonly queuePaused: boolean
     readonly settings: {
@@ -3785,6 +3790,7 @@ export type LabQueueOutput = {
       readonly compact: boolean
       readonly images: boolean
       readonly permissions: boolean
+      readonly delete?: boolean
     }
     readonly queuePaused: boolean
     readonly settings: {
@@ -4084,6 +4090,7 @@ export type LabInterruptOutput = {
     readonly compact: boolean
     readonly images: boolean
     readonly permissions: boolean
+    readonly delete?: boolean
   }
   readonly queuePaused: boolean
   readonly settings: {
@@ -4162,6 +4169,7 @@ export type LabReplyOutput = {
       readonly compact: boolean
       readonly images: boolean
       readonly permissions: boolean
+      readonly delete?: boolean
     }
     readonly queuePaused: boolean
     readonly settings: {
@@ -4478,6 +4486,7 @@ export type LabSettingsOutput = {
     readonly compact: boolean
     readonly images: boolean
     readonly permissions: boolean
+    readonly delete?: boolean
   }
   readonly queuePaused: boolean
   readonly settings: {

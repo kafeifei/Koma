@@ -30,6 +30,7 @@ type ReplyBody = {
 type QueueBody = { action: "resume" | "withdraw"; requestID: string; revision: number }
 type Harness = {
   current: LabSnapshotOutput
+  newLayout?: boolean
   account?: LabEnginesOutput[number]["account"]
   replies: { interactionID: string; body: ReplyBody }[]
   queue: QueueBody[]
@@ -44,6 +45,165 @@ type Harness = {
 }
 
 test.use({ viewport: { width: 1440, height: 1000 } })
+
+for (const newLayout of [false, true]) {
+  test(`deletes a native task from the ${newLayout ? "new" : "legacy"} timeline and retries a conflict`, async ({
+    page,
+  }) => {
+    const harness: Harness = {
+      current: snapshot(30, { deleteCapability: true }),
+      newLayout,
+      replies: [],
+      queue: [],
+      deliveryReads: [],
+    }
+    await setup(page, harness)
+    const deletes: string[] = []
+    await page.route(`**/api/session/${sessionID}**`, (route) => {
+      if (route.request().method() !== "DELETE") return route.fallback()
+      deletes.push(new URL(route.request().url()).pathname)
+      if (deletes.length === 1) return route.fulfill({ status: 409, json: { message: "Native task changed" } })
+      return route.fulfill({ status: 204 })
+    })
+    await open(page)
+
+    const sidebarTask = page
+      .locator('[data-component="task-sidebar"]')
+      .locator(`[data-slot="workspace-task-row"]:has([data-session-id="${sessionID}"])`)
+    await sidebarTask.click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeEnabled()
+    await page.keyboard.press("Escape")
+
+    await page.locator("[data-session-title]").getByRole("button", { name: "More options", exact: true }).click()
+    await page.getByRole("menuitem", { name: /^Delete(?:\.\.\.)?$/ }).click()
+    const dialog = page.getByRole("dialog")
+    const remove = dialog.getByRole("button", { name: "Delete session", exact: true })
+    const firstRequest = page.waitForRequest(
+      (request) => request.method() === "DELETE" && new URL(request.url()).pathname === `/api/session/${sessionID}`,
+    )
+    await remove.click()
+    await firstRequest
+    await expect(dialog).toBeVisible()
+    await expect(page.getByText("Native task changed", { exact: true })).toBeVisible()
+    expect(deletes).toEqual([`/api/session/${sessionID}`])
+
+    const retryRequest = page.waitForRequest(
+      (request) => request.method() === "DELETE" && new URL(request.url()).pathname === `/api/session/${sessionID}`,
+    )
+    await remove.click()
+    await retryRequest
+    await expect(dialog).toBeHidden()
+    await expect(page).toHaveURL(sessionHref(childID))
+    await expectSessionTitle(page, childTitle)
+    expect(deletes).toEqual([`/api/session/${sessionID}`, `/api/session/${sessionID}`])
+  })
+}
+
+test("keeps native deletion unavailable when the descriptor omits the capability", async ({ page }) => {
+  const harness: Harness = {
+    current: snapshot(31),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  await open(page)
+
+  const sidebarTask = page
+    .locator('[data-component="task-sidebar"]')
+    .locator(`[data-slot="workspace-task-row"]:has([data-session-id="${sessionID}"])`)
+  await sidebarTask.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeDisabled()
+  await page.keyboard.press("Escape")
+  await page.locator("[data-session-title]").getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: /^Delete(?:\.\.\.)?$/ })).toHaveCount(0)
+})
+
+test("keeps native deletion unavailable when ordinary session deletion is disabled", async ({ page }) => {
+  const harness: Harness = {
+    current: snapshot(32, { deleteCapability: true }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  await page.route("**/api/session/capabilities", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          archive: true,
+          restore: true,
+          delete: false,
+          managedWorktree: false,
+          occupancy: { pty: false, v2: false, externalProcesses: false },
+        },
+      },
+    }),
+  )
+  await open(page)
+
+  const sidebarTask = page
+    .locator('[data-component="task-sidebar"]')
+    .locator(`[data-slot="workspace-task-row"]:has([data-session-id="${sessionID}"])`)
+  await sidebarTask.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeDisabled()
+  await page.keyboard.press("Escape")
+  await page.locator("[data-session-title]").getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: /^Delete(?:\.\.\.)?$/ })).toHaveCount(0)
+})
+
+test("keeps ordinary OpenCode deletion available without an external capability", async ({ page }) => {
+  const harness: Harness = {
+    current: snapshot(33, { engine: "opencode" }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  await open(page)
+
+  const sidebarTask = page
+    .locator('[data-component="task-sidebar"]')
+    .locator(`[data-slot="workspace-task-row"]:has([data-session-id="${sessionID}"])`)
+  await sidebarTask.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeEnabled()
+  await page.keyboard.press("Escape")
+  await page.locator("[data-session-title]").getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: /^Delete(?:\.\.\.)?$/ })).toBeVisible()
+})
+
+test("keeps ordinary OpenCode deletion visible but disabled when session deletion is disabled", async ({ page }) => {
+  const harness: Harness = {
+    current: snapshot(34, { engine: "opencode" }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+  }
+  await setup(page, harness)
+  await page.route("**/api/session/capabilities", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          archive: true,
+          restore: true,
+          delete: false,
+          managedWorktree: false,
+          occupancy: { pty: false, v2: false, externalProcesses: false },
+        },
+      },
+    }),
+  )
+  await open(page)
+
+  const sidebarTask = page
+    .locator('[data-component="task-sidebar"]')
+    .locator(`[data-slot="workspace-task-row"]:has([data-session-id="${sessionID}"])`)
+  await sidebarTask.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeDisabled()
+  await page.keyboard.press("Escape")
+  await page.locator("[data-session-title]").getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: /^Delete(?:\.\.\.)?$/ })).toBeDisabled()
+})
 
 test("keeps the ordinary Codex composer free of persistent control chrome", async ({ page }) => {
   const harness: Harness = {
@@ -622,9 +782,22 @@ async function setup(page: Page, harness: Harness) {
       connected: ["codex"],
       default: { providerID: "codex", modelID: "gpt-6" },
     },
-    sessions: [session(sessionID, title), session(childID, childTitle)],
+    sessions: [session(sessionID, title, harness.current.descriptor.engine), session(childID, childTitle)],
     pageMessages: () => ({ items: [] }),
   })
+  await page.route("**/api/session/capabilities", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          archive: true,
+          restore: true,
+          delete: true,
+          managedWorktree: false,
+          occupancy: { pty: false, v2: false, externalProcesses: false },
+        },
+      },
+    }),
+  )
   await page.route("**/lab/**", async (route) => {
     const url = new URL(route.request().url())
     if (url.origin !== server) return route.fallback()
@@ -694,8 +867,8 @@ async function setup(page: Page, harness: Harness) {
     return json(route, { message: `Unexpected Lab request: ${url.pathname}` }, 404)
   })
   await page.addInitScript(
-    ({ directory, server, sessionID }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+    ({ directory, server, sessionID, newLayout }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: newLayout } }))
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({
@@ -709,7 +882,7 @@ async function setup(page: Page, harness: Harness) {
         JSON.stringify([{ type: "session", server, sessionId: sessionID }]),
       )
     },
-    { directory, server, sessionID },
+    { directory, server, sessionID, newLayout: harness.newLayout ?? true },
   )
 }
 
@@ -744,11 +917,21 @@ function snapshot(
     messages?: LabSnapshotOutput["messages"]
     plan?: LabSnapshotOutput["plan"]
     runtimeStatus?: LabDescribeOutput[number]["runtimeStatus"]
+    deleteCapability?: boolean
+    engine?: LabDescribeOutput[number]["engine"]
   } = {},
 ): LabSnapshotOutput {
   const id = options.sessionID ?? sessionID
   return {
-    descriptor: { ...descriptor(id, revision, options.queuePaused), runtimeStatus: options.runtimeStatus ?? "idle" },
+    descriptor: {
+      ...descriptor(id, revision, options.queuePaused),
+      engine: options.engine ?? "codex",
+      runtimeStatus: options.runtimeStatus ?? "idle",
+      capabilities: {
+        ...capabilities,
+        ...(options.deleteCapability === undefined ? {} : { delete: options.deleteCapability }),
+      },
+    },
     messages: options.messages ?? [],
     messageOrder: options.messages?.map((message) => message.id) ?? [],
     partOrder: Object.fromEntries(
@@ -864,10 +1047,10 @@ function delivery(
   }
 }
 
-function session(id: string, sessionTitle: string) {
+function session(id: string, sessionTitle: string, engine: "opencode" | "codex" = "codex") {
   return {
     id,
-    engine: "codex",
+    engine,
     projectID: "project-codex-controls",
     directory,
     title: sessionTitle,
