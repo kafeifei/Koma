@@ -6,7 +6,7 @@ const LOCK_DIRECTORY = "lab-build-sequence.lock"
 const LOCK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 10
 
-export async function withLabBuildSequence<T>(directory: string, build: (sequence: number) => Promise<T>) {
+export async function withKomaBuildSequence<T>(directory: string, build: (sequence: number) => Promise<T>) {
   await mkdir(directory, { recursive: true })
   const lockPath = join(directory, LOCK_DIRECTORY)
   const deadline = Date.now() + LOCK_TIMEOUT_MS
@@ -16,7 +16,8 @@ export async function withLabBuildSequence<T>(directory: string, build: (sequenc
     const statePath = join(directory, STATE_FILE)
     const current = await readSequence(statePath)
     const next = current + 1
-    if (!Number.isSafeInteger(next)) throw new Error(`Lab build sequence exceeded the safe integer limit: ${statePath}`)
+    if (!Number.isSafeInteger(next))
+      throw new Error(`Koma build sequence exceeded the safe integer limit: ${statePath}`)
 
     // Keep the reservation exclusive until every requested build stage succeeds.
     const result = await build(next)
@@ -35,7 +36,7 @@ async function acquireLock(lockPath: string, deadline: number): Promise<void> {
     return
   } catch (error) {
     if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for Lab build sequence lock: ${lockPath}`)
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for Koma build sequence lock: ${lockPath}`)
     await new Promise((resolvePromise) => setTimeout(resolvePromise, RETRY_DELAY_MS))
     return acquireLock(lockPath, deadline)
   }
@@ -51,8 +52,8 @@ async function readSequence(statePath: string) {
   }
 
   const value = contents.trim()
-  if (!/^[1-9]\d*$/.test(value)) throw new Error(`Invalid Lab build sequence state: ${statePath}`)
+  if (!/^[1-9]\d*$/.test(value)) throw new Error(`Invalid Koma build sequence state: ${statePath}`)
   const sequence = Number(value)
-  if (!Number.isSafeInteger(sequence)) throw new Error(`Invalid Lab build sequence state: ${statePath}`)
+  if (!Number.isSafeInteger(sequence)) throw new Error(`Invalid Koma build sequence state: ${statePath}`)
   return sequence
 }

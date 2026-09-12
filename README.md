@@ -5,9 +5,9 @@ A desktop Agent workbench built on [OpenCode](https://github.com/anomalyco/openc
 - [Download the macOS beta](https://github.com/kafeifei/Koma/releases)
 - [Release and signing](./docs/release.md)
 - [Architecture and boundaries](./PROJECT.md)
-- [Desktop and Lab builds](./packages/desktop/README.md)
+- [Desktop and Debug builds](./packages/desktop/README.md)
 - [简体中文](./README.zh.md)
 
 Upstream: [documentation](https://opencode.ai/docs) · [contributing](./CONTRIBUTING.md) · [MIT license](./LICENSE)
 
-Official OpenCode downloads and package-manager releases do not include this fork's Lab changes.
+Official OpenCode downloads and package-manager releases do not include this fork's workbench changes.

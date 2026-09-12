@@ -1,6 +1,6 @@
 # Koma beta 发布
 
-Koma 的公开 macOS beta 使用 Lab 工作台及共享后端，应用名为 `Koma`。内部 channel 仍为 `lab`，沿用 `ai.opencode.lab`、`opencode-lab` 和 `~/.opencode`，保留已有 profile 的任务、配置和 CLI 兼容性。自动更新暂未启用，从 GitHub Releases 手动下载更新。
+Koma 的公开 macOS beta 使用 Lab 工作台及共享后端，应用名为 `Koma`。内部 channel 仍为 `lab`，沿用 `com.kafeifei.koma.debug`（Debug）／`com.kafeifei.koma`（发行包）、`koma` 和 `~/.koma`，保留已有 profile 的任务、配置和 CLI 兼容性。自动更新暂未启用，从 GitHub Releases 手动下载更新。
 
 ## 构建
 
@@ -24,3 +24,5 @@ bun run release:mac
 - 将 `main` 推送到 `kafeifei/Koma`，确认远端 commit 与产物一致，再创建 `v<version>` 标签和 GitHub prerelease。上传经验证的 DMG、ZIP 和校验文件。
 
 GitHub 仓库的 Release 与 Git 标签分开管理。清理上游 Release 不删除上游历史标签，也不改写上游提交历史。
+
+Koma Debug 与 Koma 使用同一工作台和共享后端；`bun run debug` 生成 Koma Debug.app。新 profile 默认使用 `~/.koma`，可用绝对路径 `KOMA_HOME` 指定。已有 Lab profile 保留物理目录和锁，以 `~/.koma` 兼容链接继续使用，不复制数据库；`OPENCODE_HOME` 仍兼容。旧协议标识、存储文件名和上游 OpenCode 引擎包名保留兼容用途。

@@ -8,7 +8,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { EventV2 } from "@opencode-ai/core/event"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { Global } from "@opencode-ai/core/global"
-import { LabInstructions } from "@opencode-ai/core/lab-instructions"
+import { KomaInstructions } from "@opencode-ai/core/koma-instructions"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
@@ -175,7 +175,7 @@ const layer = Layer.effect(
     const credentials = providerCredentials(providers)
     const events = yield* EventV2.Service
     const global = yield* Global.Service
-    const instructions = yield* LabInstructions.Service
+    const instructions = yield* KomaInstructions.Service
     const enabled = process.env.OPENCODE_ENABLE_CODEX === "1"
     const storage = codexStorage({
       state: global.state,
@@ -215,7 +215,7 @@ const layer = Layer.effect(
     } = { closed: false, recovery: Promise.resolve(), authReset: Promise.resolve(), authVersion: 0, lastGeneration: 0 }
     const run = Effect.runPromise
     const globalInstructions = () =>
-      run(instructions.load({ engine: "codex" }).pipe(Effect.map(LabInstructions.render)))
+      run(instructions.load({ engine: "codex" }).pipe(Effect.map(KomaInstructions.render)))
     const generation = (connected: CodexRuntime) => `${epoch}:${connected.generation}`
     const entryEpoch = (entry: Entry) => `${epoch}:${entry.generation ?? state.lastGeneration}`
     const current = (connected: CodexRuntime) =>
@@ -2519,7 +2519,7 @@ export const node = makeGlobalNode({
   service: Service,
   layer,
   deps: [
-    LabInstructions.node,
+    KomaInstructions.node,
     Global.node,
     SessionExternal.node,
     SessionExternalOwnership.node,

@@ -551,7 +551,7 @@ export const dict = {
   "help.tabs.title": "Memperkenalkan Tab",
   "help.tabs.description": "Atur pekerjaan dan sesi aktif Anda dengan tab",
   "help.tabs.date": "14 Juli",
-  "help.tabs.introduction": "OpenCode Desktop kini dirancang dengan tab sebagai pusatnya.",
+  "help.tabs.introduction": "Koma Desktop kini dirancang dengan tab sebagai pusatnya.",
   "help.tabs.sessions":
     "Mulai sesi baru di tab, atau buka sesi yang sudah ada dari proyek Anda. Buka tab baru saat Anda memulai sesuatu yang baru, lalu tutup setelah selesai.",
   "help.tabs.organize":
@@ -680,7 +680,7 @@ export const dict = {
   "toast.project.reloadFailed.title": "Gagal memuat ulang {{project}}",
 
   "toast.update.title": "Pembaruan tersedia",
-  "toast.update.description": "Versi baru OpenCode ({{version}}) sekarang tersedia untuk diinstal.",
+  "toast.update.description": "Versi baru Koma ({{version}}) sekarang tersedia untuk diinstal.",
   "toast.update.action.installRestart": "Instal dan mulai ulang",
   "toast.update.action.notYet": "Nanti saja",
 
@@ -696,7 +696,7 @@ export const dict = {
   "error.page.action.checkUpdates": "Periksa pembaruan",
   "error.page.action.updateTo": "Perbarui ke {{version}}",
   "error.page.circular": "[Sirkular]",
-  "error.page.report.prefix": "Harap laporkan kesalahan ini ke tim OpenCode",
+  "error.page.report.prefix": "Harap laporkan kesalahan ini ke tim Koma",
   "error.page.report.discord": "di Discord",
   "error.page.version": "Versi: {{version}}",
 
@@ -1004,17 +1004,17 @@ export const dict = {
   "settings.general.section.display": "Tampilan",
 
   "settings.general.row.language.title": "Bahasa",
-  "settings.general.row.language.description": "Ubah bahasa tampilan untuk OpenCode",
+  "settings.general.row.language.description": "Ubah bahasa tampilan untuk Koma",
   "settings.general.row.shell.title": "Shell terminal",
   "settings.general.row.shell.description": "Shell yang digunakan oleh terminal dan alat agen",
   "settings.general.row.shell.autoDefault": "Otomatis (Bawaan)",
   "settings.general.row.shell.terminalOnly": "hanya terminal",
   "settings.general.row.appearance.title": "Tampilan",
-  "settings.general.row.appearance.description": "Sesuaikan tampilan OpenCode di perangkat Anda",
+  "settings.general.row.appearance.description": "Sesuaikan tampilan Koma di perangkat Anda",
   "settings.general.row.colorScheme.title": "Skema warna",
-  "settings.general.row.colorScheme.description": "Pilih apakah OpenCode mengikuti tema sistem, terang, atau gelap",
+  "settings.general.row.colorScheme.description": "Pilih apakah Koma mengikuti tema sistem, terang, atau gelap",
   "settings.general.row.theme.title": "Tema",
-  "settings.general.row.theme.description": "Sesuaikan tema OpenCode.",
+  "settings.general.row.theme.description": "Sesuaikan tema Koma.",
   "settings.general.row.font.title": "Font kode",
   "settings.general.row.font.description": "Sesuaikan font yang digunakan di blok kode",
   "settings.general.row.terminalFont.title": "Font terminal",
@@ -1070,7 +1070,7 @@ export const dict = {
   "settings.general.row.releaseNotes.description": "Tampilkan pop-up Apa yang Baru setelah pembaruan",
 
   "settings.updates.row.startup.title": "Periksa pembaruan saat dimulai",
-  "settings.updates.row.startup.description": "Secara otomatis memeriksa pembaruan saat OpenCode diluncurkan",
+  "settings.updates.row.startup.description": "Secara otomatis memeriksa pembaruan saat Koma diluncurkan",
   "settings.updates.row.check.title": "Periksa pembaruan",
   "settings.updates.row.check.description": "Periksa pembaruan secara manual dan instal jika tersedia",
   "settings.updates.action.checkNow": "Periksa sekarang",
@@ -1078,7 +1078,7 @@ export const dict = {
   "settings.updates.action.downloading": "Mengunduh...",
   "settings.updates.action.installing": "Menginstal...",
   "settings.updates.toast.latest.title": "Versi Anda sudah terbaru",
-  "settings.updates.toast.latest.description": "Anda menjalankan versi terbaru OpenCode.",
+  "settings.updates.toast.latest.description": "Anda menjalankan versi terbaru Koma.",
   "sound.option.none": "Tidak ada",
   "sound.option.alert01": "Peringatan 01",
   "sound.option.alert02": "Peringatan 02",

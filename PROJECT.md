@@ -46,7 +46,7 @@ Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Desktop、
 
 Koma 首个 beta 沿用 Lab 的内部身份、协议和存储布局，以保持已有任务与配置的兼容性；应用展示名为 Koma。
 
-- Lab 身份为 `ai.opencode.lab`，协议为 `opencode-lab`，默认数据根为 `~/.opencode`。同一 profile 只有一个共享后端，桌面和本 fork 的 CLI 通过认证 loopback 接入；官方渠道的数据与登录不主动迁入。
+- Lab 身份为 `com.kafeifei.koma.debug`（Debug）／`com.kafeifei.koma`（发行包），协议为 `koma`，默认数据根为 `~/.koma`。同一 profile 只有一个共享后端，桌面和本 fork 的 CLI 通过认证 loopback 接入；官方渠道的数据与登录不主动迁入。
 - 关闭窗口、断开 Web 或 CLI 不停止后端；完整退出桌面时，活动任务或状态查询失败会触发确认，确认后停止所连接的本地后端及其任务。
 - 本地 Web 网关只监听 loopback。Remote 是显式开启、默认仅所属账号可访问的独立隧道；远端任务仍属于原设备的后端，网站不转发工作台流量。
 - profile 隔离覆盖应用与后端状态，不是文件系统沙箱。项目目录仍是真实文件系统；原生 Codex 使用独立 home，模型配置与凭据接入不改变原生执行归属。
@@ -60,3 +60,5 @@ Lab 的差异集中在工作台、宿主接入和独立适配模块。数据一�
 依赖方向保持：Schema → Core／Protocol → Server；Client 运行时代码仅依赖 Schema／Protocol，`sdk-next` 组合 Client、Core 和 Server。公开 API 的客户端由契约生成。
 
 上游 Session 执行与上下文不变量见 [CONTEXT.md](./CONTEXT.md) 和 [Session API](./specs/v2/session.md)。原生 Codex 通过独立宿主接入，不进入 OpenCode 的模型 Provider 或执行循环；当前范围不包含 Cindy／ACP 主架构、Claude／DSH 原生接入、跨引擎调度或云端团队平台。
+
+Koma Debug 与 Koma 使用同一工作台和共享后端；`bun run debug` 生成 Koma Debug.app。新 profile 默认使用 `~/.koma`，可用绝对路径 `KOMA_HOME` 指定。已有 Lab profile 保留物理目录和锁，以 `~/.koma` 兼容链接继续使用，不复制数据库；`OPENCODE_HOME` 仍兼容。旧协议标识、存储文件名和上游 OpenCode 引擎包名保留兼容用途。

@@ -617,7 +617,7 @@ export const dict = {
   "help.tabs.title": "分頁功能介紹",
   "help.tabs.description": "使用分頁整理工作和進行中的工作階段",
   "help.tabs.date": "7 月 14 日",
-  "help.tabs.introduction": "OpenCode Desktop 現在以分頁為核心。",
+  "help.tabs.introduction": "Koma Desktop 現在以分頁為核心。",
   "help.tabs.sessions":
     "在分頁中開始新的工作階段，或從任一專案開啟現有的工作階段。開始新工作時請開啟新分頁，完成後再將其關閉。",
   "help.tabs.organize":
@@ -739,7 +739,7 @@ export const dict = {
   "toast.session.listFailed.title": "無法載入 {{project}} 的工作階段",
 
   "toast.update.title": "有可用更新",
-  "toast.update.description": "OpenCode 有新版本 ({{version}}) 可安裝。",
+  "toast.update.description": "Koma 有新版本 ({{version}}) 可安裝。",
   "toast.update.action.installRestart": "安裝並重新啟動",
   "toast.update.action.notYet": "稍後",
 
@@ -754,7 +754,7 @@ export const dict = {
   "error.page.action.checking": "檢查中...",
   "error.page.action.checkUpdates": "檢查更新",
   "error.page.action.updateTo": "更新到 {{version}}",
-  "error.page.report.prefix": "請將此錯誤回報給 OpenCode 團隊",
+  "error.page.report.prefix": "請將此錯誤回報給 Koma 團隊",
   "error.page.report.discord": "在 Discord 上",
   "error.page.version": "版本: {{version}}",
 
@@ -968,17 +968,17 @@ export const dict = {
   "settings.general.section.display": "顯示",
 
   "settings.general.row.language.title": "語言",
-  "settings.general.row.language.description": "變更 OpenCode 的顯示語言",
+  "settings.general.row.language.description": "變更 Koma 的顯示語言",
   "settings.general.row.shell.title": "終端機 Shell",
   "settings.general.row.shell.description": "選擇終端機使用的 Shell。相容的 Shell 也會用於代理程式工具呼叫。",
   "settings.general.row.shell.autoDefault": "自動（預設）",
   "settings.general.row.shell.terminalOnly": "僅限終端機",
   "settings.general.row.appearance.title": "外觀",
-  "settings.general.row.appearance.description": "自訂 OpenCode 在你的裝置上的外觀",
+  "settings.general.row.appearance.description": "自訂 Koma 在你的裝置上的外觀",
   "settings.general.row.colorScheme.title": "配色方案",
-  "settings.general.row.colorScheme.description": "選擇 OpenCode 要跟隨系統、淺色或深色主題",
+  "settings.general.row.colorScheme.description": "選擇 Koma 要跟隨系統、淺色或深色主題",
   "settings.general.row.theme.title": "主題",
-  "settings.general.row.theme.description": "自訂 OpenCode 的主題。",
+  "settings.general.row.theme.description": "自訂 Koma 的主題。",
   "settings.general.row.font.title": "程式碼字型",
   "settings.general.row.font.description": "自訂程式碼區塊使用的字型",
   "settings.general.row.terminalFont.title": "終端機字型",
@@ -1026,7 +1026,7 @@ export const dict = {
   "settings.general.row.releaseNotes.description": "更新後顯示「新功能」彈出視窗",
 
   "settings.updates.row.startup.title": "啟動時檢查更新",
-  "settings.updates.row.startup.description": "在 OpenCode 啟動時自動檢查更新",
+  "settings.updates.row.startup.description": "在 Koma 啟動時自動檢查更新",
   "settings.updates.row.check.title": "檢查更新",
   "settings.updates.row.check.description": "手動檢查更新並在有更新時安裝",
   "settings.updates.action.checkNow": "立即檢查",
@@ -1034,7 +1034,7 @@ export const dict = {
   "settings.updates.action.downloading": "下載中...",
   "settings.updates.action.installing": "安裝中...",
   "settings.updates.toast.latest.title": "已是最新版本",
-  "settings.updates.toast.latest.description": "你正在使用最新版本的 OpenCode。",
+  "settings.updates.toast.latest.description": "你正在使用最新版本的 Koma。",
 
   "sound.option.none": "無",
   "sound.option.alert01": "警報 01",

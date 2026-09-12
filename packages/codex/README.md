@@ -50,7 +50,7 @@ Lab 持久接收、原生 RPC 接收和原生历史确认是三个边界。`acce
 
 原生 plan 只有实时通知，没有重连回放源；Host 启用 `update_plan` 工具，未改写原生配置文件或强制启用可选子代理工具。
 
-[storage](src/storage.ts) 为原生历史提供独立 home 和稳定 scope；transport 向子进程设置 `CODEX_HOME`／`CODEX_SQLITE_HOME`。[认证端口](src/auth.ts) 保留已有原生账号，无原生登录时可接入宿主 OpenAI OAuth，刷新归同一后端凭据所有者，token 不进入 UI。[供应商端口](src/providers.ts)／[凭据适配](src/provider-credentials.ts) 只提供模型目录和原生 provider 配置，实际模型调用仍由 Codex 完成。全局说明经宿主 LabInstructions 提供，项目指令、skills、MCP 和工具运行仍由 Codex 管理。
+[storage](src/storage.ts) 为原生历史提供独立 home 和稳定 scope；transport 向子进程设置 `CODEX_HOME`／`CODEX_SQLITE_HOME`。[认证端口](src/auth.ts) 保留已有原生账号，无原生登录时可接入宿主 OpenAI OAuth，刷新归同一后端凭据所有者，token 不进入 UI。[供应商端口](src/providers.ts)／[凭据适配](src/provider-credentials.ts) 只提供模型目录和原生 provider 配置，实际模型调用仍由 Codex 完成。全局说明经宿主 KomaInstructions 提供，项目指令、skills、MCP 和工具运行仍由 Codex 管理。
 
 ## 许可
 

@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { withLabBuildSequence } from "./lab-build-sequence"
+import { withKomaBuildSequence } from "./koma-build-sequence"
 
-describe("withLabBuildSequence", () => {
+describe("withKomaBuildSequence", () => {
   test("starts at one and increments shared state", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lab-build-sequence-"))
     try {
-      expect(await withLabBuildSequence(directory, async (sequence) => sequence)).toBe(1)
-      expect(await withLabBuildSequence(directory, async (sequence) => sequence)).toBe(2)
+      expect(await withKomaBuildSequence(directory, async (sequence) => sequence)).toBe(1)
+      expect(await withKomaBuildSequence(directory, async (sequence) => sequence)).toBe(2)
       expect(await readFile(join(directory, "lab-build-sequence"), "utf8")).toBe("2\n")
     } finally {
       await rm(directory, { recursive: true, force: true })
@@ -20,7 +20,7 @@ describe("withLabBuildSequence", () => {
     const directory = await mkdtemp(join(tmpdir(), "lab-build-sequence-"))
     try {
       const values = await Promise.all(
-        Array.from({ length: 8 }, () => withLabBuildSequence(directory, async (sequence) => sequence)),
+        Array.from({ length: 8 }, () => withKomaBuildSequence(directory, async (sequence) => sequence)),
       )
       expect(values.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     } finally {
@@ -32,8 +32,8 @@ describe("withLabBuildSequence", () => {
     const directory = await mkdtemp(join(tmpdir(), "lab-build-sequence-"))
     try {
       await writeFile(join(directory, "lab-build-sequence"), "not-a-sequence\n")
-      await expect(withLabBuildSequence(directory, async (sequence) => sequence)).rejects.toThrow(
-        "Invalid Lab build sequence state",
+      await expect(withKomaBuildSequence(directory, async (sequence) => sequence)).rejects.toThrow(
+        "Invalid Koma build sequence state",
       )
     } finally {
       await rm(directory, { recursive: true, force: true })
@@ -45,14 +45,14 @@ describe("withLabBuildSequence", () => {
     try {
       await writeFile(join(directory, "lab-build-sequence"), "42\n")
       await expect(
-        withLabBuildSequence(directory, async (sequence) => {
+        withKomaBuildSequence(directory, async (sequence) => {
           expect(sequence).toBe(43)
           expect(await readFile(join(directory, "lab-build-sequence"), "utf8")).toBe("42\n")
           throw new Error("compiler failed")
         }),
       ).rejects.toThrow("compiler failed")
       expect(await readFile(join(directory, "lab-build-sequence"), "utf8")).toBe("42\n")
-      expect(await withLabBuildSequence(directory, async (sequence) => sequence)).toBe(43)
+      expect(await withKomaBuildSequence(directory, async (sequence) => sequence)).toBe(43)
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
@@ -63,7 +63,7 @@ describe("withLabBuildSequence", () => {
     const started = Promise.withResolvers<void>()
     const finish = Promise.withResolvers<void>()
     try {
-      const first = withLabBuildSequence(directory, async (sequence) => {
+      const first = withKomaBuildSequence(directory, async (sequence) => {
         expect(sequence).toBe(1)
         started.resolve()
         await finish.promise
@@ -71,7 +71,7 @@ describe("withLabBuildSequence", () => {
       })
       const failed = first.catch((error: Error) => error.message)
       await started.promise
-      const second = withLabBuildSequence(directory, async (sequence) => sequence)
+      const second = withKomaBuildSequence(directory, async (sequence) => sequence)
       finish.resolve()
       expect(await failed).toBe("build failed")
       expect(await second).toBe(1)

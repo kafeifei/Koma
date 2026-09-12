@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
 import { backgroundStateCandidates } from "./background-state"
-import { legacyLabBackendEnvironment } from "./lab-environment"
+import { legacyKomaBackendEnvironment } from "./koma-environment"
 
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
@@ -21,7 +21,7 @@ export async function startBackgroundCli(
   shellStateHome?: string,
   options: { isolated?: boolean } = {},
 ) {
-  const unified = process.env.OPENCODE_HOME ? legacyLabBackendEnvironment(process.env.OPENCODE_HOME) : undefined
+  const unified = process.env.OPENCODE_HOME ? legacyKomaBackendEnvironment(process.env.OPENCODE_HOME) : undefined
   const stateHome = unified?.XDG_STATE_HOME ?? process.env.XDG_STATE_HOME
   const bundled = app.isPackaged
     ? join(process.resourcesPath, executableName())
@@ -92,7 +92,7 @@ async function run(
 ) {
   logger.log("v2 CLI command started", { binary, args })
   const env = { ...process.env }
-  if (env.OPENCODE_HOME) Object.assign(env, legacyLabBackendEnvironment(env.OPENCODE_HOME))
+  if (env.OPENCODE_HOME) Object.assign(env, legacyKomaBackendEnvironment(env.OPENCODE_HOME))
   if (options.stateHome !== undefined) env.XDG_STATE_HOME = options.stateHome
   if (options.stateHome === undefined && !env.OPENCODE_HOME) delete env.XDG_STATE_HOME
   return execFileAsync(binary, args, { env, windowsHide: true }).then(

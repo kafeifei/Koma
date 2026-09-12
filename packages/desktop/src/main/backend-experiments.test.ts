@@ -2,8 +2,8 @@ import { expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { LabEnvironment } from "@opencode-ai/core/lab-environment"
-import { LabExperiments } from "@opencode-ai/core/lab-experiments"
+import { KomaEnvironment } from "@opencode-ai/core/koma-environment"
+import { KomaExperiments } from "@opencode-ai/core/koma-experiments"
 import { createBackendExperiments } from "./backend-experiments"
 
 test("saves the upstream startup flag without changing the running backend", async () => {
@@ -25,7 +25,7 @@ test("saves the upstream startup flag without changing the running backend", asy
   })
   try {
     const inherited = { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "true" }
-    LabEnvironment.prepare(inherited, root)
+    KomaEnvironment.prepare(inherited, root)
     expect(inherited.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("true")
     expect(await controller.getState()).toEqual({ backgroundSubagents: false, runningBackgroundSubagents: false })
     expect(await controller.setBackgroundSubagents(true)).toEqual({
@@ -33,7 +33,7 @@ test("saves the upstream startup flag without changing the running backend", asy
       runningBackgroundSubagents: false,
     })
     const environment: NodeJS.ProcessEnv = { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false" }
-    LabEnvironment.prepare(environment, root)
+    KomaEnvironment.prepare(environment, root)
     expect(environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("true")
     active = true
     expect(await controller.getState()).toEqual({ backgroundSubagents: true, runningBackgroundSubagents: true })
@@ -41,7 +41,7 @@ test("saves the upstream startup flag without changing the running backend", asy
       backgroundSubagents: false,
       runningBackgroundSubagents: true,
     })
-    LabEnvironment.prepare(environment, root)
+    KomaEnvironment.prepare(environment, root)
     expect(environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("false")
     expect(requests.every((request) => request === "GET /experimental/capabilities")).toBe(true)
   } finally {
@@ -53,11 +53,11 @@ test("saves the upstream startup flag without changing the running backend", asy
 test("invalid settings are reported without overwriting them", async () => {
   const root = await mkdtemp(join(tmpdir(), "lab-experiments-invalid-"))
   try {
-    await LabExperiments.setBackgroundSubagents(root, true)
+    await KomaExperiments.setBackgroundSubagents(root, true)
     const file = join(root, "config/experiments.json")
     await writeFile(file, '{"backgroundSubagents":"false"}')
-    expect(() => LabExperiments.read(root)).toThrow("Invalid Lab experimental settings")
-    await expect(LabExperiments.setBackgroundSubagents(root, false)).rejects.toThrow()
+    expect(() => KomaExperiments.read(root)).toThrow("Invalid Lab experimental settings")
+    await expect(KomaExperiments.setBackgroundSubagents(root, false)).rejects.toThrow()
     expect(await readFile(file, "utf8")).toBe('{"backgroundSubagents":"false"}')
   } finally {
     await rm(root, { recursive: true, force: true })

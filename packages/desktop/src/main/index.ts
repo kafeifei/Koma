@@ -8,6 +8,8 @@ import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog } from "electron"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
+import { KomaProfile } from "@opencode-ai/core/koma-profile"
+import { keychainName, saveKeychainName } from "./koma-keychain"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -50,11 +52,11 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { nativeT, setNativeTranslations } from "./native-translations"
-import { prepareLabDesktopHome, prepareLabEnvironment } from "./lab-environment"
+import { prepareKomaDesktopHome, prepareKomaEnvironment } from "./koma-environment"
 import { createRemoteAccess } from "./remote-access"
 import { createWebEntryController } from "./web-entry-controller"
 import { initializeRuntimeResources, runtimePath } from "./resources"
-import { ensureLabBackend } from "./lab-backend"
+import { ensureKomaBackend } from "./koma-backend"
 import { createShutdownController } from "./shutdown-controller"
 import { createBackendExperiments } from "./backend-experiments"
 import { confirmBackendShutdown } from "./shutdown-confirmation"
@@ -79,9 +81,7 @@ function useEnvProxy() {
 
 function emitDeepLinks(urls: string[]) {
   if (urls.length === 0) return
-  const normalized = urls.map((url) =>
-    APP_PROTOCOL === "opencode" ? url : url.replace(`${APP_PROTOCOL}://`, "opencode://"),
-  )
+  const normalized = urls.map((url) => url.replace(/^(?:koma|opencode-lab):\/\//, "opencode://"))
   pendingDeepLinks.push(...normalized)
   const win = getLastFocusedWindow()
   if (win) sendDeepLinks(win, normalized)
@@ -141,28 +141,29 @@ const main = Effect.gen(function* () {
     process.env.XDG_STATE_HOME = join(root, "state")
     return root
   })()
-  app.setName(app.isPackaged || CHANNEL === "lab" ? APP_NAME : "OpenCode Dev")
+  app.setName(APP_NAME)
   app.setAppUserModelId(appId)
-  const labRoot =
-    CHANNEL === "lab" && !onboardingTestRoot ? (process.env.OPENCODE_HOME ?? join(homedir(), ".opencode")) : undefined
+  const labRoot = CHANNEL === "lab" && !onboardingTestRoot ? KomaProfile.resolveHome() : undefined
   if (labRoot) {
     const prepared = yield* Effect.promise(async () => {
       try {
         const root = StoragePaths.resolve(labRoot).root
         const paths = {
           root,
-          legacyRoot:
-            root === join(homedir(), ".opencode") ? join(app.getPath("appData"), "OpenCode Lab") : `${root}.legacy`,
+          legacyRoot: KomaProfile.isDefault(root) ? join(app.getPath("appData"), "OpenCode Lab") : `${root}.legacy`,
         }
+        const storageName = keychainName(root, paths.legacyRoot)
+        if (process.platform === "darwin") app.setName(storageName)
         if (
-          !(await prepareLabDesktopHome({
+          !(await prepareKomaDesktopHome({
             ...paths,
             setUserData: (path) => app.setPath("userData", path),
             acquireLock: () => app.requestSingleInstanceLock(),
           }))
         )
           return false
-        prepareLabEnvironment(process.env, root)
+        prepareKomaEnvironment(process.env, root)
+        saveKeychainName(root, storageName)
         return true
       } catch (error) {
         dialog.showErrorBox(
@@ -208,12 +209,12 @@ const main = Effect.gen(function* () {
       },
     },
   )
-  let startingLabBackend: ReturnType<typeof ensureLabBackend> | undefined
+  let startingKomaBackend: ReturnType<typeof ensureKomaBackend> | undefined
   let stopping: Promise<void> | undefined
   const stopSidecars = () => {
     return (stopping ??= (async () => {
       wslServers.stopAll()
-      if (startingLabBackend) await startingLabBackend.then((backend) => backend.listener.stop())
+      if (startingKomaBackend) await startingKomaBackend.then((backend) => backend.listener.stop())
       await Promise.all([webEntry?.stop(), remoteAccess?.stop(), killSidecar()])
     })())
   }
@@ -248,9 +249,9 @@ const main = Effect.gen(function* () {
   const shutdown = createShutdownController({
     confirm: () =>
       confirmBackendShutdown({
-        backend: async () => (startingLabBackend ? (await startingLabBackend).connection : undefined),
+        backend: async () => (startingKomaBackend ? (await startingKomaBackend).connection : undefined),
         showDialog: (options) => dialog.showMessageBox(options),
-        warn: (error) => logger.warn("failed to check Lab tasks before quitting", error),
+        warn: (error) => logger.warn("failed to check Koma tasks before quitting", error),
       }),
     stop: stopSidecars,
     quit: () => app.quit(),
@@ -280,7 +281,7 @@ const main = Effect.gen(function* () {
   })
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
-  if (labRoot) prepareLabEnvironment(process.env, labRoot)
+  if (labRoot) prepareKomaEnvironment(process.env, labRoot)
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith(`${APP_PROTOCOL}://`))
@@ -323,6 +324,7 @@ const main = Effect.gen(function* () {
   }
 
   yield* Effect.promise(() => app.whenReady())
+  app.setName(APP_NAME)
 
   if (!TEST_ONBOARDING && (!labRoot || StoragePaths.resolve(labRoot).root === join(homedir(), ".opencode"))) migrate()
   yield* Effect.promise(() => cleanupStoreFiles(app.getPath("userData"))).pipe(
@@ -426,14 +428,14 @@ const main = Effect.gen(function* () {
     useEnvProxy()
 
     if (CHANNEL === "lab" && labRoot) {
-      logger.log("connecting shared Lab backend")
+      logger.log("connecting shared Koma backend")
       const sidecar = yield* Effect.promise(
         () =>
-          (startingLabBackend = ensureLabBackend({
+          (startingKomaBackend = ensureKomaBackend({
             root: labRoot,
             source: join(
               app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
-              process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab",
+              process.platform === "win32" ? "koma.exe" : "koma",
             ),
             logger,
           })),

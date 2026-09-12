@@ -5,13 +5,13 @@ import { join, resolve, sep } from "node:path"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
-export async function installLabCli(input: { source: string; root: string; linkDirectory?: string }) {
+export async function installKomaCli(input: { source: string; root: string; linkDirectory?: string }) {
   const root = StoragePaths.resolve(input.root).root
   const lease = await StorageMigration.lock(root)
   try {
-    const name = process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab"
+    const name = process.platform === "win32" ? "koma.exe" : "koma"
     const directory = join(root, "bin")
-    const managed = join(directory, ".opencode-lab")
+    const managed = join(directory, ".koma")
     const target = join(directory, name)
     const requested = input.linkDirectory ? join(resolve(input.linkDirectory), name) : undefined
     const link = requested === target ? undefined : requested
@@ -41,7 +41,7 @@ export async function installLabCli(input: { source: string; root: string; linkD
         await rename(join(staging, "version"), version)
       }
       const candidate = join(staging, "current")
-      await symlink(join(".opencode-lab", hash, name), candidate, "file")
+      await symlink(join(".koma", hash, name), candidate, "file")
       if (link) {
         await mkdir(resolve(input.linkDirectory!), { recursive: true })
         created = await symlink(target, link, "file").then(
@@ -87,10 +87,10 @@ async function checkTarget(directory: string, name: string) {
   if (!current.isSymbolicLink()) throw new Error(`CLI destination already exists: ${target}`)
   const link = await readlink(target)
   const parts = link.split(sep)
-  if (parts.length !== 3 || parts[0] !== ".opencode-lab" || !/^[a-f0-9]{64}$/.test(parts[1]!) || parts[2] !== name) {
-    throw new Error(`CLI destination is not managed by OpenCode Lab: ${target}`)
+  if (parts.length !== 3 || parts[0] !== ".koma" || !/^[a-f0-9]{64}$/.test(parts[1]!) || parts[2] !== name) {
+    throw new Error(`CLI destination is not managed by Koma: ${target}`)
   }
-  await checkDirectory(join(directory, ".opencode-lab", parts[1]!))
+  await checkDirectory(join(directory, ".koma", parts[1]!))
   await checkBinary(join(directory, link), parts[1]!)
   return current
 }

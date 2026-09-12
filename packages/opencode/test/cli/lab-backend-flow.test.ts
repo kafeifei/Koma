@@ -26,7 +26,7 @@ async function fixture() {
   // Exercise the same flow against a packaged Lab executable when one is supplied.
   const command = process.env.OPENCODE_LAB_TEST_BINARY
     ? [path.resolve(process.env.OPENCODE_LAB_TEST_BINARY)]
-    : [process.execPath, path.join(import.meta.dir, "../../src/lab.ts")]
+    : [process.execPath, path.join(import.meta.dir, "../../src/koma.ts")]
   const children: Bun.Subprocess<"ignore", "pipe", "pipe">[] = []
   const spawn = (args: string[]) => {
     const child = Bun.spawn(args, { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" })

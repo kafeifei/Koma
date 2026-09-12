@@ -6,10 +6,10 @@ import { WorktreeLifecycle } from "@/worktree/lifecycle"
 import { eq, inArray, isNull } from "drizzle-orm"
 import { Effect } from "effect"
 
-export * as LabShutdownState from "./shutdown-state"
+export * as KomaShutdownState from "./shutdown-state"
 
 /** Read durable and process-local evidence without loading any native runtime. */
-export const read = Effect.fn("LabShutdownState.read")(function* (input: {
+export const read = Effect.fn("KomaShutdownState.read")(function* (input: {
   readonly database: Database.Interface
   readonly execution: Pick<SessionExecution.Interface, "active">
   readonly lifecycle: WorktreeLifecycle.Interface

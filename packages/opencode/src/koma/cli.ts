@@ -3,20 +3,20 @@ import type { Argv } from "yargs"
 import path from "node:path"
 import { stat } from "node:fs/promises"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import type { LabBackend } from "@opencode-ai/core/lab-backend"
+import type { KomaBackend } from "@opencode-ai/core/koma-backend"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
-import { LabEnvironment } from "@opencode-ai/core/lab-environment"
+import { KomaEnvironment } from "@opencode-ai/core/koma-environment"
 import { Identifier } from "@/id/id"
 
 const request = { throwOnError: true } as const
 
-/** Lab commands are clients of the profile owner; never fall back to an embedded server. */
+/** Koma commands are clients of the profile owner; never fall back to an embedded server. */
 export async function run(
   args: string[],
-  connection: LabBackend.Connection | (() => Promise<LabBackend.Connection>),
+  connection: KomaBackend.Connection | (() => Promise<KomaBackend.Connection>),
   root: string,
 ): Promise<void> {
-  const resolved = { connection: undefined as Promise<LabBackend.Connection> | undefined }
+  const resolved = { connection: undefined as Promise<KomaBackend.Connection> | undefined }
   const backend = () =>
     (resolved.connection ??= typeof connection === "function" ? connection() : Promise.resolve(connection))
   const client = async (directory = process.cwd()) => {
@@ -49,13 +49,11 @@ export async function run(
     "uninstall",
   ])
   if (args[0] && unsupported.has(args[0])) {
-    throw new Error(
-      `opencode-lab ${args[0]} is not available through the shared backend; no local fallback was started`,
-    )
+    throw new Error(`koma ${args[0]} is not available through the shared backend; no local fallback was started`)
   }
 
   await yargs(args)
-    .scriptName("opencode-lab")
+    .scriptName("koma")
     .exitProcess(false)
     .strict()
     .version(false)
@@ -63,10 +61,10 @@ export async function run(
     .fail((message, error) => {
       throw error ?? new Error(message)
     })
-    .option("dir", { type: "string", describe: "project directory on this Lab backend" })
+    .option("dir", { type: "string", describe: "project directory on this Koma backend" })
     .command(
       "$0 [project]",
-      "open the Lab terminal interface",
+      "open the Koma terminal interface",
       (cli) =>
         resumeOptions(cli)
           .positional("project", { type: "string" })
@@ -83,7 +81,7 @@ export async function run(
         if (options.session) await (await client(directory)).session.get({ sessionID: options.session }, request)
         const remote = await backend()
         process.chdir(directory)
-        LabEnvironment.prepare(process.env, root)
+        KomaEnvironment.prepare(process.env, root)
         // Reuse Attach's UI components without its Session schema import or the
         // mini adapter, which loads the backend AppRuntime.
         const { TuiConfig } = await import("@/config/tui")
@@ -111,7 +109,7 @@ export async function run(
     )
     .command(
       "run [message..]",
-      "send a prompt through the Lab backend",
+      "send a prompt through the Koma backend",
       (cli) =>
         resumeOptions(cli)
           .positional("message", { type: "string", array: true })
@@ -296,7 +294,7 @@ export async function run(
     .parseAsync()
 }
 
-function authorization(connection: LabBackend.Connection) {
+function authorization(connection: KomaBackend.Connection) {
   return { Authorization: `Basic ${Buffer.from(`${connection.username}:${connection.password}`).toString("base64")}` }
 }
 
@@ -344,10 +342,10 @@ async function consume(
     if (structured) console.log(JSON.stringify(event))
     if (event.type === "permission.asked") {
       console.error(
-        `Waiting for permission ${event.properties.id}. Answer in OpenCode Lab or run: opencode-lab permission reply ${event.properties.id} once|always|reject --session ${event.properties.sessionID}`,
+        `Waiting for permission ${event.properties.id}. Answer in Koma or run: koma permission reply ${event.properties.id} once|always|reject --session ${event.properties.sessionID}`,
       )
     }
-    if (event.type === "question.asked") console.error("Waiting for your answer in OpenCode Lab")
+    if (event.type === "question.asked") console.error("Waiting for your answer in Koma")
     if (event.properties.sessionID !== sessionID) continue
     if (event.type === "message.updated" && event.properties.info.id === messageID) state.visible = true
     if (event.type === "session.error")
