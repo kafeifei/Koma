@@ -29,8 +29,9 @@ export function prepare(environment: NodeJS.ProcessEnv, root: string) {
     OPENCODE_ENABLE_CODEX: "1",
   })
   const experiments = KomaExperiments.read(root)
-  if (experiments.backgroundSubagents !== undefined)
-    environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS = String(experiments.backgroundSubagents)
+  environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS = String(
+    experiments.backgroundSubagents ?? environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? true,
+  )
   return { OPENCODE_HOME: paths.root }
 }
 

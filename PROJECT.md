@@ -62,3 +62,11 @@ Lab 的差异集中在工作台、宿主接入和独立适配模块。数据一�
 上游 Session 执行与上下文不变量见 [CONTEXT.md](./CONTEXT.md) 和 [Session API](./specs/v2/session.md)。原生 Codex 通过独立宿主接入，不进入 OpenCode 的模型 Provider 或执行循环；当前范围不包含 Cindy／ACP 主架构、Claude／DSH 原生接入、跨引擎调度或云端团队平台。
 
 Koma Debug 与 Koma 使用同一工作台和共享后端；`bun run debug` 生成 Koma Debug.app。新 profile 默认使用 `~/.koma`，可用绝对路径 `KOMA_HOME` 指定。已有 Lab profile 保留物理目录和锁，以 `~/.koma` 兼容链接继续使用，不复制数据库；`OPENCODE_HOME` 仍兼容。旧协议标识、存储文件名和上游 OpenCode 引擎包名保留兼容用途。
+
+## 新安装默认值
+
+- 默认 profile 为 `~/.koma`；已有 Lab 数据保留原位置并通过兼容链接接入。
+- Codex 与 OpenCode 的可用模型汇总到同一 Provider 模型管理目录，共享显隐偏好；原生 Codex 模型属于 Codex Provider，执行 ID 保持兼容，各引擎按支持能力筛选。
+- 后台子代理默认开启，显式关闭的设置或环境覆盖继续有效。
+- 新任务默认开启 Worktree；未保存分支选择时依次选已有的 `main`、`dev`、当前分支。分支选择与工作目录隔离分别控制。
+- 账号、密钥、历史任务、项目级权限和个人模型偏好不内置到应用包。

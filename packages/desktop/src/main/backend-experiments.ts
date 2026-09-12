@@ -29,7 +29,7 @@ export function createBackendExperiments(input: {
       })
       .catch(() => null)
     return {
-      backgroundSubagents: saved.backgroundSubagents ?? running ?? false,
+      backgroundSubagents: saved.backgroundSubagents ?? running ?? true,
       runningBackgroundSubagents: running,
     }
   }

@@ -81,3 +81,21 @@ test("unavailable backend does not make saved settings appear active", async () 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("a bare Koma profile enables background subagents without creating personal configuration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "koma-default-experiments-"))
+  try {
+    const environment: NodeJS.ProcessEnv = {}
+    KomaEnvironment.prepare(environment, root)
+    expect(environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("true")
+    expect(KomaExperiments.read(root)).toEqual({})
+    const disabled = { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false" }
+    KomaEnvironment.prepare(disabled, root)
+    expect(disabled.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("false")
+    await KomaExperiments.setBackgroundSubagents(root, false)
+    KomaEnvironment.prepare(environment, root)
+    expect(environment.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe("false")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

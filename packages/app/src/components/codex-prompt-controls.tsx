@@ -61,25 +61,18 @@ export function createCodexPromptController(input: {
   const engine = () => input.sessionEngine() ?? input.prompt.engine.current()
   const codex = () => external().data.engines?.find((item) => item.id === "codex")
   const settings = () => desiredCodexSettings(descriptor(), input.prompt.codex.current())
-  const displayedModel = (model: CodexModel) => {
-    const shared =
-      model.provider && model.modelID
-        ? models.find({ providerID: model.provider.id, modelID: model.modelID })
-        : undefined
-    return shared
-      ? { ...model, name: shared.name, provider: { id: shared.provider.id, name: shared.provider.name } }
-      : model
-  }
+  const options = () =>
+    models.codex().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.modelID }))
   const model = (): CodexModel | undefined => {
     const modelID = settings().model
-    if (!modelID) return input.sessionID() ? undefined : codex()?.models.find((item) => item.default)
-    return displayedModel(
-      codex()?.models.find((item) => item.id === modelID) ?? {
+    if (!modelID) return input.sessionID() ? undefined : (options().find((item) => item.default) ?? options()[0])
+    return (
+      models.codex().find((item) => item.id === modelID) ?? {
         id: modelID,
         name: modelID,
         default: false,
         efforts: [],
-      },
+      }
     )
   }
   const effort = () => settings().effort ?? model()?.defaultEffort
@@ -87,6 +80,7 @@ export function createCodexPromptController(input: {
   const canSubmit = () => {
     if (engine() !== "codex") return true
     if (!external().data.engines) return false
+    if (!input.sessionID() && (!models.ready() || !model())) return false
     if (!canSubmitWithCodexAccount(codex()?.account, model())) return false
     const sessionID = input.sessionID()
     if (!sessionID) return codex()?.available === true && codex()?.capabilities.prompt === true
@@ -94,6 +88,17 @@ export function createCodexPromptController(input: {
     if (!current?.capabilities.prompt) return false
     return !["disconnected", "systemError", "bindingUnavailable"].includes(current.runtimeStatus)
   }
+
+  createEffect(() => {
+    if (input.sessionID() || engine() !== "codex" || !input.prompt.ready() || !models.ready() || settings().model)
+      return
+    const selected = model()
+    if (!selected) return
+    input.prompt.codex.set(
+      { ...settings(), model: selected.id, effort: settings().effort ?? selected.defaultEffort },
+      { explicit: false },
+    )
+  })
 
   let enginesRequest: Promise<LabEnginesOutput> | undefined
   const refreshEngines = () => {
@@ -157,15 +162,7 @@ export function createCodexPromptController(input: {
       },
     },
     model: {
-      options: () =>
-        (codex()?.models ?? [])
-          .filter(
-            (model) =>
-              !model.provider ||
-              !model.modelID ||
-              models.visible({ providerID: model.provider.id, modelID: model.modelID }),
-          )
-          .map(displayedModel),
+      options,
       current: model,
       select(value: CodexModel | undefined) {
         if (!value || value.id === model()?.id) return
