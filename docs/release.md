@@ -9,7 +9,7 @@ Koma 的公开 macOS beta 使用 Lab 工作台及共享后端，应用名为 `Ko
 在 `packages/desktop` 执行：
 
 ```sh
-CSC_NAME="Developer ID Application: Your Name (TEAMID)" \
+CSC_NAME="Your Name (TEAMID)" \
 APPLE_KEYCHAIN_PROFILE="your-notary-profile" \
 bun run release:mac
 ```
