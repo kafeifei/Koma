@@ -140,6 +140,8 @@ import type {
   LabDeliveryOutput,
   LabQueueInput,
   LabQueueOutput,
+  LabTakeoverInput,
+  LabTakeoverOutput,
   LabInterruptInput,
   LabInterruptOutput,
   LabReplyInput,
@@ -1202,6 +1204,17 @@ export function make(options: ClientOptions) {
             method: "POST",
             path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/queue`,
             body: { action: input["action"], requestID: input["requestID"], revision: input["revision"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 404, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      takeover: (input: LabTakeoverInput, requestOptions?: RequestOptions) =>
+        request<LabTakeoverOutput>(
+          {
+            method: "POST",
+            path: `/lab/sessions/${encodeURIComponent(input.sessionID)}/takeover`,
             successStatus: 200,
             declaredStatuses: [409, 400, 404, 401],
             empty: false,

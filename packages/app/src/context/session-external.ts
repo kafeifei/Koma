@@ -511,6 +511,12 @@ export function createSessionExternalContext(input: {
         commitSnapshot(snapshot, fence)
         return snapshot
       },
+      takeover: async (sessionID: string) => {
+        const fence = { observed: data.descriptors[sessionID] }
+        const snapshot = await input.api.takeover({ sessionID })
+        commitSnapshot(snapshot, fence)
+        return snapshot
+      },
       interrupt: async (sessionID: string) => {
         const fence = { observed: data.descriptors[sessionID] }
         const descriptor = await input.api.interrupt({ sessionID })

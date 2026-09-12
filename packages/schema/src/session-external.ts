@@ -98,6 +98,7 @@ export const Descriptor = Schema.Struct({
   epoch: Schema.String,
   revision: Schema.Int,
   runtimeStatus: RuntimeStatus,
+  canTakeover: Schema.Boolean.pipe(optional),
   bindingState: Schema.Literals(["pending", "creating", "bound", "unknown", "failed"]).pipe(optional),
   capabilities: Capabilities,
   queuePaused: Schema.Boolean,

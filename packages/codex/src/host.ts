@@ -50,6 +50,8 @@ import { CodexWorktreeAccess } from "./worktree-access"
 import { CodexProviders } from "./providers"
 import { providerCredentials } from "./provider-credentials"
 import { codexStorage } from "./storage"
+import { writerHandoff, isWriterConflict, type WriterHandoff } from "./writer-handoff"
+import { unloadWriter, hasWriterRecovery } from "./writer-unload"
 import { snapshotUpdate, toolOutputAppend } from "./snapshot-update"
 
 export class HostError extends Schema.TaggedErrorClass<HostError>()("CodexHost.Error", {
@@ -72,6 +74,7 @@ export interface Interface {
   readonly snapshot: (sessionID: SessionSchema.ID) => Result<Snapshot>
   readonly delivery: (sessionID: SessionSchema.ID, requestID: string) => Result<Delivery>
   readonly queue: (sessionID: SessionSchema.ID, input: QueueInput) => Result<Snapshot>
+  readonly takeover: (sessionID: SessionSchema.ID) => Result<Snapshot>
   readonly interrupt: (sessionID: SessionSchema.ID) => Result<Descriptor>
   readonly reply: (sessionID: SessionSchema.ID, interactionID: string, input: Reply) => Result<Snapshot>
   readonly settings: (sessionID: SessionSchema.ID, input: Settings) => Result<Descriptor>
@@ -150,6 +153,10 @@ type Entry = {
   activeTurnID?: string
   generation?: number
   resumed: boolean
+  writerConflict?: boolean
+  handoff?: "releasing" | "released"
+  takingOver?: Promise<Snapshot>
+  releasePending?: boolean
   observedOnly: boolean
   lease: boolean
   leaseTarget?: { directory: string; sessionID: SessionSchema.ID }
@@ -192,6 +199,7 @@ const layer = Layer.effect(
     const resolving = new Map<string, Promise<Entry | undefined>>()
     const signals = new Map<string, number>()
     const resolvedRequests = new Set<string>()
+    let handoff: WriterHandoff | undefined
     let receiveSequence = 0
     const state: {
       manager?: CodexRuntimeManager
@@ -203,7 +211,9 @@ const layer = Layer.effect(
     } = { closed: false, recovery: Promise.resolve(), lastGeneration: 0 }
     const run = Effect.runPromise
     const recover = async () => {
-      const shared = process.env.OPENCODE_HOME && (await KomaBackend.hasOtherInstances(process.env.OPENCODE_HOME))
+      const shared =
+        (await handoff?.hasPeers()) ||
+        (process.env.OPENCODE_HOME && (await KomaBackend.hasOtherInstances(process.env.OPENCODE_HOME)))
       const owned = [...entries.values()]
         .filter((entry) => (entry.resumed || entry.executionObserved) && !entry.observedOnly)
         .map((entry) => entry.record.session.id)
@@ -235,7 +245,7 @@ const layer = Layer.effect(
       bindingState: entry.record.binding.state,
       capabilities: !enabled
         ? disabled
-        : entry.record.binding.deletionState
+        : entry.record.binding.deletionState || entry.handoff || entry.writerConflict
           ? blocked
           : unconfirmedExecution(entry)
             ? blocked
@@ -249,6 +259,7 @@ const layer = Layer.effect(
       pendingSettings: pendingSettings(entry, effectiveSettings(entry)),
       inputWaitReason: entry.inputWaitReason,
       error: entry.error ?? entry.record.binding.deletionError,
+      canTakeover: entry.writerConflict === true,
     })
 
     function effectiveSettings(entry: Entry): Settings {
@@ -710,6 +721,7 @@ const layer = Layer.effect(
     }
 
     function scheduleRefresh(entry: Entry) {
+      if (entry.handoff === "released") return
       const connected = state.runtime
       if (
         !connected ||
@@ -771,6 +783,8 @@ const layer = Layer.effect(
         !current(connected) ||
         entry.generation !== connected.generation ||
         entry.activating ||
+        entry.handoff ||
+        entry.takingOver ||
         entry.resumed ||
         !entry.native ||
         entry.deletionChecks ||
@@ -815,7 +829,8 @@ const layer = Layer.effect(
                 return
               entry.status = state.runtime ? "bindingUnavailable" : "disconnected"
               entry.error = errorMessage(error)
-              entry.dirty = !(error instanceof HostError && error.code === "invalid")
+              entry.writerConflict = entry.writerConflict || isWriterConflict(error)
+              entry.dirty = !entry.writerConflict && !(error instanceof HostError && error.code === "invalid")
               await emit(entry)
             })
           },
@@ -843,6 +858,8 @@ const layer = Layer.effect(
     }
 
     async function load(entry: Entry, resume = false, observe = false, existing?: CodexRuntime) {
+      if (resume && entry.handoff)
+        return fail("conflict", "This task was handed to another Koma backend; use Stop and take over to reclaim it")
       const connected = existing ?? (await runtime())
       if (!current(connected)) return fail("unavailable", "Codex connection changed before loading")
       attach(entry, connected)
@@ -851,6 +868,10 @@ const layer = Layer.effect(
       if (!threadID) return
       const observedAt = receiveSequence
       if (resume && !entry.resumed) {
+        if (await hasWriterRecovery(home, threadID)) {
+          entry.writerConflict = true
+          return fail("conflict", "A previous native handoff needs recovery; use Stop and take over to finish it")
+        }
         const selected = await resumeModel(entry)
         if (entry.deletionChecks) return
         const response = await connected.resumeThread(
@@ -880,6 +901,8 @@ const layer = Layer.effect(
           entry.globalInstructions = undefined
         }
         entry.resumed = true
+        entry.writerConflict = false
+        entry.error = undefined
         scheduleAutomaticApprovals(entry)
       }
       const metadata = await connected.readThread(threadID, false, { timeoutMs: 15_000 })
@@ -930,7 +953,7 @@ const layer = Layer.effect(
       // received after this barrier may establish their own streaming baseline.
       entry.coveredSequence = receiveSequence
       entry.blockedDeltas.clear()
-      entry.error = undefined
+      if (!entry.writerConflict) entry.error = undefined
       if (history.thread) {
         if (history.thread.id !== threadID) return fail("conflict", "Codex returned history for another thread")
         entry.native = history.thread
@@ -1001,8 +1024,9 @@ const layer = Layer.effect(
       }
       updateView(entry)
       if (observe) {
-        entry.status =
-          entry.record.session.time.archived === undefined
+        entry.status = entry.writerConflict
+          ? "bindingUnavailable"
+          : entry.record.session.time.archived === undefined
             ? "resolving"
             : executionStatus(entry, nativeStatus(entry.native.status))
         entry.dirty = false
@@ -1116,6 +1140,7 @@ const layer = Layer.effect(
     }
 
     async function deliver(entry: Entry, requestID: string) {
+      if (entry.handoff || entry.takingOver) return
       const connected = await runtime()
       attach(entry, connected)
       const token = generation(connected)
@@ -1300,7 +1325,7 @@ const layer = Layer.effect(
     }
 
     async function pump(entry: Entry) {
-      if (entry.deletionChecks) return
+      if (entry.deletionChecks || entry.handoff || entry.takingOver) return
       entry.record = await run(sessions.get(entry.record.session.id))
       const status = interactionStatus(entry)
       const deliveries = await run(sessions.deliveries(entry.record.session.id))
@@ -1448,6 +1473,7 @@ const layer = Layer.effect(
         rememberResolved(interactionKey(notification.generation, params.requestId))
       const id = nativeSessions.get(threadID)
       const entry = id ? entries.get(id) : undefined
+      if (entry?.handoff === "released") return
       if (entry) {
         observeSettings(entry, received)
         if (
@@ -1475,6 +1501,7 @@ const layer = Layer.effect(
     }
 
     async function notificationReceived(entry: Entry, notification: Received) {
+      if (entry.handoff === "released") return
       const connected = state.runtime
       if (!connected || notification.generation !== connected.generation) return
       if (
@@ -1755,6 +1782,7 @@ const layer = Layer.effect(
     }
 
     function scheduleAutomaticApprovals(entry: Entry) {
+      if (entry.handoff) return
       void serializeInteraction(entry, () => approveAutomatically(entry)).catch((error) => {
         entry.error = errorMessage(error)
         void emit(entry, { refresh: true }).catch(() => undefined)
@@ -1822,7 +1850,7 @@ const layer = Layer.effect(
     }
 
     function dispatch(entry: Entry, requestID = "advance", retry = false) {
-      if (entry.deletionChecks) return
+      if (entry.deletionChecks || entry.handoff || entry.takingOver) return
       void serialize(entry, async () => {
         if (entry.deletionChecks) return
         await (async () => {
@@ -1879,6 +1907,119 @@ const layer = Layer.effect(
       return stored
     }
 
+    async function completeWriterRelease(entry: Entry) {
+      entry.resumed = false
+      entry.idleConfirmed = false
+      entry.handoff = "released"
+      entry.observedOnly = true
+      entry.writerConflict = true
+      entry.status = "bindingUnavailable"
+      entry.error = "This task was taken over by another Koma backend"
+      entry.dirty = false
+      if (entry.refreshTimer) clearTimeout(entry.refreshTimer)
+      entry.refreshTimer = undefined
+      await release(entry)
+      await emit(entry, { refresh: true })
+    }
+
+    async function releaseWriter(threadID: string) {
+      const id = nativeSessions.get(threadID)
+      const entry = id && entries.get(id)
+      const connected = state.runtime
+      if (!entry || !entry.resumed || !connected || !current(connected))
+        return fail("conflict", "This backend no longer owns the task")
+      await serialize(entry, async () => {
+        if (entry.deletionChecks || entry.releasePending || entry.takingOver)
+          return fail("conflict", "Another task operation is in progress; retry the takeover")
+        entry.releasePending = true
+        entry.handoff = "releasing"
+        entry.controlSequence++
+        entry.record.binding = await run(sessions.pause(entry.record.session.id))
+      })
+      try {
+        await entry.activating
+        await entry.refreshing
+        if (await unloadWriter(connected, home, threadID, true)) {
+          await serialize(entry, () => completeWriterRelease(entry))
+          return
+        }
+        await refresh(entry, false, false)
+        const target = await serialize(entry, async () => {
+          if (!current(connected)) return fail("unavailable", "The original backend disconnected")
+          return entry.activeTurnID
+        })
+        if (target) await connected.interruptTurn(threadID, target, { timeoutMs: 10_000 })
+        const deadline = Date.now() + 15_000
+        while (true) {
+          await refresh(entry, false, false)
+          const released = await serialize(entry, async () => {
+            if (!current(connected)) return fail("unavailable", "The original backend disconnected")
+            if (entry.status !== "idle" || !entry.idleConfirmed || entry.activeTools.size || entry.pending.size)
+              return false
+            await unloadWriter(connected, home, threadID)
+            await completeWriterRelease(entry)
+            return true
+          })
+          if (released) return
+          if (Date.now() >= deadline)
+            return fail(
+              "conflict",
+              "The original task or its tools have not stopped; ownership was preserved. Retry when they finish",
+            )
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+      } finally {
+        entry.releasePending = false
+      }
+    }
+
+    async function takeWriter(entry: Entry): Promise<Snapshot> {
+      if (entry.handoff === "releasing") return fail("conflict", "This task is already being handed over")
+      entry.record = await run(sessions.get(entry.record.session.id))
+      if (
+        entry.record.session.time.archived !== undefined ||
+        entry.record.binding.deletionState ||
+        entry.deletionChecks
+      )
+        return fail("conflict", "Restore the task and finish any deletion operation before taking it over")
+      const threadID = entry.record.binding.nativeThreadID
+      if (!threadID) return fail("conflict", "The native task binding is not ready")
+      const settled = (error: unknown) => {
+        if (!isWriterConflict(error)) throw error
+      }
+      await entry.activating?.catch(settled)
+      await entry.refreshing?.catch(settled)
+      if (entry.resumed && !entry.handoff) return snapshot(entry)
+      const released = await handoff?.release(threadID)
+      // The old owner settled execution and paused inputs in shared storage.
+      // Do not carry the pre-handoff execution fence into the new native owner.
+      entry.record = await run(sessions.get(entry.record.session.id))
+      entry.executionObserved = !entry.record.binding.executionPending
+      const connected = await runtime()
+      await unloadWriter(connected, home, threadID, true)
+      entry.handoff = undefined
+      const deadline = Date.now() + 2_000
+      while (true) {
+        try {
+          // Do not resume any paused or uncertain delivery during the handoff.
+          await refresh(entry, true, false)
+          return snapshot(entry)
+        } catch (error) {
+          if (!isWriterConflict(error)) throw error
+          entry.writerConflict = true
+          entry.status = "bindingUnavailable"
+          if (!released || Date.now() >= deadline) {
+            entry.error = released
+              ? "The original native writer has not released its lock yet; retry the takeover"
+              : "The owning Koma backend cannot hand off this task. Update that backend to a version supporting takeover"
+            await emit(entry)
+            return fail("conflict", entry.error)
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+      }
+    }
+
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
         state.closed = true
@@ -1887,9 +2028,23 @@ const layer = Layer.effect(
           if (state.manager) await state.manager.close()
         } finally {
           await credentials.close()
+          await handoff?.close()
         }
       }),
     )
+
+    if (enabled)
+      handoff = yield* Effect.promise(() =>
+        writerHandoff({
+          home,
+          owns: (threadID) => {
+            const id = nativeSessions.get(threadID)
+            const entry = id && entries.get(id)
+            return !!entry && entry.resumed && entry.handoff !== "released" && !!state.runtime && current(state.runtime)
+          },
+          release: releaseWriter,
+        }),
+      )
 
     return Service.of({
       engines: () =>
@@ -1981,6 +2136,8 @@ const layer = Layer.effect(
       submit: (sessionID, input) =>
         result(async () => {
           const entry = await getEntry(sessionID)
+          if (entry.handoff || entry.takingOver || entry.writerConflict)
+            return fail("conflict", "Take over this task before sending input from this backend")
           const existing = await run(sessions.getDelivery({ sessionID, requestID: input.requestID }))
           if (existing && existing.delivery !== input.delivery)
             return fail("conflict", "Request ID was reused with a different delivery mode")
@@ -2079,6 +2236,18 @@ const layer = Layer.effect(
             await emit(entry, { refresh: true })
             return snapshot(entry)
           })
+        }),
+      takeover: (sessionID) =>
+        result(async () => {
+          const entry = await getEntry(sessionID)
+          if (entry.takingOver) return entry.takingOver
+          const operation = takeWriter(entry)
+          entry.takingOver = operation
+          try {
+            return await operation
+          } finally {
+            if (entry.takingOver === operation) entry.takingOver = undefined
+          }
         }),
       interrupt: (sessionID) =>
         result(async () => {

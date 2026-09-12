@@ -493,6 +493,7 @@ export const dict = {
   "prompt.toast.codexUnavailable.title": "Codex 无法接收输入",
   "prompt.toast.codexUnavailable.description": "原生会话不可用或不接受提示。",
 
+  "codex.task.takeover": "停止并接管",
   "codex.engine.label": "执行引擎",
   "codex.controls.title": "Codex 控制",
   "codex.runtime.resolving": "正在解析",

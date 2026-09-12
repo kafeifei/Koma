@@ -159,6 +159,9 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     save(config)
     return reply(settings(config.thread))
   }
+  if (message.method === "thread/list") return reply({ data: [], nextCursor: null })
+  if (message.method === "thread/archive") return reply({})
+  if (message.method === "thread/unarchive") return reply({ thread: config.thread })
   if (message.method === "thread/unsubscribe") return reply({ status: "unsubscribed" })
   if (message.method === "thread/delete") {
     const threadID = String(message.params?.threadId)
