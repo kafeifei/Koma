@@ -1,134 +1,57 @@
-# `@opencode-ai/codex`
+# Codex 原生后端
 
-This package owns OpenCode Lab's server-side connection to the pinned native
-Codex app-server. Its boundaries are:
+`@opencode-ai/codex` 将原生 Codex app-server 接入 Lab 的同一 Session 索引、App 和事件服务。Codex 拥有模型调用、工具、原生历史和子代理执行；本模块负责宿主适配，不是 OpenCode 模型 Provider。
 
-- `transport` starts one caller-owned `codex app-server` process, performs the
-  initialize handshake, brokers NDJSON requests in both directions, and rejects
-  pending requests when that connection generation exits.
-- `session` exposes narrow thread, turn, and queue operations plus a runtime
-  manager that shares one in-flight connection attempt.
-- `projection` converts official thread/item responses and native notifications
-  into browser-safe snapshots and updates with stable native references.
-- `history` reads one exact, bound rollout path when app-server cannot hydrate
-  historical items. It validates the injected Codex home and thread identity,
-  never scans a home, and never writes or resumes native history.
+## 职责与数据归属
 
-- `view` projects native items into the existing Session UI message shape. Native
-  identity and display order stay separate; unavailable time, usage, cost, and
-  diff fields carry explicit availability.
-- `host` connects those operations to the existing Session index, durable native
-  bindings and input receipts, worktree execution leases, and the shared SSE
-  service. It never writes Codex transcript items into OpenCode history tables.
+| 对象                           | 所有者与代码入口                                                                                                                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 任务身份、标题、归档、项目关系 | 现有 Session；`engine=codex` 随创建持久保存且不切换。OpenCode 执行入口通过 [engine guard](../core/src/session/external/guard.ts) 拒绝外部任务，不回落执行。                                                |
+| 原生绑定、投递、删除回执       | Core [SessionExternal](../core/src/session/external/index.ts) 与 [表定义](../core/src/session/external/sql.ts)；绑定键包含 runtime scope 和 thread ID，不另建任务库，也不使用 OpenCode runner 的输入队列。 |
+| 进程、连接与操作               | [Host](src/host.ts) 组合 [Runtime](src/session.ts) 和 [transport](src/transport.ts)，后端拥有一个惰性 app-server 连接，多 thread 共享；连接换代使旧响应与审批失效。                                        |
+| 历史与界面投影                 | 原生历史为事实源；[projection](src/projection.ts)／[view](src/view.ts) 生成共享 UI 数据，经现有 SSE 发布，不写入 OpenCode 消息／历史表。                                                                   |
+| 目录占用                       | Core [外部执行所有权](../core/src/session/external/ownership.ts) 和宿主注入的 [worktree 接口](src/worktree-access.ts)；UI 不判定目录是否可回收。                                                           |
 
-The binary, Codex home, and cwd are injected by the host. The runtime verifies
-`codex-cli 0.153.4` before spawning and does not fall back to another engine or
-home.
+两套服务端装配同一 Host。`OPENCODE_ENABLE_CODEX=1` 开启原生引擎，未开启时不列出引擎、不启动 app-server。公开展示／操作形状由 [SessionExternal schema](../schema/src/session-external.ts) 定义，App 只提交用户意图和呈现后端确认状态。
 
-## Verified 0.153.4 limits
+## 输入与审批
 
-The generated protocol contains APIs that this binary does not fully implement.
-`CODEX_NATIVE_CAPABILITY_BASELINE` records the probe result used for capability
-gating:
+首次创建在同一事务保存 Session、绑定占位和首条投递。首发 request ID 在 runtime scope 内唯一，后续在 Session 内唯一；相同 ID 只接受参数完全一致的重试。[输入转换](src/input.ts) 冻结正文、附件内容及模型／推理／权限设置，后续设置不改写已接收输入。
 
-- threads created with `historyMode: "paginated"` retain native user, assistant,
-  command and file-change IDs across process restart; full history reads and
-  paginated turn/item listing work on those threads. The Host requests this mode;
-- legacy hydration returns history after its first user message, but omits
-  nested Code Mode tools and synthesizes item IDs. Legacy history is not proof
-  that an interrupted command has stopped;
-- `turn/interrupt` may finish the turn before a nested command exits. The Host
-  keeps durable execution occupancy until explicit native completion evidence,
-  including across backend restarts, and keeps the Lab queue paused;
-- queue APIs require `experimentalApi` during initialize;
-- adding to an idle native queue starts a turn immediately, so it cannot serve
-  as a paused host-owned delivery queue.
+Lab 持久接收、原生 RPC 接收和原生历史确认是三个边界。`accepted` 缺少 `nativeItemID` 时仍等待历史确认；只有包含目标终态 turn 的完整 paginated 历史，才能证明已确认接收的输入未进入该轮并退回为 `returned`。SQLite 与原生 RPC 不构成共同事务，`sending`／`unknown` 在重启后不自动重投，也不按目录、标题或相同文字猜测回执。
 
-Run tests and type checking from this package directory. `probe:app-server`
-creates a fresh ignored `.cache` home/workspace, starts no login or model turn,
-and checks initialize, thread start, metadata read, process restart, and resume.
+队列由 Lab 唯一持有：`steer` 在运行中补充输入，显式 `queue` 等原生确认空闲后逐条投递；它不驱动模型执行循环。停止和进程恢复暂停尚未投递的输入；`paused`／`returned` 需显式恢复同一持久请求，新输入不隐式恢复旧队列。`settings` 表示有效配置，`pendingSettings` 表示尚待确认的选择。
 
-## Session presentation and titles
+[交互适配](src/interaction.ts) 保留原生请求身份，Host 按连接代次、请求 ID 和 revision 校验回复；多窗口只有首个有效回复获受理。UI 回传选择 ID 与表单值，权限子集由后端校验；旧审批不在重连后复活，问题和 MCP 表单不由自动批准代答。
 
-Native `commandExecution` and `fileChange` retain their tool names and source
-items; Session UI renders them with the existing shell and patch cards. Command
-output remains available while running and after failure, and native command
-actions remain inspectable without guessing a read/search tool from shell text.
-Child cards link only to Session IDs already adopted by the Host.
+`default` 为原生 workspace-write／on-request；`auto` 使用相同沙箱，仅在本代原生配置已确认后，由 Host 接受原生提供的单次允许选项，不新增规则或会话授权。`full` 为 danger-full-access／never。旧只读或无法识别的原生组合保留原配置，直到用户明确切换。
 
-New tasks use the first nonempty prompt line, normalized and limited to 120
-Unicode code points, as their initial title without another model turn. Native
-thread names can replace the default title, that exact initial summary, or a
-title this Host process previously wrote. Title updates preserve all other
-Session fields and publish the existing Session update event. An existing
-custom title after a Host restart is preserved: title provenance is not stored,
-so ongoing title synchronization across restarts or other clients is not
-promised. Manual titles different from those known automatic values win.
+## 历史、恢复与子任务
 
-## Backend configuration
+历史先按绑定读取，再为未归档任务接入原生执行状态。只读历史不确认执行结束、不释放目录占用、不处理审批或投递队列；接入失败仍保留已读内容。冷加载归档任务不触发原生 resume，已经接入的活动任务保留状态订阅。恢复只连接原 thread，并校验 scope、thread 与真实目录身份。
 
-`OPENCODE_ENABLE_CODEX=1` enables the Lab API's Codex engine. Without it, engine
-listing returns no native engines and the host starts no Codex process. Both the
-legacy desktop backend and standalone V2 server assemble the same host; the
-legacy backend supplies its worktree lifecycle gate.
+[history](src/history.ts) 仅在原生 API 无法提供正文时读取已绑定、身份校验通过的精确 rollout 路径；不扫描其他历史，不写入或 resume。UI 的消息身份与展示顺序独立；读取与通知交错时重取快照，避免重复追加 delta。Host 的 epoch／revision 是投影版本，不是原生持久事件游标。缺失的用量、时间、计划和 diff 保持不可用，原生轮次 diff 与工作区 Git diff 分开。
 
-The host resolves `OPENCODE_CODEX_BINARY`, or a `codex` executable on PATH, or
-`~/.local/bin/codex`. The selected executable must match `codex-version.txt`.
-This is a development binary lookup, not proof that a desktop package bundles
-Codex.
+原生名称只替换 Session 的默认标题、首发摘要或本 Host 已写入的标题；Host 重启后保留其他自定义标题，不猜测其来源。
 
-The host uses `OPENCODE_CODEX_HOME` or `<backend state>/codex` for native state.
-Lab desktop clears an inherited `OPENCODE_CODEX_HOME` override so it remains in
-Lab's own backend storage. The transport sets both `CODEX_HOME` and
-`CODEX_SQLITE_HOME` for its child. Authentication uses native account APIs; it
-does not copy another Codex installation's credentials or history.
-An existing native account remains authoritative. When native authentication is
-absent, the Desktop host can supply its existing OpenAI provider credentials via
-Codex's external-token API. Provider calls and native refresh requests use the
-same backend refresh owner; tokens never enter the UI. The standalone V2 server
-keeps native login unless its own credential owner explicitly binds this port.
+原生子 thread 经后端确认父关系和 scope 后绑定为带 `parentID` 的 Session，各自保留历史。父任务仅展示委派关系，导航只指向已接管的子 Session；无法确定子任务归属时继续保护共享目录占用。原生同进程 wait 的完成通知不随历史持久化，重启读取子历史不会伪造 wait 结果。
 
-Queue ownership is fixed to Lab's durable user-input queue for this version.
-It feeds one queued input only at a confirmed idle boundary. Stop and process
-recovery pause unsubmitted inputs. Unknown delivery receipts prevent automatic
-resubmission; a native correlation ID is required to confirm acceptance.
+## 归档与永久删除
 
-Input admission, native acknowledgement, and native history confirmation are
-separate boundaries. An `accepted` receipt without `nativeItemID` is awaiting
-history confirmation. Only a complete paginated history containing the terminal
-target turn can return an acknowledged input that never entered that turn to
-`returned`; an incomplete read cannot prove non-delivery. `paused` and `returned`
-inputs require an explicit resume of the same durable request. Unknown receipts
-remain non-replayable. New inputs do not implicitly resume older paused inputs.
+归档状态归 Lab Session，保留原生历史并拒绝新输入；归档不隐式停止已经开始的执行。永久删除由现有 Session 删除入口按引擎分派到 Host，同时受服务端能力与目录生命周期约束。
 
-The Host projects a wait reason for inputs that cannot advance. Immediate inputs
-retain their order while active; queued inputs wait for a confirmed idle boundary.
-Settings are frozen when each input is admitted. Later settings changes describe
-the user's next input, while `settings` and `pendingSettings` distinguish applied
-configuration from that selection. They do not rewrite already admitted inputs
-or resolve an existing native approval request.
+删除前核对任务及已知子任务的绑定、执行、工具、交互和投递状态。活动或结果不明时保留数据；仅能确定从未开始创建原生 thread 的记录可直接清理。删除意图持久保存后冻结新输入及新增子任务，按子到父确认原生 `thread/delete`，再删除本地 Session，最后收尾专属 worktree。
 
-Native V1 child tools use the `multi_agent_v1` namespace. In Code Mode they
-may be deferred: `ALL_TOOLS` exposes their normalized names even when the
-short tool description omits them. Native same-process wait uses `targets`;
-its final-status watch is separate from persisted child history after restart.
+原生删除回执丢失时保留本地任务与删除状态，重试先核实原生结果。确认删除的 scope／thread ID 写入独立于 Session 的 tombstone，父历史刷新不会重新导入已删除子任务；其他读取失败不会被当作已删除。
 
-Native `turn/plan/updated` notifications are exposed as a validated, read-only
-live plan. This binary provides no replay source for those updates, so a new
-connection reports the plan as unavailable until another native update arrives.
-The Host enables the native `update_plan` tool with `tools.update_plan.enabled=true`
-when starting app-server so the model can create and update the live plan. It does
-not enable optional subagent tools or modify the user's native config file.
+## 原生边界
 
-The current implementation remains subject to the integration acceptance gates
-in [the integration plan](../../docs/plans/codex-native-integration.md), including
-native authenticated execution, UI interaction, and recovery verification.
+运行时固定为 [0.153.4](codex-version.txt)，由 transport 启动前核对。[能力基线](src/capabilities.ts) 记录该版本的实际限制：新 thread 显式使用 paginated history 以保留原生 ID 和内层工具；legacy 历史会缺失内层工具、重建 ID，不能证明执行结束。`turn/interrupt` 可能早于内层命令退出，持久执行占用须等明确完成证据才释放。原生 queue 向空闲 thread 添加输入会立即执行，不承担 Lab 的暂停队列。
 
-## Source licensing
+原生 plan 只有实时通知，没有重连回放源；Host 启用 `update_plan` 工具，未改写原生配置文件或强制启用可选子代理工具。
 
-Integration code follows the repository's MIT license. Protocol declarations in
-`src/protocol/generated` are generated from OpenAI Codex 0.153.4 and retain their
-Apache-2.0 headers. The upstream [license](src/protocol/LICENSE) and
-[notices](src/protocol/NOTICE) accompany those declarations. Protocol generation
-normalizes the headers and relative import suffixes; it does not change the wire
-types.
+[storage](src/storage.ts) 为原生历史提供独立 home 和稳定 scope；transport 向子进程设置 `CODEX_HOME`／`CODEX_SQLITE_HOME`。[认证端口](src/auth.ts) 保留已有原生账号，无原生登录时可接入宿主 OpenAI OAuth，刷新归同一后端凭据所有者，token 不进入 UI。[供应商端口](src/providers.ts)／[凭据适配](src/provider-credentials.ts) 只提供模型目录和原生 provider 配置，实际模型调用仍由 Codex 完成。全局说明经宿主 LabInstructions 提供，项目指令、skills、MCP 和工具运行仍由 Codex 管理。
+
+## 许可
+
+集成代码沿用仓库 MIT 许可。生成协议来自 OpenAI Codex 0.153.4，保留 Apache-2.0 声明及随附 [LICENSE](src/protocol/LICENSE)、[NOTICE](src/protocol/NOTICE)。

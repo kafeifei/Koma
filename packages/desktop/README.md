@@ -1,224 +1,68 @@
-# OpenCode Desktop
+# OpenCode Lab Desktop
 
-The OpenCode Desktop app, built with Electron.
+Electron 壳复用 [App](../app/README.md)，持有平台能力、窗口和连接入口。Renderer 通过 preload 的 `window.api` 访问主进程；IPC 位于 [`ipc.ts`](src/main/ipc.ts)。任务执行、权限和持久状态属于共享后端。
 
-## Development
+## 共享后端
 
-```bash
-bun install
-bun dev
-```
+同一 profile 的 Desktop、Web 和 Lab CLI 连接一个经过认证的 loopback 后端。Desktop 先将同包 `opencode-lab` 发布到不可变版本路径，再启动 `backend serve`；底层仍是现有 HTTP 服务与 Session 引擎。Lab 不通过固定版本 V2 sidecar 启动第二个数据所有者，其他渠道保留原选择。
 
-## Build
+关闭窗口、网页或 CLI 不停止后端。完整退出／重启 Desktop 时先查询活动任务：存在任务或查询失败时默认取消；确认后停止已连接的本地后端及全部任务（包括 CLI 任务），等待 profile 释放。安装新包不替换运行中后端，下次启动才使用安装后的程序。`opencode-lab backend status` 返回实际 PID、版本和协议；`backend stop` 是显式停止入口。
 
-Run the `build` script to build the app's JS assets, then `package` to
-bundle the assets as an application. The resulting app will be in `dist/`.
+CLI 的 TUI、`run`、会话查询／删除／导出、模型查询和权限应答通过同一后端；`run --no-wait` 在输入接纳后返回 Session ID。未适配 HTTP 的命令显式失败，不回退为独立执行或直写数据库。官方 `opencode` 命令及数据保持独立。
 
-```bash
-bun run build && bun run package
-```
-
-## Remote access (Lab experiment)
-
-Settings → Remote uses GitHub device authorization (`read:user` and `read:org`) and Microsoft Dev Tunnels.
-The tunnel service requires `read:org` even for owner-only tunnels. Accounts authorized by earlier builds
-with only `read:user` must sign out and sign in again to grant it. Signing in only discovers
-devices. “Allow remote access” explicitly hosts this computer's existing backend through a separate,
-owner-only tunnel. Disabling it closes the host gateway and its active streams. Signing out also closes
-this client's connections to other computers; backend sessions continue to belong to their original server.
-
-The macOS Lab packaging step loads the tunnel management, host and client libraries from the candidate archive with its bundled Electron runtime. Missing runtime dependencies fail packaging before signing or installation. The SSH peer dependencies are explicit production dependencies because the Bun package collector does not include peer dependencies.
-
-Credentials are encrypted with Electron `safeStorage`. The feature refuses an unavailable or plaintext
-system credential backend. The public OAuth application identity follows Sandy/Code OSS; GitHub may
-show Visual Studio Code during consent. See [the shared module notice](../remote/NOTICE) for provenance.
-No existing Sandy login data is imported.
-Desktop GitHub requests use Electron's Chromium network stack, including device-code exchange,
-account lookup and credential refresh; the standalone website keeps its server-side transport.
-
-Set `OPENCODE_REMOTE_WEBSITE` to the deployed HTTPS address when building or launching the app to show the website
-entry in Settings. Without it, account, hosting, and desktop connections still work and the website
-address remains unconfigured. The website is a separate [Remote Web](../remote-web/README.md) deployment.
-Its GitHub session and the Microsoft tunnel browser authorization are separate; the tunnel may ask
-the browser to sign in with the same GitHub account before entering the workspace.
-
-Connections from another desktop reuse the existing server selection and session UI through a local
-relay gateway. After restarting the client, reconnect from Remote settings; an old saved loopback
-server address cannot resume a previous process's relay. Reconnection reuses the saved local port when
-available so the server's local drafts and preferences keep the same address; a port collision requires
-a new address. Keep the sharing desktop running and awake.
-
-Run focused checks from this package:
-
-```bash
-bun test src/main/remote-controller.test.ts src/main/remote-client.test.ts
-OPENCODE_ELECTRON_TEST=1 bun test src/main/remote-client.electron.test.ts
-bun typecheck
-```
-
-The Electron check requires this checkout's downloaded Electron binary and runs it in Node mode, with
-no application window or user profile. It validates HTTP, SSE, WebSocket, and refusal of public-network
-fallback in the actual desktop runtime. Bun 1.3.14 does not implement all of the Node HTTP/net behavior
-used by the direct `web-entry.test.ts` and `remote-host.test.ts` protocol tests; those also run under
-Bun 1.4, while the Electron test is the production-runtime check.
-
-These tests verify lifecycle and protocol boundaries using isolated local servers. They do not replace
-GitHub consent, a real account's tunnel registration, or a cross-device browser/desktop acceptance run.
+实现：[`lab-backend.ts`](src/main/lab-backend.ts)、[`LabBackend`](../core/src/lab-backend.ts)、[`shutdown-confirmation.ts`](src/main/shutdown-confirmation.ts)。
 
 ## Lab shared storage
 
-OpenCode Lab and this fork's Lab CLI share `~/.opencode`. The app name,
-bundle identity, protocol, sessions and authentication remain unchanged.
+应用身份 `ai.opencode.lab`，协议 `opencode-lab`；默认 profile 为 `~/.opencode`，绝对路径 `OPENCODE_HOME` 可选择独立 profile。
 
-| Directory                        | Contents                                                          |
-| -------------------------------- | ----------------------------------------------------------------- |
-| `desktop/`                       | Electron profile, web storage, preferences and session data       |
-| `data/`                          | SQLite databases, authentication, tool output and `snapshots/`    |
-| `config/`                        | OpenCode configuration and global extensions                      |
-| `cache/`                         | Rebuildable caches and downloaded tools in `bin/`                 |
-| `state/`                         | Backend state and locks                                           |
-| `logs/backend/`, `logs/desktop/` | Backend and desktop logs                                          |
-| `worktrees/`                     | Managed Git worktrees, grouped by project                         |
-| `repos/`                         | Managed repository copies                                         |
-| `engines/codex/`                 | Native Codex runtime home, authentication and history             |
-| `bin/opencode-lab`               | This fork's terminal CLI                                          |
-| `bin/.lab-backend/`              | Backend ownership, startup locks and `service.log`                 |
-| `storage.json`                   | Migration state, database choice and existing worktree identities |
+| 路径                                            | 归属                                             |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `desktop/`                                      | Electron profile、Web 存储和界面偏好             |
+| `data/`、`config/`、`cache/`、`state/`、`logs/` | 数据库／认证／快照、配置、缓存、后端状态、日志   |
+| `worktrees/`、`repos/`                          | 受管工作目录与仓库副本                           |
+| `engines/codex/`                                | 原生 Codex 的独立认证、设置与历史                |
+| `bin/`                                          | CLI、不可变版本和 `.lab-backend/` 所有权／启动锁 |
+| `storage.json`                                  | 迁移记录、数据库选择及已有 worktree 身份         |
 
-Temporary runtime resources and IPC remain in the system temporary directory.
-User repositories and their project-local `.opencode` directories remain in place.
-Existing auxiliary files under the former desktop profile are preserved in
-`desktop/`; migration does not clean caches, old builds or user files.
+桌面首次启动迁移旧 `~/Library/Application Support/OpenCode Lab`；CLI 不执行旧桌面迁移。迁移先取得旧单实例锁，旧进程／服务占用、目标已有独立数据、跨文件系统均阻止迁移。目录重命名保留 SQLite 与 WAL，持久清单支持中断恢复，兼容链接和原逻辑目录身份保留任务、权限及输入的原 key。独立 profile 仅采用相邻 `<OPENCODE_HOME>.legacy`。
 
-### Lab global instructions
+共享后端激活前检查旧数据库占用，再将清单提升至 v2（`backendProtocol: 1`）；旧 Lab 拒绝该格式，独立数据库入口须符合后端所有权。协议不兼容、所有权无效、存活但无响应的后端均阻止接管。应用包回退不构成数据回退。
 
-Lab reads global instruction files in the backend, without asking the model to run
-`printenv` or discover another client's configuration:
+Lab 清除所属配置／数据库环境覆盖项，禁用自动更新与项目配置自动加载，不迁入官方配置或认证。用户代码目录仍是真实目录；profile 隔离不提供文件系统沙箱。迁移保留旧文件与已归档目录身份，不自动恢复任务。
 
-- Always load the nonempty `~/.agents/AGENTS.md` as common rules.
-- For an **OpenCode** session, append the nonempty `<OPENCODE_HOME>/config/AGENTS.md`.
-  Only when that file is absent or empty, select a fallback using the actual API model ID:
-  OpenAI GPT/Codex/o-series models use personal Codex rules; Claude models use
-  `~/.claude/CLAUDE.md`. Gateway/provider names do not select the manufacturer.
-  Unknown/other models do not load either manufacturer's rules. Claude prompt opt-outs still apply.
-- For a **native Codex** session, append personal Codex rules regardless of its selected model,
-  skipping the OpenCode global rules and model-manufacturer selection.
-- Personal Codex rules mean the first nonempty file of `AGENTS.override.md`, then `AGENTS.md`,
-  under the backend's `CODEX_HOME` or, when unset/empty, `~/.codex`.
+实现：[`StoragePaths`](../core/src/storage-paths.ts)、[`StorageMigration`](../core/src/storage-migration.ts)、[`LabEnvironment`](../core/src/lab-environment.ts)。
 
-This imports instruction text only. Codex runtime storage, authentication and settings remain
-in Lab's independent `engines/codex/` home. Native sessions receive the selected global rules
-through `developerInstructions` on thread start/resume, preserving native project-rule loading.
-Changed rules are reapplied before a subsequent idle native turn; active turns are not restarted.
-OpenCode reselects global rules for each provider turn, including model switches. The V2 context
-records rule changes as replacements of prior global instructions.
+## Lab global instructions
 
-Project discovery and skills retain their own policies. In particular, Lab disables automatic
-project configuration loading; this does not prevent explicit file reads by tools. The new
-OpenCode rule-selection policy is enabled by the Lab profile (`OPENCODE_HOME`); upstream
-entrypoints without that profile retain their original global-instruction behavior.
+全局说明由后端加载，只导入文本，不导入其他客户端的设置或认证：
 
-Run this fork's shared-home CLI from the repository root with:
+- 共同叠加非空 `~/.agents/AGENTS.md`。
+- OpenCode 优先 `<OPENCODE_HOME>/config/AGENTS.md`；缺失／空白时按实际 API 模型 ID 回退：GPT／Codex／o 系列使用个人 Codex 说明，Claude 使用 `~/.claude/CLAUDE.md`，其他模型不回退。网关名称不参与选择，Claude 说明禁用选项仍有效。
+- 原生 Codex 始终叠加个人 Codex 说明，不经过 OpenCode 配置或模型分类。个人 Codex 说明是后端 `CODEX_HOME`（未设置／空值时为 `~/.codex`）下首个非空的 `AGENTS.override.md`、`AGENTS.md`。
 
-```bash
-bun run dev:lab debug paths
-```
+OpenCode 每个 provider turn 重选说明，V2 以替换方式记录变化。原生 Codex 经 start／resume 的 `developerInstructions` 注入，在后续空闲 turn 前更新，保留原生项目规则加载；活动 turn 不重启。项目说明和 skills 保留所属加载策略；非 Lab 入口保持上游行为。实现：[`LabInstructions`](../core/src/lab-instructions.ts)。
 
-The Lab packaging chain builds the fork's native terminal binary into
-`resources/opencode-lab` in addition to the separate pinned V2 service binary.
-To build and install just the terminal CLI from `packages/desktop`:
+## Web 与 Remote
 
-```bash
-bun run build:lab-cli
-bun run install:lab-cli
-opencode-lab debug paths
-```
+本地 Web 提供同包 App，经 loopback 网关代理后端 HTTP、SSE 和 WebSocket。Host／Origin 校验约束入口，网关注入后端凭据；Web 没有独立用户登录层，可访问该端口的本地程序仍可经网关访问后端。入口保存首选端口，冲突时分配新端口。实现：[`web-entry.ts`](src/main/web-entry.ts)。
 
-Installation stages a versioned executable under `~/.opencode/bin/.opencode-lab/`,
-atomically switches `~/.opencode/bin/opencode-lab`, and creates
-`~/.local/bin/opencode-lab`. Put `~/.local/bin` on your shell's `PATH` if needed,
-or invoke the full path. The official `opencode` command is preserved. A
-conflicting `opencode-lab` entry is reported without replacing it. Previous
-managed versions remain available to processes that are already using them. An explicit
-`OPENCODE_HOME` installs only under that home, without changing shell entries.
-The installer also accepts the binary path from a verified Lab app bundle as
-its first argument, so local delivery can install the exact packaged executable.
+Remote 使用 GitHub device authorization（`read:user`、`read:org`）和 Microsoft Dev Tunnels。登录只发现设备；“允许远程访问”才为现有后端建立 owner-only tunnel。关闭共享会关闭网关及活动流；登出还断开本客户端的其他计算机连接，Session 仍归原服务端。凭据由 Electron `safeStorage` 加密，不接受不可用或明文存储；桌面 GitHub 请求使用 Chromium 网络栈。
 
-CLI binaries built with `OPENCODE_CHANNEL=lab` use the same launcher. Lab clients
-discover one authenticated loopback backend per profile, starting it when needed.
-Desktop publishes its bundled binary at an immutable version path before starting
-`opencode-lab backend serve`. Closing a window, Web page or CLI does not stop it.
-Fully quitting or relaunching Desktop stops its authenticated local backend and
-all work on it, including CLI tasks, then waits for the profile to be released.
-The existing HTTP server and Session engine remain the execution owners. Lab does
-not use the pinned V2 sidecar switch to start a second backend. Other channels
-retain their existing sidecar selection and upstream CLI defaults.
+另一台 Desktop 经本地 relay 复用服务器选择与 Session UI，私有连接失败不回退公网。客户端重启后需重新连接，尽量复用原端口以保留输入和偏好。共享端须保持运行与唤醒。[Remote Web](../remote-web/README.md) 独立部署，`OPENCODE_REMOTE_WEBSITE` 指定其 HTTPS 入口；网站登录与 tunnel 浏览器授权是两个会话。
 
-Use `opencode-lab backend status` to inspect the actual PID, version and protocol;
-`opencode-lab backend stop` explicitly stops it. Installing another compatible
-binary does not replace a running backend. Packaging does not stop or upgrade it.
-After a full Desktop quit, the next backend launch uses the installed executable.
-When upgrading from an older Desktop that kept its backend alive, explicitly stop
-that old backend before launching the updated application.
+OAuth 应用身份沿用 Sandy／Code OSS，授权页面可能显示 Visual Studio Code；未导入 Sandy 登录数据。来源与许可证见 [`remote/NOTICE`](../remote/NOTICE)。
 
-Settings > Experimental features controls the local backend's startup preferences,
-stored in `config/experiments.json`. The background-subagent setting maps to the
-upstream `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS` environment flag. The UI shows
-saved and active state separately; apply changes by fully quitting and reopening
-the app. It does not restart work automatically or change Task's default mode.
-Without a saved preference, the original environment flag behavior is preserved.
+## 构建与运行资源
 
-The Lab CLI supports the full terminal UI, `run`, `session list/delete`, `export`,
-`models`, `debug paths/config`, and explicit `permission list/reply`. `run --no-wait`
-prints the admitted session ID and exits while execution continues on the backend.
-Permission requests remain pending until the user answers in a client; the CLI
-does not automatically allow or reject them. Commands without an HTTP adapter
-(including raw database operations, import, mini mode and upstream maintenance
-commands) fail explicitly instead of opening a local execution runtime. Use the
-existing Lab UI for provider and server configuration. The separate official
-`opencode` command retains its original command set and data.
+[本包脚本](package.json)：`bun dev` 启动开发实例；`bun run lab` 完成预构建、前端构建和 macOS 打包签名，产物在 `dist-lab/`，不安装或启动应用。包包含本仓 Node 后端、Lab CLI 和固定版本 V2 CLI；实际 Lab 使用同包 CLI 后端。Remote 依赖在候选包内由所带 Electron 加载检查。
 
-`opencode-lab uninstall --dry-run` previews removal; `uninstall` removes only the
-managed terminal links. Shared sessions, auth, configuration, worktrees and
-published binaries remain intact. CLI and HTTP self-upgrades cannot invoke the
-official installer for a Lab profile; update using a verified Lab candidate.
+构建信息含版本、构建 ID、序号、commit、dirty 和时间。各 worktree 共用 Git 元数据中的序号与锁；`build:lab` 成功后计数，`lab` 等全部阶段成功后计数，失败不占号，锁超时失败而不抢占。成功但未安装的包仍计数。实现：[`build-lab.ts`](scripts/build-lab.ts)、[`lab-build-sequence.ts`](scripts/lab-build-sequence.ts)。
 
-The launcher and desktop accept an absolute `OPENCODE_HOME` for isolated instances.
-Both configure the same backend paths and disable project configuration. `--help`,
-`--version` and `debug paths` do not initialize or migrate a profile. Terminal UI
-configuration is loaded without rewriting the backend's legacy configuration.
+打包实例将 ASAR 与 unpacked 资源复制到独立 `opencode-runtime-*` 临时目录，供 renderer、preload 和本地 Node sidecar 使用；正常退出并停止服务后清理本实例快照。运行中整体换包依赖该快照，旧实例没有快照时不具备换包条件。不可变 CLI 版本独立于临时快照，后端持续存活时仍可使用。源码、安装包与运行版本因此可以不同。实现：[`runtime-resources.ts`](src/main/runtime-resources.ts)、[`resources.ts`](src/main/resources.ts)。
 
-On macOS, the updated desktop migrates the former
-`~/Library/Application Support/OpenCode Lab` profile on first launch. It obtains
-the legacy Electron single-instance lock before moving anything, so the old app
-must have exited. A registered V2 background service must also have stopped;
-a live process or an unreadable service registration blocks migration. The CLI
-refuses to perform that migration. Renames keep SQLite
-files, WAL sidecars and directory inodes together; a durable manifest makes an
-interrupted migration resumable. Independent destination data or a different
-filesystem blocks migration instead of overwriting or partially copying it.
+`build:lab-cli` 构建终端程序；`install:lab-cli [binary]` 原子安装受管版本及 `~/.local/bin/opencode-lab` 链接，已有独立同名命令构成冲突。显式 `OPENCODE_HOME` 只安装到指定 home；卸载只移除受管命令链接，保留数据及已有版本。
 
-Before activating the shared backend, existing v1 profiles are checked for open
-database handles (`lsof` is required for this compatibility check). Active older
-processes are preserved and startup is refused. The owner then atomically updates
-the manifest to v2 with `backendProtocol: 1`, retaining the entire migration record
-and all data files. Older Lab builds reject that format; current standalone core
-database entrypoints require the recorded backend owner. Incompatible protocols,
-invalid ownership records and live but unresponsive owners are never silently
-replaced. Do not downgrade the manifest to make an older application open it.
+## 实验配置
 
-Compatibility symlinks preserve old file paths. Existing managed worktrees also
-retain their logical directory identities in the backend so task ownership,
-permissions and draft persistence continue to use their original keys. Newly
-created worktrees use the new physical directory. Startup also adds retained
-archived worktrees that an earlier migration omitted, using their persisted
-owners; this does not recreate directories or restore tasks automatically.
-Compatible duplicate project-directory records converge when that project is
-next accessed. Conflicting non-empty ownership metadata is preserved and logged.
-Snapshot repositories from both before and after migration remain readable. Native Codex ownership retains
-its previous scope. Do not remove these links or edit `storage.json` by hand.
-
-For an explicit isolated home, only its sibling `<OPENCODE_HOME>.legacy` is a
-migration source; it never adopts the installed Lab profile. The first desktop
-start after a CLI-created fresh home uses the same data. The official OpenCode
-profile and XDG directories are not migrated automatically.
+实验功能保存于 `config/experiments.json`，属于本机后端启动偏好。后台子代理选项映射 `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`；保存值与运行值分开显示，下次后端启动生效，不自动重启，也不改变 Task 的前后台默认模式。未保存时沿用上游环境变量行为。实现：[`backend-experiments.ts`](src/main/backend-experiments.ts)。
