@@ -35,6 +35,7 @@ export function NewSessionView(props: {
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
       <div
         data-component="session-new-design"
+        data-directory={props.workspace.project.directory()}
         class="relative flex-1 min-h-0 overflow-hidden rounded-[10px] bg-v2-background-bg-deep"
       >
         <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">

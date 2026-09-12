@@ -1,4 +1,4 @@
-import { createMemo, createResource } from "solid-js"
+import { createMemo, createResource, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSDK } from "@/context/sdk"
 import { useServerSync } from "@/context/server-sync"
@@ -35,29 +35,30 @@ export function createNewSessionWorkspaceController() {
   const sdk = useSDK()
   const sync = useSync()
   const serverSync = useServerSync()
+  const serverScope = createMemo(() => sdk().scope)
   const [preference, setPreference, , preferenceReady] = persisted(
     Persist.global("new-session.worktree"),
     createStore({ isolated: true }),
   )
-  const [branchPreference, setBranchPreference, , branchPreferenceReady] = persisted(
-    Persist.serverGlobal(sdk().scope, "new-session.branch"),
-    createStore({ selected: {} as Record<string, string> }),
-  )
+  const branchState = createMemo(() => {
+    const target = Persist.serverGlobal(serverScope(), "new-session.branch")
+    return untrack(() => persisted(target, createStore({ selected: {} as Record<string, string> })))
+  })
   const visible = createMemo(() => workspaceBarEnabled && sync().project?.vcs === "git")
   const projectRoot = createMemo(() => sync().project?.worktree ?? sdk().directory)
   const projectKey = createMemo(() => pathKey(projectRoot()))
-  const [options, optionsControl] = createResource(
-    () => (visible() ? sdk().directory : undefined),
-    async (directory) => {
-      if (!directory) return
+  const [result, optionsControl] = createResource(
+    () => (visible() ? sdk() : undefined),
+    async (target) => {
       try {
-        const data = (await sdk().client.worktree.options({ directory })).data
-        return { ...data, failed: false }
+        const data = (await target.client.worktree.options({ directory: target.directory })).data
+        return { target, data: { ...data, failed: false } }
       } catch {
-        return { hasHead: false, branches: [], failed: true }
+        return { target, data: { hasHead: false, branches: [], failed: true } }
       }
     },
   )
+  const options = createMemo(() => (result()?.target === sdk() ? result()?.data : undefined))
   const optionsFailed = createMemo(() => options()?.failed === true)
   const hasHead = createMemo(() => options()?.hasHead === true)
   const isolated = createMemo(() =>
@@ -65,14 +66,14 @@ export function createNewSessionWorkspaceController() {
       visible: visible(),
       preferred: preference.isolated,
       hasHead: hasHead(),
-      loading: options.loading,
+      loading: result.loading,
       failed: optionsFailed(),
     }),
   )
   const currentBranch = createMemo(() => options()?.currentBranch ?? serverSync().child(sdk().directory)[0].vcs?.branch)
   const selectedBranch = createMemo(() =>
     resolveNewSessionBranch({
-      selected: branchPreference.selected[projectKey()],
+      selected: branchState()[0].selected[projectKey()],
       branches: options()?.branches ?? [],
       current: currentBranch(),
     }),
@@ -80,8 +81,8 @@ export function createNewSessionWorkspaceController() {
   const worktreeReady = createMemo(
     () =>
       preferenceReady() &&
-      branchPreferenceReady() &&
-      (!visible() || (!options.loading && !optionsFailed() && (!hasHead() || !!selectedBranch()))),
+      branchState()[3]() &&
+      (!visible() || (!result.loading && !optionsFailed() && (!hasHead() || !!selectedBranch()))),
   )
   const value = createMemo(() => resolveNewSessionWorktree(isolated()))
 
@@ -91,14 +92,15 @@ export function createNewSessionWorkspaceController() {
       isolated,
       reset: () => undefined,
       setIsolated: (value: boolean) => setPreference("isolated", value),
-      disabled: createMemo(() => !preferenceReady() || options.loading || (!hasHead() && !optionsFailed())),
+      disabled: createMemo(() => !preferenceReady() || result.loading || (!hasHead() && !optionsFailed())),
       ready: worktreeReady,
-      loading: () => options.loading,
+      loading: () => result.loading,
       failed: optionsFailed,
       retry: () => void optionsControl.refetch(),
-      setBaseBranch: (branch: string) => setBranchPreference("selected", projectKey(), branch),
+      setBaseBranch: (branch: string) => branchState()[1]("selected", projectKey(), branch),
     },
     project: {
+      directory: () => sdk().directory,
       root: () => (sync().ready && sync().project ? projectRoot() : undefined),
       git: () => sync().project?.vcs === "git",
       branches: () => options()?.branches ?? [],

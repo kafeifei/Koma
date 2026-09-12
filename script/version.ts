@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
-import { Script } from "@opencode-ai/script"
+import "./upstream-only"
+
+const { Script } = await import("@opencode-ai/script")
 import { $ } from "bun"
 
 const output = [`version=${Script.version}`]

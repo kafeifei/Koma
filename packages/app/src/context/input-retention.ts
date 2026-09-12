@@ -1,10 +1,12 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import type { Platform } from "./platform"
-import type { Tab } from "./tabs"
+import type { DraftTab, Tab } from "./tabs"
+import { uuid } from "@/utils/uuid"
 import { pathKey } from "@/utils/path-key"
 import { Persist, draftPersistedKeys, removePersisted } from "@/utils/persist"
 import type { ServerScope } from "@/utils/server-scope"
 import type { PromptSession } from "./prompt-state"
+import type { ServerConnection } from "./server"
 
 export function directoryInputID(scope: ServerScope, directory: string) {
   return `input:${base64Encode(JSON.stringify([scope, pathKey(directory)]))}`
@@ -13,16 +15,46 @@ export function directoryInputID(scope: ServerScope, directory: string) {
 export async function resolveInputDirectory(input: {
   directory: string
   scope: ServerScope
+  server?: ServerConnection.Key
   tabs: readonly Tab[]
   resolve: (directory: string) => Promise<string>
 }) {
   const id = directoryInputID(input.scope, input.directory)
-  if (input.tabs.some((tab) => tab.type === "draft" && tab.draftID === id)) return input.directory
+  if (
+    input.tabs.some(
+      (tab) =>
+        tab.type === "draft" &&
+        (tab.draftID === id ||
+          (isComposerInput(tab.draftID) &&
+            tab.server === input.server &&
+            pathKey(tab.directory) === pathKey(input.directory))),
+    )
+  )
+    return input.directory
   return input.resolve(input.directory)
 }
 
 export function isDirectoryInput(id: string) {
   return id.startsWith("input:")
+}
+
+export function isComposerInput(id: string) {
+  return id.startsWith("composer:")
+}
+
+export function isRetainedInput(id: string) {
+  return isComposerInput(id) || isDirectoryInput(id)
+}
+
+// Tabs are window-scoped. The composer owns one input; its destination is metadata,
+// not part of the prompt's identity. Keep old directory inputs readable on old URLs.
+export function composerInput(tabs: readonly Tab[], target: Omit<DraftTab, "type" | "draftID">): DraftTab {
+  const existing = tabs.find((tab): tab is DraftTab => tab.type === "draft" && isComposerInput(tab.draftID))
+  return {
+    ...(existing ?? { type: "draft", draftID: `composer:${uuid()}` }),
+    ...target,
+    directory: pathKey(target.directory),
+  }
 }
 
 export function isLegacyDraft(tab: Tab) {

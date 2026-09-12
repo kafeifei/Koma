@@ -9,15 +9,17 @@ const feature = `${directory}/feature`
 const editor = (page: Page) => page.locator('[data-component="prompt-input-v2"] [data-component="prompt-input"]')
 const sidebar = (page: Page) => page.locator('[data-component="task-sidebar"]')
 const newTask = (page: Page) => sidebar(page).locator('[data-action="workspace-new-task"]')
-const inputHref = (dir: string) =>
-  `/new-session?draftId=${encodeURIComponent(`input:${base64Encode(JSON.stringify(["local", dir]))}`)}`
+const expectComposer = async (page: Page, dir: string) => {
+  await expect(page).toHaveURL(/\/new-session\?draftId=composer%3A[^&]+$/)
+  await expect(page.locator('[data-component="session-new-design"]')).toHaveAttribute("data-directory", dir)
+  await expect(editor(page)).toBeEditable()
+}
 const openProject = async (page: Page, dir: string) => {
   await sidebar(page)
     .locator(`[data-slot="workspace-project"][data-directory="${dir}"]`)
     .getByRole("button", { name: "New task", exact: true })
     .click()
-  await expect(page).toHaveURL(new URL(inputHref(dir), page.url()).href)
-  await expect(editor(page)).toBeEditable()
+  await expectComposer(page, dir)
 }
 const openExistingWorktree = async (page: Page) => {
   await page.route("**/experimental/worktree/managed**", (route) =>
@@ -81,8 +83,7 @@ const openExistingWorktree = async (page: Page) => {
   const dialog = page.getByRole("dialog")
   await dialog.locator('[data-slot="worktree-manager-entry"]').filter({ hasText: "feature" }).click()
   await dialog.getByRole("button", { name: "Open directory", exact: true }).click()
-  await expect(page).toHaveURL(new URL(inputHref(feature), page.url()).href)
-  await expect(editor(page)).toBeEditable()
+  await expectComposer(page, feature)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -211,8 +212,7 @@ test.beforeEach(async ({ page }) => {
 test("first new-task shortcut preserves Chinese composition and retains the committed text", async ({ page }) => {
   const modifier = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"))
   await page.keyboard.press(`${modifier}+n`)
-  await expect(page).toHaveURL(new URL(inputHref(directory), page.url()).href)
-  await expect(editor(page)).toBeEditable()
+  await expectComposer(page, directory)
   await expect(editor(page)).toBeFocused()
   await expect(editor(page)).toBeEmpty()
 
@@ -280,7 +280,7 @@ test("retains the last selected permission through close, refresh and first subm
   await page.reload()
   await expect(permission).toContainText("Full Access")
   await openProject(page, other)
-  await expect(permission).toContainText("Default permissions")
+  await expect(permission).toContainText("Full Access")
   await openProject(page, directory)
   await editor(page).fill("Keep my permission choice")
   const created = currentSession(
@@ -312,7 +312,7 @@ test("retains the last selected permission through close, refresh and first subm
         return tabs.filter((tab) => tab.type === "draft").map((tab) => tab.draftID)
       }),
     )
-    .toHaveLength(2)
+    .toHaveLength(1)
 })
 
 test("restores model, variant and permission for new inputs in the same project", async ({ page }) => {
@@ -363,8 +363,8 @@ test("restores model, variant and permission for new inputs in the same project"
   await expect(permission).toContainText("Full Access")
 
   await openProject(page, other)
-  await expect(model).not.toContainText("Remembered Model")
-  await expect(permission).toContainText("Default permissions")
+  await expect(model).toContainText("Remembered Model")
+  await expect(permission).toContainText("Full Access")
   await sidebar(page).locator('[data-session-id="ses-retained"]').click()
   await expect(model).not.toContainText("Remembered Model")
   await expect(permission).toContainText("Default permissions")
@@ -399,6 +399,7 @@ test("an explicitly selected default never falls back to the directory's full pe
 for (const initial of ["", "Existing input"]) {
   test(`explicit prefill is retained for an existing ${initial ? "nonempty" : "empty"} singleton`, async ({ page }) => {
     await openProject(page, directory)
+    const href = page.url()
     await editor(page).fill(initial)
     await sidebar(page).getByRole("button", { name: "Home", exact: true }).click()
     await page.evaluate(
@@ -411,17 +412,17 @@ for (const initial of ["", "Existing input"]) {
       `/${base64Encode(directory)}/session?prompt=${encodeURIComponent("Explicit prefill")}`,
     )
     await page.getByRole("link", { name: "Prefill test input", exact: true }).click()
-    await expect(page).toHaveURL(new URL(inputHref(directory), page.url()).href)
+    await expect(page).toHaveURL(href)
     await expect(editor(page)).toHaveText(initial ? `${initial}\n\nExplicit prefill` : "Explicit prefill")
     await newTask(page).click()
     await expect(editor(page)).toHaveText(initial ? `${initial}\n\nExplicit prefill` : "Explicit prefill")
-    await page.goto(`${inputHref(directory)}&prompt=${encodeURIComponent("Direct prefill")}`)
-    await expect(page).toHaveURL(new URL(inputHref(directory), page.url()).href)
+    await page.goto(`${href}&prompt=${encodeURIComponent("Direct prefill")}`)
+    await expect(page).toHaveURL(href)
     await expect(editor(page)).toHaveText(`${initial ? `${initial}\n\n` : ""}Explicit prefill\n\nDirect prefill`)
   })
 }
 
-test("project selection and existing worktrees open independent inputs", async ({ page }) => {
+test("project selection and existing worktrees keep one mounted input while changing the target", async ({ page }) => {
   await page.route("**/api/project", (route) =>
     route.fulfill({
       json: [
@@ -445,6 +446,7 @@ test("project selection and existing worktrees open independent inputs", async (
   await page.reload()
   await openProject(page, directory)
   await editor(page).fill("Root input")
+  await editor(page).evaluate((element) => element.setAttribute("data-retention-probe", "original"))
   const rootURL = page.url()
   const worktreeControl = page.locator('[data-action="prompt-worktree"]')
   const worktree = page.getByRole("checkbox", { name: "Worktree", exact: true })
@@ -454,15 +456,19 @@ test("project selection and existing worktrees open independent inputs", async (
   await expect(editor(page)).toHaveText("Root input")
   await page.locator('[data-action="prompt-project"]').click()
   await page.getByRole("menuitemradio", { name: /OtherProject/ }).click()
-  await expect(page).toHaveURL(new URL(inputHref(other), page.url()).href)
-  await expect(editor(page)).toBeEmpty()
+  await expectComposer(page, other)
+  await expect(page).toHaveURL(rootURL)
+  await expect(editor(page)).toHaveAttribute("data-retention-probe", "original")
+  await expect(editor(page)).toHaveText("Root input")
   await editor(page).fill("Other project input")
   await openProject(page, directory)
   await expect(page).toHaveURL(rootURL)
-  await expect(editor(page)).toHaveText("Root input")
+  await expect(editor(page)).toHaveText("Other project input")
+  await expect(editor(page)).toHaveAttribute("data-retention-probe", "original")
   await expect(worktree).not.toBeChecked()
   await openExistingWorktree(page)
-  await expect(editor(page)).toBeEmpty()
+  await expect(editor(page)).toHaveText("Other project input")
+  await expect(editor(page)).toHaveAttribute("data-retention-probe", "original")
   await editor(page).fill("Feature input")
   const featureURL = page.url()
   const projectControl = page.locator('[data-action="prompt-project"]')
@@ -492,19 +498,19 @@ test("project selection and existing worktrees open independent inputs", async (
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
   await openProject(page, directory)
   await expect(page).toHaveURL(rootURL)
-  await expect(editor(page)).toHaveText("Root input")
+  await expect(editor(page)).toHaveText("Feature input")
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
   await page.reload()
   await expect(worktree).toBeChecked()
-  await expect(editor(page)).toHaveText("Root input")
+  await expect(editor(page)).toHaveText("Feature input")
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
   await openProject(page, directory)
-  await expect(editor(page)).toHaveText("Root input")
+  await expect(editor(page)).toHaveText("Feature input")
   await page.locator('[data-action="prompt-base-branch"]').click()
   await page.getByRole("menuitem", { name: "release", exact: true }).click()
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("release")
   await openProject(page, other)
-  await expect(editor(page)).toHaveText("Other project input")
+  await expect(editor(page)).toHaveText("Feature input")
   await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("other")
   const otherURL = page.url()
   await page.keyboard.press("Control+Tab")
@@ -512,6 +518,59 @@ test("project selection and existing worktrees open independent inputs", async (
   const modifier = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"))
   await page.keyboard.press(`${modifier}+1`)
   await expect(page.getByRole("heading", { name: "Existing conversation", exact: true })).toBeVisible()
+})
+
+test("switching servers at the same directory keeps the input and refreshes the target's branch data", async ({
+  page,
+}) => {
+  await openProject(page, directory)
+  await editor(page).fill("One input across servers")
+  const href = page.url()
+  const remote = `http://composer-remote.test:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
+  await page.route("**/api/project", (route) => {
+    if (new URL(route.request().url()).origin !== remote) return route.fallback()
+    return route.fulfill({
+      json: [{ id: "proj-remote", worktree: directory, vcs: "git", name: "RemoteProject", time: {}, sandboxes: [] }],
+    })
+  })
+  await page.route("**/api/project/current**", (route) => {
+    if (new URL(route.request().url()).origin !== remote) return route.fallback()
+    return route.fulfill({ json: { id: "proj-remote", directory } })
+  })
+  await page.route("**/experimental/worktree/options**", (route) => {
+    const branch = new URL(route.request().url()).origin === remote ? "remote-branch" : "local-branch"
+    return route.fulfill({ json: { hasHead: true, currentBranch: branch, branches: [branch] } })
+  })
+  await page.evaluate(
+    ({ remote, directory }) => {
+      const saved = JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}")
+      saved.list = [remote]
+      saved.projects[remote] = [{ worktree: directory, expanded: true }]
+      localStorage.setItem("opencode.global.dat:server", JSON.stringify(saved))
+    },
+    { remote, directory },
+  )
+  await page.reload()
+  await expect(editor(page)).toHaveText("One input across servers")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("local-branch")
+  await editor(page).evaluate((element) => element.setAttribute("data-retention-probe", "original"))
+
+  const project = page.locator('[data-action="prompt-project"]')
+  await project.click()
+  await page.getByRole("menuitemradio", { name: /RemoteProject/ }).click()
+  await expect(project).toContainText("RemoteProject")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("remote-branch")
+  await expect(page).toHaveURL(href)
+  await expect(editor(page)).toHaveText("One input across servers")
+  await expect(editor(page)).toHaveAttribute("data-retention-probe", "original")
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled()
+
+  await project.click()
+  await page.getByRole("menuitemradio", { name: "InputRetention", exact: true }).click()
+  await expect(project).toContainText("InputRetention")
+  await expect(page.locator('[data-action="prompt-base-branch"]')).toContainText("local-branch")
+  await expect(editor(page)).toHaveText("One input across servers")
+  await expect(editor(page)).toHaveAttribute("data-retention-probe", "original")
 })
 
 test("a manager-opened worktree keeps root identity while sending from its actual directory", async ({ page }) => {
@@ -760,8 +819,7 @@ for (const change of ["switch", "edit"] as const) {
     await expect(editor(page)).toHaveText("Written during create")
     await openProject(page, directory)
     await expect(page).toHaveURL(rootURL)
-    if (change === "switch") await expect(editor(page)).toBeEmpty()
-    else await expect(editor(page)).toHaveText("Written during create")
+    await expect(editor(page)).toHaveText("Written during create")
   })
 }
 
@@ -855,6 +913,17 @@ test("hydration removes legacy UUID inputs but retains session text and singleto
   )
   const retained = JSON.parse((await savedDocuments(page))[key]!)
   const inputURL = page.url()
+  await page.locator('[data-action="prompt-project"]').click()
+  await page.getByRole("menuitemradio", { name: /OtherProject/ }).click()
+  await expectComposer(page, other)
+  await expect(page).toHaveURL(inputURL)
+  await expect(editor(page)).toHaveText("Persisted singleton input")
+  await expect(page.locator('[data-component="prompt-input-v2"] img')).toHaveCount(1)
+  expect(JSON.parse((await savedDocuments(page))[key])).toMatchObject({
+    prompt: retained.prompt,
+    context: retained.context,
+  })
+  await openProject(page, directory)
   for (const checked of [false, true]) {
     await page.locator('[data-action="prompt-worktree"]').click()
     await expect(page.getByRole("checkbox", { name: "Worktree", exact: true })).toBeChecked({ checked })

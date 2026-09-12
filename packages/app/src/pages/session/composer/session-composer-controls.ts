@@ -99,7 +99,11 @@ export function createPromptProjectControls() {
       const target = global.ensureServerCtx(conn)
       target.projects.open(worktree)
       target.projects.touch(worktree)
-      void tabs.newDraft({ server: ServerConnection.key(conn), directory: worktree })
+      tabs.updateDraft(search.draftId, {
+        server: ServerConnection.key(conn),
+        directory: pathKey(worktree),
+        worktree: undefined,
+      })
       return
     }
 

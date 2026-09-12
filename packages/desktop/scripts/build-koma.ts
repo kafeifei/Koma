@@ -1,8 +1,16 @@
+import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { withKomaBuildSequence } from "./koma-build-sequence"
 import pkg from "../package.json"
 
 export async function buildKoma(cwd: string, packaged: boolean) {
+  const readGit = (...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim()
+  if (readGit("branch", "--show-current") === "dev")
+    throw new Error("dev only mirrors upstream. Build Koma from main or a product feature branch.")
+  if (process.env.KOMA_RELEASE === "1") {
+    if (readGit("rev-parse", "HEAD") !== readGit("rev-parse", "refs/heads/main") || readGit("status", "--porcelain"))
+      throw new Error("Koma release builds require a clean checkout at the main commit.")
+  }
   const git = Bun.spawn(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
     cwd,
     stdout: "pipe",

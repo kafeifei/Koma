@@ -26,3 +26,5 @@ bun run release:mac
 GitHub 仓库的 Release 与 Git 标签分开管理。清理上游 Release 不删除上游历史标签，也不改写上游提交历史。
 
 Koma Debug 与 Koma 使用同一工作台和共享后端；`bun run debug` 生成 Koma Debug.app。新 profile 默认使用 `~/.koma`，可用绝对路径 `KOMA_HOME` 指定。已有 Lab profile 保留物理目录和锁，以 `~/.koma` 兼容链接继续使用，不复制数据库；`OPENCODE_HOME` 仍兼容。旧协议标识、存储文件名和上游 OpenCode 引擎包名保留兼容用途。
+
+分支同步与发布入口约束见 [分支策略](branches.md)。`dev` 只镜像上游，不能作为 Koma 发布源码；旧的 `script/release`、`script/version.ts`、`script/publish.ts`、`script/beta.ts` 在 Koma 仓库中会拒绝运行。

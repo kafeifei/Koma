@@ -1,7 +1,7 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useParams } from "@solidjs/router"
-import { batch, createEffect, createMemo, startTransition } from "solid-js"
+import { batch, createEffect, createMemo, startTransition, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useModels } from "@/context/models"
 import { useSettings } from "@/context/settings"
@@ -72,15 +72,29 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const agentsVisible = createMemo(() => settings.visibility.customAgents() || hasCustomAgent(list()))
     const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
-    const [saved, setSaved, , savedReady] = persisted(
-      {
-        ...Persist.serverWorkspace(serverSDK().scope, sdk().directory, "model-selection", ["model-selection.v1"]),
-        migrate,
+    const savedState = createMemo(() => {
+      const target = Persist.serverWorkspace(serverSDK().scope, sdk().directory, "model-selection", [
+        "model-selection.v1",
+      ])
+      return untrack(() =>
+        persisted(
+          {
+            ...target,
+            migrate,
+          },
+          createStore<Saved>({
+            session: {},
+          }),
+        ),
+      )
+    })
+    const saved = {
+      get session() {
+        return savedState()[0].session
       },
-      createStore<Saved>({
-        session: {},
-      }),
-    )
+    }
+    const setSavedSession = (id: string, state: State | undefined) => savedState()[1]("session", id, state)
+    const savedReady = () => savedState()[3]()
 
     const [store, setStore] = createStore<{
       current?: string
@@ -144,7 +158,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         return
       }
 
-      setSaved("session", session, clone(next))
+      setSavedSession(session, clone(next))
       handoff.delete(key)
       setStore("promoting", undefined)
     })
@@ -208,7 +222,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           } satisfies State
           const session = id()
           if (session) {
-            setSaved("session", session, next)
+            setSavedSession(session, next)
             return
           }
           setStore("draft", next)
@@ -269,7 +283,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
       const session = id()
       if (session) {
-        setSaved("session", session, state)
+        setSavedSession(session, state)
         return
       }
       setStore("draft", state)
@@ -388,7 +402,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           handoff.set(key, next)
 
           if (dir === sdk().directory) {
-            setSaved("session", session, next)
+            setSavedSession(session, next)
           }
 
           setStore("promoting", next)
@@ -401,7 +415,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (saved.session[session] !== undefined) return
           if (handoff.has(handoffKey(serverSDK().scope, sdk().directory, session))) return
 
-          setSaved("session", session, {
+          setSavedSession(session, {
             agent: msg.agent,
             model: msg.model,
             variant: msg.model?.variant ?? null,

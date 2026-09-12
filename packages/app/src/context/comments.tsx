@@ -1,7 +1,7 @@
 import { batch, createMemo, createRoot, onCleanup } from "solid-js"
 import { createStore, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { useParams } from "@solidjs/router"
+import { useParams, useSearchParams } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Persist, persisted } from "@/utils/persist"
 import { useServerSDK } from "./server-sdk"
@@ -10,6 +10,7 @@ import { createScopedCache } from "@/utils/scoped-cache"
 import { uuid } from "@/utils/uuid"
 import type { SelectedLineRange } from "@/context/file"
 import { useSDK } from "./sdk"
+import { useTabs } from "./tabs"
 
 export type LineComment = {
   id: string
@@ -178,11 +179,11 @@ export function createCommentSessionForTest(comments: Record<string, LineComment
   return createCommentSessionState(store, setStore)
 }
 
-function createCommentSession(scope: ServerScope, dir: string, id: string | undefined) {
+function createCommentSession(scope: ServerScope, dir: string, id: string | undefined, draftID?: string) {
   const legacy = `${dir}/comments${id ? "/" + id : ""}.v1`
 
   const [store, setStore, _, ready] = persisted(
-    Persist.serverScoped(scope, dir, id, "comments", [legacy]),
+    draftID ? Persist.draft(draftID, "comments") : Persist.serverScoped(scope, dir, id, "comments", [legacy]),
     createStore<CommentStore>({
       comments: {},
     }),
@@ -212,6 +213,8 @@ export const { use: useComments, provider: CommentsProvider } = createSimpleCont
   gate: false,
   init: () => {
     const params = useParams()
+    const [search] = useSearchParams<{ draftId?: string }>()
+    const tabs = useTabs()
     const sdk = useSDK()
     const serverSDK = useServerSDK()
     const cache = createScopedCache(
@@ -239,7 +242,15 @@ export const { use: useComments, provider: CommentsProvider } = createSimpleCont
       return cache.get(key).value
     }
 
-    const session = createMemo(() => load(base64Encode(sdk().directory), params.id))
+    const session = createMemo(() => {
+      const draftID = search.draftId
+      if (draftID) {
+        return tabs.state(tabs.draft(draftID), "comments", () =>
+          createCommentSession(serverSDK().scope, base64Encode(sdk().directory), undefined, draftID),
+        )
+      }
+      return load(base64Encode(sdk().directory), params.id)
+    })
 
     return {
       ready: () => session().ready(),
