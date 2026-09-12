@@ -20,7 +20,7 @@ import { ProviderV2 } from "../../provider"
 import { QuestionV2 } from "../../question"
 import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
-import { LabInstructions } from "../../lab-instructions"
+import { KomaInstructions } from "../../koma-instructions"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
@@ -103,7 +103,7 @@ const layer = Layer.effect(
     const store = yield* SessionStore.Service
     const location = yield* Location.Service
     const systemContext = yield* SystemContextRegistry.Service
-    const labInstructions = yield* LabInstructions.Service
+    const labInstructions = yield* KomaInstructions.Service
     const skillGuidance = yield* SkillGuidance.Service
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
@@ -437,7 +437,7 @@ export const node = makeLocationNode({
     SessionStore.node,
     Location.node,
     SystemContextRegistry.node,
-    LabInstructions.node,
+    KomaInstructions.node,
     SkillGuidance.node,
     ReferenceGuidance.node,
     Config.node,

@@ -1,5 +1,5 @@
 const en = {
-  "page.title": "OpenCode Lab Remote",
+  "page.title": "Koma Remote",
   "brand.remote": "Remote",
   "header.workspace": "Your remote workspace",
   "header.signOut": "Sign out",
@@ -31,7 +31,7 @@ const en = {
   "devices.empty.description": "Complete remote setup on a computer, then refresh this page.",
   "devices.help.title": "Can't find your computer?",
   "devices.help.description":
-    "Open Settings → Remote in OpenCode Lab, enable remote access with the same GitHub account, and keep the computer online.",
+    "Open Settings → Remote in Koma, enable remote access with the same GitHub account, and keep the computer online.",
   "error.configuration": "Remote access is not configured for this deployment.",
   "error.authentication": "Your GitHub sign-in expired. Sign in again.",
   "error.github": "GitHub sign-in is temporarily unavailable.",
@@ -45,7 +45,7 @@ const en = {
 type Key = keyof typeof en
 
 const zh: Partial<Record<Key, string>> = {
-  "page.title": "OpenCode Lab 远程",
+  "page.title": "Koma 远程",
   "brand.remote": "远程",
   "header.workspace": "你的远程工作台",
   "header.signOut": "退出",
@@ -75,7 +75,7 @@ const zh: Partial<Record<Key, string>> = {
   "devices.empty.title": "没有可连接的电脑",
   "devices.empty.description": "在电脑上完成远程设置，然后刷新此页面。",
   "devices.help.title": "找不到你的电脑？",
-  "devices.help.description": "在 OpenCode Lab 中打开“设置 → 远程”，使用同一 GitHub 帐户开启远程访问，并保持电脑在线。",
+  "devices.help.description": "在 Koma 中打开“设置 → 远程”，使用同一 GitHub 帐户开启远程访问，并保持电脑在线。",
   "error.configuration": "此部署尚未配置远程访问。",
   "error.authentication": "GitHub 登录已过期，请重新登录。",
   "error.github": "GitHub 登录暂时不可用。",

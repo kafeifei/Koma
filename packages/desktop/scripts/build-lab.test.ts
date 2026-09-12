@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { buildLab } from "./build-lab"
+import { buildKoma } from "./build-koma"
 
 test("full Lab build commits only after packaging succeeds, then standalone build advances once", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lab-build-pipeline-"))
@@ -16,7 +16,7 @@ test("full Lab build commits only after packaging succeeds, then standalone buil
         scripts: {
           prebuild: "bun step.ts prepare",
           "electron-vite": "bun step.ts frontend",
-          "package:lab": "bun step.ts package",
+          "package:debug": "bun step.ts package",
         },
       }),
     )
@@ -31,13 +31,13 @@ test("full Lab build commits only after packaging succeeds, then standalone buil
     )
     for (const phase of ["prepare", "frontend", "package"]) {
       await writeFile(join(directory, "fail"), phase)
-      await expect(buildLab(directory, true)).rejects.toThrow("failed (1)")
+      await expect(buildKoma(directory, true)).rejects.toThrow("failed (1)")
       expect(await readFile(join(directory, ".git/lab-build-sequence"), "utf8")).toBe("42\n")
     }
     await rm(join(directory, "fail"))
-    expect(await buildLab(directory, true)).toBe(43)
+    expect(await buildKoma(directory, true)).toBe(43)
     expect(await readFile(join(directory, ".git/lab-build-sequence"), "utf8")).toBe("43\n")
-    expect(await buildLab(directory, false)).toBe(44)
+    expect(await buildKoma(directory, false)).toBe(44)
     expect(await readFile(join(directory, "stages"), "utf8")).toBe(
       [
         "prepare:43:42",
@@ -71,7 +71,7 @@ test.skipIf(process.platform === "win32")(
           scripts: {
             prebuild: "bun step.ts",
             "electron-vite": "bun step.ts",
-            "package:lab": "bun step.ts",
+            "package:debug": "bun step.ts",
           },
         }),
       )
@@ -87,8 +87,8 @@ test.skipIf(process.platform === "win32")(
       await writeFile(
         join(directory, "runner.ts"),
         `
-      import { buildLab } from ${JSON.stringify(join(import.meta.dir, "build-lab.ts"))}
-      await buildLab(import.meta.dir, true)
+      import { buildKoma } from ${JSON.stringify(join(import.meta.dir, "build-koma.ts"))}
+      await buildKoma(import.meta.dir, true)
     `,
       )
       const child = Bun.spawn([process.execPath, join(directory, "runner.ts")], { stdout: "ignore", stderr: "ignore" })

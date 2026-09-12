@@ -33,7 +33,7 @@ await new Promise<void>((resolve, reject) => {
 const address = server.address()
 if (!address || typeof address === "string") throw new Error("Remote Web development server did not bind a TCP port")
 const origin = `http://127.0.0.1:${address.port}`
-console.log(`OpenCode Lab Remote: ${origin}`)
+console.log(`Koma Remote: ${origin}`)
 if (!process.env.SESSION_SECRET) console.log("SESSION_SECRET is not configured; authentication endpoints are disabled.")
 
 const close = () => {

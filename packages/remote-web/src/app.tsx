@@ -201,7 +201,7 @@ export function App() {
           <span class="remote-logo" aria-hidden="true">
             <Logo />
           </span>
-          <span>OpenCode Lab</span>
+          <span>Koma</span>
           <span class="remote-brand-label">{language.t("brand.remote")}</span>
         </div>
         <Show

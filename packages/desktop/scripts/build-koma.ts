@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url"
-import { withLabBuildSequence } from "./lab-build-sequence"
+import { withKomaBuildSequence } from "./koma-build-sequence"
+import pkg from "../package.json"
 
-export async function buildLab(cwd: string, packaged: boolean) {
+export async function buildKoma(cwd: string, packaged: boolean) {
   const git = Bun.spawn(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
     cwd,
     stdout: "pipe",
@@ -9,12 +10,21 @@ export async function buildLab(cwd: string, packaged: boolean) {
   })
   const directory = (await new Response(git.stdout).text()).trim()
   if ((await git.exited) !== 0 || !directory)
-    throw new Error("Cannot resolve shared Git directory for the Lab build sequence")
+    throw new Error("Cannot resolve shared Git directory for the Koma build sequence")
 
-  return withLabBuildSequence(directory, async (sequence) => {
-    const env = { ...process.env, OPENCODE_CHANNEL: "lab", OPENCODE_LAB_BUILD_SEQUENCE: String(sequence) }
+  return withKomaBuildSequence(directory, async (sequence) => {
+    const env = {
+      ...process.env,
+      OPENCODE_CHANNEL: "lab",
+      OPENCODE_LAB_BUILD_SEQUENCE: String(sequence),
+      OPENCODE_VERSION: pkg.version,
+    }
     const commands = packaged
-      ? [["prebuild"], ["electron-vite", "build"], ["package:lab"]]
+      ? [
+          ["prebuild"],
+          ["electron-vite", "build"],
+          [process.env.KOMA_RELEASE === "1" ? "package:release" : "package:debug"],
+        ]
       : [["electron-vite", "build"]]
     const cancellation = new AbortController()
     for (const command of commands) {
@@ -45,7 +55,7 @@ export async function buildLab(cwd: string, packaged: boolean) {
         stopBuild(child.pid, "SIGKILL")
         cancellation.signal.throwIfAborted()
       }
-      if (code !== 0) throw new Error(`Lab ${command.join(" ")} failed (${code})`)
+      if (code !== 0) throw new Error(`Koma ${command.join(" ")} failed (${code})`)
     }
     return sequence
   })
@@ -64,5 +74,5 @@ function stopBuild(pid: number, signal: NodeJS.Signals) {
 }
 
 if (import.meta.main) {
-  await buildLab(fileURLToPath(new URL("..", import.meta.url)), process.argv.includes("--package"))
+  await buildKoma(fileURLToPath(new URL("..", import.meta.url)), process.argv.includes("--package"))
 }

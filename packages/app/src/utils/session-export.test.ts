@@ -107,5 +107,5 @@ test("exports the native snapshot without reading or fabricating an OpenCode tra
     },
   })
   expect(loaded).toBe(true)
-  expect(result).toEqual({ format: "opencode-lab-native-v1", engine: "codex", info, snapshot })
+  expect(result).toEqual({ format: "koma-native-v1", engine: "codex", info, snapshot })
 })

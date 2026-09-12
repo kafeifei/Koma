@@ -26,14 +26,14 @@ export async function fetchSessionExport(input: {
     data: { snapshots: Record<string, LabSnapshotOutput | undefined> }
   }
 }): Promise<
-  SessionExportData | { format: "opencode-lab-native-v1"; engine: "codex"; info: Session; snapshot: LabSnapshotOutput }
+  SessionExportData | { format: "koma-native-v1"; engine: "codex"; info: Session; snapshot: LabSnapshotOutput }
 > {
   if (input.external?.isExternal(input.sessionID)) {
     await input.external.load(input.sessionID, { force: true })
     const info = (await input.client.session.get({ sessionID: input.sessionID })).data
     const snapshot = input.external.data.snapshots[input.sessionID]
     if (!info || !snapshot) throw new Error(`Native session is unavailable: ${input.sessionID}`)
-    return { format: "opencode-lab-native-v1", engine: "codex", info, snapshot }
+    return { format: "koma-native-v1", engine: "codex", info, snapshot }
   }
   const [sessionRes, messagesRes] = await Promise.all([
     input.client.session.get({ sessionID: input.sessionID }),

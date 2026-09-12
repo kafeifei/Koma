@@ -1,4 +1,4 @@
-export * as LabInstructions from "./lab-instructions"
+export * as KomaInstructions from "./koma-instructions"
 
 import path from "path"
 import { Context, Effect, Layer, Schema } from "effect"
@@ -23,7 +23,7 @@ export interface Interface {
   readonly context: (model: string) => Effect.Effect<SystemContext.SystemContext>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/LabInstructions") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/KomaInstructions") {}
 
 export function vendor(model: string | undefined): "openai" | "anthropic" | undefined {
   if (!model) return undefined
@@ -40,7 +40,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
-    const first = Effect.fn("LabInstructions.first")(function* (paths: string[]) {
+    const first = Effect.fn("KomaInstructions.first")(function* (paths: string[]) {
       for (const file of paths) {
         const content = yield* fs.readFileStringSafe(file)
         if (content?.trim()) return { path: path.resolve(file), content }
@@ -48,7 +48,7 @@ const layer = Layer.effect(
       return undefined
     })
 
-    const load = Effect.fn("LabInstructions.load")(function* (selection: Selection) {
+    const load = Effect.fn("KomaInstructions.load")(function* (selection: Selection) {
       const common = yield* first([path.join(global.home, ".agents", "AGENTS.md")])
       const opencode =
         selection.engine === "opencode" ? yield* first([path.join(global.config, "AGENTS.md")]) : undefined
@@ -74,7 +74,7 @@ const layer = Layer.effect(
 
     return Service.of({
       load,
-      context: Effect.fn("LabInstructions.context")(function* (model) {
+      context: Effect.fn("KomaInstructions.context")(function* (model) {
         if (!global.root) return SystemContext.empty
         const files = yield* load({
           engine: "opencode",

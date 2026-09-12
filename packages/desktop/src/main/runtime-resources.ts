@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 // Electron must supply original-fs: its regular fs treats .asar as a directory.
 export function snapshotRuntimeResources(source: string, temp: string, io: typeof fs) {
-  const owner = io.mkdtempSync(join(temp, "opencode-runtime-"))
+  const owner = io.mkdtempSync(join(temp, "koma-runtime-"))
   const root = join(owner, "app.asar")
   const dispose = () => io.rmSync(owner, { recursive: true, force: true })
   try {

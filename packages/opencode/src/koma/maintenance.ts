@@ -7,23 +7,23 @@ import { StorageMigration } from "@opencode-ai/core/storage-migration"
 // to the CLI. Published binaries remain available to a running backend.
 export async function uninstall(root: string, args: string[]) {
   if (args.some((arg) => !["--dry-run", "--yes", "-y", "--keep-data", "--keep-config"].includes(arg))) {
-    throw new Error("Lab uninstall accepts --dry-run or --yes; shared data is always preserved")
+    throw new Error("Koma uninstall accepts --dry-run or --yes; shared data is always preserved")
   }
   const lease = await StorageMigration.lock(root)
   try {
-    const name = process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab"
+    const name = process.platform === "win32" ? "koma.exe" : "koma"
     const target = join(root, "bin", name)
     const shell = join(homedir(), ".local", "bin", name)
     const current = await link(target)
     if (
       current !== undefined &&
-      !new RegExp(`^\\.opencode-lab/[a-f0-9]{64}/${name.replace(".", "\\.")}$`).test(current.replaceAll("\\", "/"))
+      !new RegExp(`^\\.koma/[a-f0-9]{64}/${name.replace(".", "\\.")}$`).test(current.replaceAll("\\", "/"))
     ) {
-      throw new Error(`CLI entry is not managed by Lab: ${target}`)
+      throw new Error(`CLI entry is not managed by Koma: ${target}`)
     }
     const external = await link(shell)
     if (external !== undefined && resolve(join(homedir(), ".local", "bin"), external) !== target) {
-      throw new Error(`Shell entry is not managed by this Lab profile: ${shell}`)
+      throw new Error(`Shell entry is not managed by this Koma profile: ${shell}`)
     }
     const paths = [external === undefined ? undefined : shell, current === undefined ? undefined : target].filter(
       (path): path is string => path !== undefined,

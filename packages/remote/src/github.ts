@@ -1,5 +1,5 @@
 // Public client identifier used by Code OSS and Sandy; see ../NOTICE.
-// It is configurable, and is not an OpenCode Lab-owned OAuth registration.
+// It is configurable, and is not an Koma-owned OAuth registration.
 export const GITHUB_CLIENT_ID = "01ab8ac9400c4e429b23"
 
 export type GitHubAuthorization = {
@@ -83,7 +83,7 @@ export function createGitHubClient(transport: GitHubTransport = {}) {
         headers: {
           Accept: "application/json",
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "OpenCode-Lab",
+          "User-Agent": "Koma",
         },
         body: new URLSearchParams({ client_id: clientId(options), ...values }),
       },
@@ -159,7 +159,7 @@ export function createGitHubClient(transport: GitHubTransport = {}) {
         headers: {
           Accept: "application/vnd.github+json",
           Authorization: `Bearer ${requireString(accessToken)}`,
-          "User-Agent": "OpenCode-Lab",
+          "User-Agent": "Koma",
           "X-GitHub-Api-Version": "2022-11-28",
         },
       },

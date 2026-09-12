@@ -1,3 +1,3 @@
-# OpenCode Lab
+# Koma
 
-[本仓架构差异与边界](./PROJECT.md) · [上游 Session Runtime](./CONTEXT.md)
+[项目定位、架构与边界](./PROJECT.md) · [上游 Session Runtime](./CONTEXT.md)

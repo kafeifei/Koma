@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -39,9 +39,21 @@ struct Connection {
 fn backend_command(backend: &Backend) -> Command {
     let mut command = Command::new(&backend.binary);
     command
+        .env("KOMA_HOME", &backend.profile)
         .env("OPENCODE_HOME", &backend.profile)
         .current_dir(&backend.profile);
     command
+}
+
+// Match KomaBackend.stateDirectory: retain existing locks for a legacy profile,
+// use the current directory for a new profile, and reject ambiguous ownership.
+fn backend_state_directory(profile: &Path) -> Result<PathBuf, String> {
+    let current = profile.join("bin/.koma-backend");
+    let legacy = profile.join("bin/.lab-backend");
+    if current.exists() && legacy.exists() {
+        return Err("Conflicting Koma backend state directories".into());
+    }
+    Ok(if legacy.exists() { legacy } else { current })
 }
 
 fn discover(backend: &Backend) -> Option<Connection> {
@@ -56,7 +68,12 @@ fn discover(backend: &Backend) -> Option<Connection> {
     if status.get("running")?.as_bool()? != true {
         return None;
     }
-    let data = fs::read(backend.profile.join("bin/.lab-backend/backend.json")).ok()?;
+    let data = fs::read(
+        backend_state_directory(&backend.profile)
+            .ok()?
+            .join("backend.json"),
+    )
+    .ok()?;
     let mut connection: Connection = serde_json::from_slice(&data).ok()?;
     if status.get("url")?.as_str()? != connection.url {
         return None;
@@ -72,7 +89,7 @@ fn ensure_backend(backend: &Backend) -> Result<Connection, String> {
     }
     // A live but unresponsive owner must not be replaced. The backend's own
     // ownership lock is authoritative and refuses another claim for this profile.
-    let logs = backend.profile.join("bin/.lab-backend");
+    let logs = backend_state_directory(&backend.profile)?;
     fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     let output = OpenOptions::new()
         .create(true)
@@ -115,9 +132,8 @@ async fn initialize(app: tauri::AppHandle) -> Result<Connection, String> {
 fn stop_backend(backend: &Backend) -> Result<(), String> {
     let _lock = backend.starting.lock().map_err(|e| e.to_string())?;
     if discover(backend).is_none()
-        && !backend
-            .profile
-            .join("bin/.lab-backend/backend.json")
+        && !backend_state_directory(&backend.profile)?
+            .join("backend.json")
             .exists()
     {
         return Ok(());
@@ -277,4 +293,50 @@ fn main() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_paths_preserve_legacy_ownership_and_reject_conflicts() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("tauri-owner-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        assert_eq!(
+            backend_state_directory(&root).unwrap(),
+            root.join("bin/.koma-backend")
+        );
+        fs::create_dir_all(root.join("bin/.lab-backend")).unwrap();
+        assert_eq!(
+            backend_state_directory(&root).unwrap(),
+            root.join("bin/.lab-backend")
+        );
+        fs::create_dir_all(root.join("bin/.koma-backend")).unwrap();
+        assert!(backend_state_directory(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn every_backend_command_pins_both_profile_variables() {
+        let profile = PathBuf::from("/isolated/desktop-tests/tauri/profile");
+        let backend = Backend {
+            profile: profile.clone(),
+            binary: PathBuf::from("/test-backend"),
+            child: Mutex::new(None),
+            starting: Mutex::new(()),
+            quitting: AtomicBool::new(false),
+            exit_allowed: AtomicBool::new(false),
+        };
+        let command = backend_command(&backend);
+        for key in ["KOMA_HOME", "OPENCODE_HOME"] {
+            let value = command.get_envs().find(|(name, _)| *name == key).unwrap().1;
+            assert_eq!(value, Some(profile.as_os_str()));
+        }
+        assert_eq!(command.get_current_dir(), Some(profile.as_path()));
+    }
 }

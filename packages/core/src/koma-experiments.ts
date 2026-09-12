@@ -40,4 +40,4 @@ export async function setBackgroundSubagents(root: string, enabled: boolean) {
   }
 }
 
-export * as LabExperiments from "./lab-experiments"
+export * as KomaExperiments from "./koma-experiments"

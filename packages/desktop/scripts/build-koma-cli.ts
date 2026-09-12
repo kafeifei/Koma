@@ -14,7 +14,7 @@ await $`OPENCODE_CHANNEL=lab bun script/build.ts --single --skip-install --skip-
 const platform = process.platform === "win32" ? "windows" : process.platform
 const suffix = process.platform === "win32" ? ".exe" : ""
 const source = join(import.meta.dir, `../../opencode/dist/opencode-${platform}-${process.arch}/bin/opencode${suffix}`)
-const destination = join(import.meta.dir, `../resources/opencode-lab${suffix}`)
+const destination = join(import.meta.dir, `../resources/koma${suffix}`)
 await copyFile(source, destination)
 if (process.platform !== "win32") await chmod(destination, 0o755)
 if (process.platform === "darwin") await $`codesign --force --sign - ${destination}`

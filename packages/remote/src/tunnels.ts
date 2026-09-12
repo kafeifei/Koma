@@ -26,7 +26,7 @@ export class RemoteTunnelError extends Error {
 
 export function createTunnelManagement(getToken: () => Promise<string>) {
   return new TunnelManagementHttpClient(
-    { name: "OpenCode-Lab", version: "1.0" },
+    { name: "Koma", version: "1.0" },
     ManagementApiVersions.Version20230927preview,
     async () => {
       const token = await getToken()

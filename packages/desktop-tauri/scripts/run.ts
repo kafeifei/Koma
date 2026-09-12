@@ -11,7 +11,7 @@ assertTestPath(profile)
 await mkdir(profile, { recursive: true, mode: 0o700 })
 const real = await import("node:fs/promises").then((fs) => fs.realpath(profile))
 assertTestPath(real)
-const env = { ...process.env, OPENCODE_CHANNEL: "lab", OPENCODE_HOME: profile, CARGO_BUILD_JOBS: "4" }
+const env = { ...process.env, OPENCODE_CHANNEL: "lab", KOMA_HOME: profile, OPENCODE_HOME: profile, CARGO_BUILD_JOBS: "4" }
 
 async function run(args: string[], cwd: string) {
   const child = Bun.spawn(args, { cwd, env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })

@@ -22,7 +22,7 @@ packages/desktop-tauri/
   results/                       构建身份与测量结果
 ```
 
-App 名为 **OpenCode Lab Tauri Test**，ID 为 `ai.opencode.lab.tauri-test`。测试 App 绑定构建它的 worktree；移动／删除该源码目录后需要重建。Rust 宿主不会采用启动环境里的 `OPENCODE_HOME`，也不会回退到正式 `~/.opencode`。WebKit 的 localStorage／IndexedDB 属于独立应用 ID，由 macOS 存放在该应用自己的 WebKit 数据目录，与后端 profile 分开。
+App 名为 **OpenCode Lab Tauri Test**，ID 为 `ai.opencode.lab.tauri-test`。这是独立测试身份，Koma 改名后继续保留以复用已有测试 WebKit 数据。测试 App 绑定构建它的 worktree；移动／删除该源码目录后需要重建。Rust 宿主同时固定 `KOMA_HOME` 和 `OPENCODE_HOME`，不会采用启动环境中的正式 profile，也不会回退到 `~/.koma`／`~/.opencode`。新测试数据使用 `bin/.koma-backend`，旧测试数据沿用 `bin/.lab-backend`，同时存在则拒绝启动。WebKit 的 localStorage／IndexedDB 属于独立应用 ID，由 macOS 存放在该应用自己的 WebKit 数据目录，与后端 profile 分开。
 
 不迁移正式配置、登录或历史。可在测试版内单独配置模型。关闭窗口仅隐藏窗口，点击 Dock 可重新打开；完整退出经确认后停止测试 profile 的后端及其任务。启动失败时保留日志。
 
@@ -92,4 +92,5 @@ bunx bun@1.3.14 run --cwd packages/desktop-tauri measure size
 bunx bun@1.3.14 run --cwd packages/desktop-tauri typecheck
 bunx bun@1.3.14 run --cwd packages/desktop-tauri test
 cargo fmt --manifest-path packages/desktop-tauri/src-tauri/Cargo.toml --check
+cargo test --locked --manifest-path packages/desktop-tauri/src-tauri/Cargo.toml
 ```

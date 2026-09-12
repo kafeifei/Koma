@@ -1,31 +1,37 @@
 {
-  "name": "@opencode-ai/desktop",
+  "name": "@koma/desktop",
   "private": true,
-  "version": "1.18.30",
+  "version": "0.1.0-beta.1",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://github.com/kafeifei/Koma",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "kafeifei"
   },
   "scripts": {
     "typecheck": "tsgo -b",
-    "predev": "bun ./scripts/predev.ts",
-    "dev": "electron-vite dev",
+    "predev": "OPENCODE_CHANNEL=lab bun ./scripts/prebuild.ts",
+    "dev": "OPENCODE_CHANNEL=lab electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",
-    "build:lab-cli": "bun ./scripts/build-lab-cli.ts",
-    "install:lab-cli": "bun ./scripts/install-lab-cli.ts",
+    "build:lab-cli": "bun run build:koma-cli",
+    "install:lab-cli": "bun run install:koma-cli",
     "build": "electron-vite build",
-    "build:lab": "bun ./scripts/build-lab.ts",
+    "build:lab": "bun run build:debug",
     "preview": "electron-vite preview",
     "package": "electron-builder --config electron-builder.config.ts",
-    "package:lab": "OPENCODE_CHANNEL=lab electron-builder --mac dir --config electron-builder.config.ts",
-    "lab": "bun ./scripts/build-lab.ts --package",
+    "package:lab": "bun run package:debug",
+    "lab": "bun run debug",
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
-    "native:build": "bun install --cwd native"
+    "native:build": "bun install --cwd native",
+    "release:mac": "KOMA_RELEASE=1 bun ./scripts/build-koma.ts --package",
+    "package:release": "OPENCODE_CHANNEL=lab electron-builder --mac dmg zip --publish never --config electron-builder.config.ts",
+    "build:debug": "bun ./scripts/build-koma.ts",
+    "debug": "bun ./scripts/build-koma.ts --package",
+    "build:koma-cli": "bun ./scripts/build-koma-cli.ts",
+    "install:koma-cli": "bun ./scripts/install-koma-cli.ts",
+    "package:debug": "OPENCODE_CHANNEL=lab electron-builder --mac dir --config electron-builder.config.ts"
   },
   "main": "./out/main/index.js",
   "dependencies": {
@@ -84,5 +90,6 @@
     "@parcel/watcher-linux-x64-musl": "2.5.1",
     "@parcel/watcher-win32-arm64": "2.5.1",
     "@parcel/watcher-win32-x64": "2.5.1"
-  }
+  },
+  "description": "Koma desktop Agent workbench"
 }

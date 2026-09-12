@@ -4,15 +4,15 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { desktopIdentity, desktopUpdaterEnabled, resolveDesktopChannel } from "./channel"
-import { labBackendEnvironment, prepareLabDesktopHome, prepareLabEnvironment } from "./lab-environment"
+import { komaBackendEnvironment, prepareKomaDesktopHome, prepareKomaEnvironment } from "./koma-environment"
 
 test("Lab has an independent desktop identity and no updater", () => {
   const channel = resolveDesktopChannel("lab")
   expect(desktopIdentity(channel)).toEqual({
-    appId: "ai.opencode.lab",
-    name: "OpenCode Lab",
-    scheme: "opencode-lab",
-    icon: "dev",
+    appId: "com.kafeifei.koma.debug",
+    name: "Koma Debug",
+    scheme: "koma",
+    icon: "koma",
   })
   expect(desktopUpdaterEnabled(true, channel)).toBe(false)
 })
@@ -31,8 +31,8 @@ test("Lab uses an explicit home without changing other tools' XDG directories", 
     XDG_CACHE_HOME: "/user/cache",
     XDG_STATE_HOME: "/user/state",
   }
-  expect(labBackendEnvironment(root)).toEqual({ OPENCODE_HOME: root })
-  prepareLabEnvironment(environment, root)
+  expect(komaBackendEnvironment(root)).toEqual({ OPENCODE_HOME: root })
+  prepareKomaEnvironment(environment, root)
 
   expect(environment.OPENCODE_HOME).toBe(root)
   expect(environment.OPENCODE_CONFIG).toBeUndefined()
@@ -56,7 +56,7 @@ test("prepares a fresh desktop around the Electron lock and leaves a completed m
     const root = join(directory, "profile")
     const legacyRoot = join(directory, "legacy")
     let userData = ""
-    const acquired = await prepareLabDesktopHome({
+    const acquired = await prepareKomaDesktopHome({
       root,
       legacyRoot,
       setUserData: (path) => (userData = path),
@@ -74,7 +74,7 @@ test("prepares a fresh desktop around the Electron lock and leaves a completed m
     await writeFile(join(root, "storage.json.tmp"), "backend-owned staging")
     userData = ""
     expect(
-      await prepareLabDesktopHome({
+      await prepareKomaDesktopHome({
         root,
         legacyRoot,
         setUserData: (path) => (userData = path),

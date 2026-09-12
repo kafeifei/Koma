@@ -45,6 +45,6 @@ async function start() {
 }
 
 void start().catch((error) => {
-  root.textContent = `测试后端启动失败：${String(error)}。日志位于本 worktree 的 .local/desktop-tests/tauri/profile/bin/.lab-backend/service.log。`
+  root.textContent = `测试后端启动失败：${String(error)}。日志位于本 worktree 的 .local/desktop-tests/tauri/profile/bin/.koma-backend/service.log（旧测试数据使用 .lab-backend）。`
   console.error(error)
 })

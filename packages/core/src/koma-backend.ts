@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { execFile } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -57,17 +57,15 @@ export async function ensure(root: string, start: () => Promise<void | number>):
         const connection = await discover(root)
         if (connection) return connection
         if (started && !alive(started))
-          throw new Error(
-            `OpenCode Lab backend exited before becoming ready; see ${StoragePaths.resolve(root).root}/bin/.lab-backend/service.log`,
-          )
+          throw new Error(`Koma backend exited before becoming ready; see ${stateDirectory(root)}/service.log`)
         const current = await read(root)
         if (current && current.token !== owner?.token && !alive(current.pid))
-          throw new Error("OpenCode Lab backend exited before becoming ready")
+          throw new Error("Koma backend exited before becoming ready")
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
-      throw new Error("OpenCode Lab backend is not responding; its ownership was preserved")
+      throw new Error("Koma backend is not responding; its ownership was preserved")
     },
-    { dir: join(StoragePaths.resolve(root).root, "bin", ".lab-backend", "locks"), timeoutMs: 50_000 },
+    { dir: join(stateDirectory(root), "locks"), timeoutMs: 50_000 },
   )
 }
 
@@ -79,7 +77,7 @@ export async function claim(root: string) {
     async () => {
       const previous = await read(root)
       if (previous && alive(previous.pid))
-        throw new Error(`OpenCode Lab backend already owns this profile (PID ${previous.pid})`)
+        throw new Error(`Koma backend already owns this profile (PID ${previous.pid})`)
       await assertNoLegacyOwners(root)
       const owner: Owner = {
         pid: process.pid,
@@ -103,15 +101,15 @@ export async function claim(root: string) {
             "lab-backend-owner",
             async () => {
               await assertOwner(root, owner.token)
-              await rm(join(paths.root, "bin", ".lab-backend", "backend.json"))
+              await rm(join(stateDirectory(root), "backend.json"))
               claims.delete(paths.root)
             },
-            { dir: join(paths.root, "bin", ".lab-backend", "locks") },
+            { dir: join(stateDirectory(root), "locks") },
           )
         },
       }
     },
-    { dir: join(paths.root, "bin", ".lab-backend", "locks"), timeoutMs: 10_000 },
+    { dir: join(stateDirectory(root), "locks"), timeoutMs: 10_000 },
   )
 }
 
@@ -138,7 +136,7 @@ export function headers(connection: Pick<Connection, "username" | "password">) {
 // client adapter. It does nothing for upstream or unactivated v1 profiles.
 export function assertWriter(root: string) {
   if (StoragePaths.metadata(root)?.version !== 2) return
-  const owner: unknown = JSON.parse(readFileSync(join(root, "bin", ".lab-backend", "backend.json"), "utf8"))
+  const owner: unknown = JSON.parse(readFileSync(join(stateDirectory(root), "backend.json"), "utf8"))
   if (
     !owner ||
     typeof owner !== "object" ||
@@ -149,7 +147,7 @@ export function assertWriter(root: string) {
     !("token" in owner) ||
     claims.get(StoragePaths.resolve(root).root) !== owner.token
   ) {
-    throw new Error("This Lab profile is owned by the shared backend; connect using opencode-lab")
+    throw new Error("This Lab profile is owned by the shared backend; connect using koma")
   }
 }
 
@@ -158,33 +156,32 @@ export async function stop(root: string, expected?: Pick<Connection, "pid" | "pa
   if (!connection) {
     const owner = await read(root)
     if (expected && (!owner || !alive(owner.pid))) return
-    throw new Error("No healthy OpenCode Lab backend is running")
+    throw new Error("No healthy Koma backend is running")
   }
   if (expected && (connection.pid !== expected.pid || connection.password !== expected.password))
-    throw new Error("OpenCode Lab backend ownership changed; refusing to stop another backend")
+    throw new Error("Koma backend ownership changed; refusing to stop another backend")
   // Stop only the authenticated backend, and wait for it to release the profile before relaunch.
   process.kill(connection.pid, "SIGTERM")
   const deadline = Date.now() + 5_000
   while (alive(connection.pid)) {
     const owner = await read(root)
     if (!owner || owner.pid !== connection.pid || owner.password !== connection.password) return
-    if (Date.now() >= deadline) throw new Error("OpenCode Lab backend did not stop in time")
+    if (Date.now() >= deadline) throw new Error("Koma backend did not stop in time")
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
 }
 
 async function read(root: string): Promise<Owner | undefined> {
-  const raw = await readFile(
-    join(StoragePaths.resolve(root).root, "bin", ".lab-backend", "backend.json"),
-    "utf8",
-  ).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return undefined
-    throw error
-  })
+  const raw = await readFile(join(stateDirectory(root), "backend.json"), "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    },
+  )
   if (raw === undefined) return
   const value: unknown = JSON.parse(raw)
   if (!value || typeof value !== "object" || !("protocol" in value) || value.protocol !== protocol) {
-    throw new Error("Incompatible OpenCode Lab backend protocol; use a compatible Lab build")
+    throw new Error("Incompatible Koma backend protocol; use a compatible Lab build")
   }
   if (
     !("pid" in value) ||
@@ -200,7 +197,7 @@ async function read(root: string): Promise<Owner | undefined> {
     value.username !== "opencode" ||
     ("url" in value && typeof value.url !== "string")
   )
-    throw new Error("Invalid OpenCode Lab backend ownership record")
+    throw new Error("Invalid Koma backend ownership record")
   if ("url" in value) requireLoopback(String(value.url))
   return value as Owner
 }
@@ -232,11 +229,11 @@ function alive(pid: number) {
 }
 
 async function assertOwner(root: string, token: string) {
-  if ((await read(root))?.token !== token) throw new Error("OpenCode Lab backend ownership changed")
+  if ((await read(root))?.token !== token) throw new Error("Koma backend ownership changed")
 }
 
 async function save(root: string, owner: Owner) {
-  const state = join(StoragePaths.resolve(root).root, "bin", ".lab-backend")
+  const state = stateDirectory(root)
   await mkdir(state, { recursive: true, mode: 0o700 })
   await atomic(join(state, "backend.json"), owner)
 }
@@ -294,4 +291,12 @@ async function assertNoLegacyOwners(root: string) {
     )
 }
 
-export * as LabBackend from "./lab-backend"
+export * as KomaBackend from "./koma-backend"
+
+/** Legacy paths retain their original locks while an older backend owns the profile. */
+export function stateDirectory(root: string) {
+  const current = join(root, "bin", ".koma-backend")
+  const legacy = join(root, "bin", ".lab-backend")
+  if (existsSync(current) && existsSync(legacy)) throw new Error("Conflicting Koma backend state directories")
+  return existsSync(legacy) ? legacy : current
+}

@@ -7,7 +7,7 @@ import { CodexProviders } from "./providers"
 // can resolve a key from the host's existing credential store.
 export function providerCredentials(source: CodexProviders.Interface) {
   const token = randomBytes(32).toString("hex")
-  const routes = new Map<string, { providerID: string; baseURL: string }>()
+  const routes = new Map<string, { providerID: string; baseURL: string; accountID?: string }>()
   const server = createServer((request, response) => {
     const authorization = Buffer.from(request.headers.authorization ?? "")
     const expected = Buffer.from(`Bearer ${token}`)
@@ -22,7 +22,7 @@ export function providerCredentials(source: CodexProviders.Interface) {
       response.writeHead(404).end()
       return
     }
-    void source.key(route.providerID, route.baseURL).then(
+    void source.key(route.providerID, route.baseURL, route.accountID).then(
       (key) => response.writeHead(key ? 200 : 403).end(key ?? ""),
       () => response.writeHead(503).end(),
     )
@@ -44,12 +44,13 @@ export function providerCredentials(source: CodexProviders.Interface) {
       })
       const base = await starting
       const route = `/${createHash("sha256")
-        .update(JSON.stringify([provider.id, provider.baseURL]))
+        .update(JSON.stringify([provider.id, provider.baseURL, provider.accountID]))
         .digest("hex")}`
-      routes.set(route, { providerID: provider.id, baseURL: provider.baseURL })
+      routes.set(route, { providerID: provider.id, baseURL: provider.baseURL, accountID: provider.accountID })
       return {
         name: provider.name,
         base_url: provider.baseURL,
+        ...(provider.accountID ? { http_headers: { "ChatGPT-Account-Id": provider.accountID } } : {}),
         wire_api: "responses",
         requires_openai_auth: false,
         supports_websockets: false,

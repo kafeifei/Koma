@@ -2,13 +2,11 @@ import { expect, test } from "bun:test"
 import type { Configuration } from "electron-builder"
 import { resolveChannel } from "./scripts/utils"
 
-const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
-
 const channels = [
-  { channel: "dev", appId: "ai.opencode.desktop.dev" },
-  { channel: "lab", appId: "ai.opencode.lab" },
-  { channel: "beta", appId: "ai.opencode.desktop.beta" },
-  { channel: "prod", appId: "ai.opencode.desktop" },
+  { channel: "dev", appId: "com.kafeifei.koma.debug" },
+  { channel: "lab", appId: "com.kafeifei.koma.debug" },
+  { channel: "beta", appId: "com.kafeifei.koma" },
+  { channel: "prod", appId: "com.kafeifei.koma" },
 ] as const
 
 for (const channel of channels) {
@@ -39,16 +37,16 @@ test("keeps the Lab app independent from production", async () => {
   if (previous === undefined) delete process.env.OPENCODE_CHANNEL
   else process.env.OPENCODE_CHANNEL = previous
 
-  expect(config.productName).toBe("OpenCode Lab")
-  expect(config.directories?.output).toBe("dist-lab")
-  expect(config.protocols).toEqual({ name: "OpenCode Lab", schemes: ["opencode-lab"] })
+  expect(config.productName).toBe("Koma Debug")
+  expect(config.directories?.output).toBe("dist-debug")
+  expect(config.protocols).toEqual({ name: "Koma Debug", schemes: ["koma"] })
   expect(config.publish).toBeUndefined()
   expect(config.mac?.identity).toBeUndefined()
   expect(config.mac?.forceCodeSigning).toBe(true)
   expect(config.mac?.hardenedRuntime).toBe(false)
   expect(config.mac?.notarize).toBe(false)
-  expect(config.files).toContain("!resources/opencode-lab*")
-  expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["opencode-lab*"] })
+  expect(config.files).toContain("!resources/koma*")
+  expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["koma", "koma.exe"] })
 })
 
 test("falls back to the environment channel for invalid resource arguments", () => {
@@ -59,32 +57,28 @@ test("falls back to the environment channel for invalid resource arguments", () 
   else process.env.OPENCODE_CHANNEL = previous
 })
 
-test("keeps a hidden prod launcher for old Linux pins", async () => {
-  const previous = process.env.OPENCODE_CHANNEL
-  process.env.OPENCODE_CHANNEL = "prod"
-
-  const module = await import("./electron-builder.config.ts?compat=prod")
-  const config = module.default as Configuration
-
-  if (previous === undefined) delete process.env.OPENCODE_CHANNEL
-  else process.env.OPENCODE_CHANNEL = previous
-
-  expect(
-    config.deb?.fpm?.some((entry) =>
-      entry.endsWith("opencode-desktop.desktop=/usr/share/applications/opencode-desktop.desktop"),
-    ),
-  ).toBe(true)
-  expect(
-    config.rpm?.fpm?.some((entry) =>
-      entry.endsWith("opencode-desktop.desktop=/usr/share/applications/opencode-desktop.desktop"),
-    ),
-  ).toBe(true)
-
-  const desktop = await Bun.file(legacyDesktopEntry).text()
-  expect(desktop).toContain("Exec=/opt/OpenCode/ai.opencode.desktop %U")
-  expect(desktop).toContain("Icon=ai.opencode.desktop")
-  expect(desktop).toContain("StartupWMClass=ai.opencode.desktop")
-  expect(desktop).toContain("NoDisplay=true")
+test("Koma release packages the Lab runtime with hardened signing and notarization", async () => {
+  const previous = { ...process.env }
+  try {
+    process.env.OPENCODE_CHANNEL = "lab"
+    process.env.KOMA_RELEASE = "1"
+    process.env.APPLE_KEYCHAIN_PROFILE = "test-notary-profile"
+    const { default: config } = await import("./electron-builder.config.ts?koma=release")
+    expect(config.productName).toBe("Koma")
+    expect(config.directories?.output).toBe("dist-release")
+    expect(config.mac?.target).toEqual(["dmg", "zip"])
+    expect(config.mac?.forceCodeSigning).toBe(true)
+    expect(config.mac?.hardenedRuntime).toBe(true)
+    expect(config.mac?.timestamp).toBeUndefined()
+    expect(config.mac?.notarize).toBe(true)
+    expect(config.publish).toBeUndefined()
+    expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["koma", "koma.exe"] })
+  } finally {
+    for (const key of ["OPENCODE_CHANNEL", "KOMA_RELEASE", "APPLE_KEYCHAIN_PROFILE"]) {
+      if (previous[key] === undefined) delete process.env[key]
+      else process.env[key] = previous[key]
+    }
+  }
 })
 
 for (const channel of ["dev", "lab"] as const) {
@@ -119,6 +113,6 @@ for (const channel of ["beta", "prod"] as const) {
       to: "",
       filter: ["opencode-cli*"],
     })
-    expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["opencode-lab*"] })
+    expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["koma", "koma.exe"] })
   })
 }

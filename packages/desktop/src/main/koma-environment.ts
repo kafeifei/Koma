@@ -1,15 +1,15 @@
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
-import { LabEnvironment } from "@opencode-ai/core/lab-environment"
+import { KomaEnvironment } from "@opencode-ai/core/koma-environment"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 import { join } from "node:path"
 
-export function labBackendEnvironment(root: string) {
+export function komaBackendEnvironment(root: string) {
   return { OPENCODE_HOME: StoragePaths.resolve(root).root }
 }
 
 // The pinned external V2 CLI predates OPENCODE_HOME. Only that child receives the
 // legacy XDG tree; migration keeps its opencode subdirectories linked to the new layout.
-export function legacyLabBackendEnvironment(root: string) {
+export function legacyKomaBackendEnvironment(root: string) {
   const paths = StoragePaths.resolve(root)
   return {
     XDG_DATA_HOME: join(paths.desktop, "backend", "data"),
@@ -20,11 +20,11 @@ export function legacyLabBackendEnvironment(root: string) {
   }
 }
 
-export function prepareLabEnvironment(environment: NodeJS.ProcessEnv, root: string) {
-  return LabEnvironment.prepare(environment, root)
+export function prepareKomaEnvironment(environment: NodeJS.ProcessEnv, root: string) {
+  return KomaEnvironment.prepare(environment, root)
 }
 
-export async function prepareLabDesktopHome(input: {
+export async function prepareKomaDesktopHome(input: {
   root: string
   legacyRoot: string
   setUserData: (path: string) => void

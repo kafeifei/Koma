@@ -3,9 +3,9 @@ import { resolveChannel } from "./utils"
 
 const channel = resolveChannel(process.argv[2])
 
-const appId = desktopIdentity(channel).appId
-const productName = desktopIdentity(channel).name
-const summary = `Open source AI coding agent${channel !== "prod" ? ` (${channel})` : ""}`
+const appId = desktopIdentity(channel, process.env.KOMA_RELEASE === "1").appId
+const productName = desktopIdentity(channel, process.env.KOMA_RELEASE === "1").name
+const summary = `Desktop Agent workbench${channel !== "prod" ? ` (${channel})` : ""}`
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
@@ -17,13 +17,13 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
   <name>${productName}</name>
   <summary>${summary}</summary>
 
-  <developer id="ly.anoma">
-    <name>Anomaly Innovations Inc.</name>
+  <developer id="com.kafeifei">
+    <name>kafeifei</name>
   </developer>
 
   <description>
     <p>
-      OpenCode is an open source agent that helps you write and run code with any AI model.
+      Koma is a desktop Agent workbench built on OpenCode.
     </p>
   </description>
 
@@ -31,9 +31,9 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 
   <content_rating type="oars-1.1" />
 
-  <url type="bugtracker">https://github.com/anomalyco/opencode/issues</url>
-  <url type="homepage">https://opencode.ai</url>
-  <url type="vcs-browser">https://github.com/anomalyco/opencode</url>
+  <url type="bugtracker">https://github.com/kafeifei/Koma/issues</url>
+  <url type="homepage">https://github.com/kafeifei/Koma</url>
+  <url type="vcs-browser">https://github.com/kafeifei/Koma</url>
 
   <screenshots>
     <screenshot type="default">

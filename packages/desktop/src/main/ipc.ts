@@ -1,3 +1,4 @@
+import { KomaProfile } from "@opencode-ai/core/koma-profile"
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
@@ -28,7 +29,7 @@ import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { createDesktopDraftStore } from "./draft-store"
 import { nativeT } from "./native-translations"
-import { installLabCli } from "./lab-cli"
+import { installKomaCli } from "./koma-cli"
 import { CHANNEL } from "./constants"
 
 const pickerFilters = (ext?: string[]) => {
@@ -75,14 +76,14 @@ export function registerIpcHandlers(deps: Deps) {
   })
   ipcMain.handle("install-cli", () => {
     if (CHANNEL !== "lab" || !process.env.OPENCODE_HOME) throw new Error("LAB_CLI_UNAVAILABLE")
-    return installLabCli({
+    return installKomaCli({
       source: join(
         app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
-        process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab",
+        process.platform === "win32" ? "koma.exe" : "koma",
       ),
       root: process.env.OPENCODE_HOME,
       linkDirectory:
-        process.env.OPENCODE_HOME === join(homedir(), ".opencode") && process.platform !== "win32"
+        KomaProfile.isDefault(process.env.OPENCODE_HOME) && process.platform !== "win32"
           ? join(homedir(), ".local/bin")
           : undefined,
     })
