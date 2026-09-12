@@ -2,12 +2,20 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
-async function fixture() {
+async function fixture(shared?: "fresh" | "legacy") {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "lab-backend-flow-")))
   await Promise.all(["home", "tmp", "project"].map((name) => mkdir(path.join(base, name))))
   const project = path.join(base, "project")
-  const root = path.join(base, "profile")
+  const root = shared
+    ? path.join(base, "home", shared === "legacy" ? ".opencode" : ".koma")
+    : path.join(base, "profile")
+  if (shared === "legacy") {
+    const legacyRoot = path.join(base, "home/Library/Application Support/OpenCode Lab")
+    await mkdir(legacyRoot, { recursive: true })
+    StorageMigration.prepareUnifiedHome({ root, legacyRoot, acquireLock: () => true })
+  }
   const env = {
     PATH: process.env.PATH,
     HOME: path.join(base, "home"),
@@ -16,7 +24,7 @@ async function fixture() {
     XDG_CONFIG_HOME: path.join(base, "xdg-config"),
     XDG_CACHE_HOME: path.join(base, "xdg-cache"),
     XDG_STATE_HOME: path.join(base, "xdg-state"),
-    OPENCODE_HOME: root,
+    ...(shared ? { KOMA_RELEASE: "1" } : { OPENCODE_HOME: root }),
     OPENCODE_PURE: "1",
     OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
     OPENCODE_DISABLE_MODELS_FETCH: "1",
@@ -126,8 +134,8 @@ async function until<T>(label: string, read: () => Promise<T | undefined>) {
   throw new Error(`Timed out waiting for ${label}`)
 }
 
-test("independent Koma backends share real sessions and survive the other instance stopping", async () => {
-  await using input = await fixture()
+async function sharedBackends(shared: "fresh" | "legacy") {
+  await using input = await fixture(shared)
   const connections = new Map<string, { pid: number; url: string; username: string; password: string }>()
   for (const instance of ["electron", "tauri"]) {
     const backend = input.start(instance)
@@ -182,6 +190,8 @@ test("independent Koma backends share real sessions and survive the other instan
   }
   const pathsA = JSON.parse(await input.cli(["backend", "paths"]))
   const pathsB = JSON.parse(await input.cli(["backend", "paths"], "tauri"))
+  expect(pathsA.distribution).toBe("release")
+  expect(pathsA.profile).toBe(input.root)
   expect(pathsA.profile).toBe(pathsB.profile)
   expect(pathsA.state).not.toBe(pathsB.state)
   await input.cli(["backend", "stop"], "tauri")
@@ -189,7 +199,13 @@ test("independent Koma backends share real sessions and survive the other instan
   const continued = await call("electron", "/session", "POST", { title: "After Tauri stopped" })
   expect((await call("electron", `/session/${continued.id}`)).title).toBe("After Tauri stopped")
   await input.cli(["backend", "stop"])
-}, 120_000)
+}
+
+test.each(["fresh", "legacy"] as const)(
+  "release backends share %s default data and survive the other instance stopping",
+  sharedBackends,
+  120_000,
+)
 
 test("backend survives CLI exit, gates real writes and preserves files through worktree archive and restore", async () => {
   await using input = await fixture()

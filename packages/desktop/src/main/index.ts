@@ -160,7 +160,6 @@ const main = Effect.gen(function* () {
         if (
           !(await prepareKomaDesktopHome({
             ...paths,
-            release: RELEASE,
             setUserData: (path) => app.setPath("userData", path),
             acquireLock: () => app.requestSingleInstanceLock(),
           }))

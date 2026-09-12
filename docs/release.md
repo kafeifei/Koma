@@ -1,10 +1,10 @@
 # Koma beta 发布
 
-Koma 的公开 macOS beta 提供 Electron（`Koma.app`）和 Tauri（`Koma Tauri.app`）两个 ZIP，目前均为 Apple Silicon。两个发行宿主复用同一 App 和同一个发行 Koma CLI，各自运行独立后端与端口，共用 `~/Library/Application Support/Koma/profile` 中的项目、任务和配置。内部 channel 仍为 `lab`，CLI 为 `koma`。自动更新暂未启用，从 GitHub Releases 手动下载更新。
+Koma 的公开 macOS beta 提供 Electron（`Koma.app`）和 Tauri（`Koma Tauri.app`）两个 ZIP，目前均为 Apple Silicon。两个发行宿主复用同一 App 和同一个发行 Koma CLI，各自运行独立后端与端口，共用 `~/.koma` 中的项目、任务和配置。内部 channel 仍为 `lab`，CLI 为 `koma`。自动更新暂未启用，从 GitHub Releases 手动下载更新。
 
 发行包标识分别为 `com.kafeifei.koma`、`com.kafeifei.koma.tauri`，可以同时安装；Debug 标识仍为 `com.kafeifei.koma.debug`、`ai.opencode.lab.tauri-test`。
 
-发行版不自动发现、链接或迁入 Lab／Debug 的数据与登录。`KOMA_HOME`（兼容 `OPENCODE_HOME`）可显式指定独立测试目录。发行属性编译进 CLI，构建缓存区分 Debug／发行；终端环境不能把已打包的 CLI 切换到另一个默认 profile。发行 Electron 使用稳定的 `com.kafeifei.koma Safe Storage` 服务，正常启动和升级沿用相同应用签名；不读取旧品牌标记来选择服务。Tauri 继续使用系统凭据服务，按 profile 隔离。凭据读取失败不由后台轮询反复重试，用户主动刷新可以重试；不降级为明文。
+发行版与 Debug 共用 `~/.koma` 数据；已有 Lab profile 保留物理目录和兼容链接，不复制数据库。`KOMA_HOME`（兼容 `OPENCODE_HOME`）可显式指定独立测试目录。发行属性编译进 CLI，构建缓存区分 Debug／发行；终端环境不能改变已打包 CLI 的发行身份，默认数据目录不随渠道变化。发行 Electron 使用稳定的 `com.kafeifei.koma Safe Storage` 服务，正常启动和升级沿用相同应用签名；不读取旧品牌标记来选择服务。Tauri 继续使用系统凭据服务，按 profile 隔离。凭据读取失败不由后台轮询反复重试，用户主动刷新可以重试；不降级为明文。
 
 Electron 的发行协议为 `koma://`，Debug 为 `koma-debug://`；全局 CLI 入口分别为 `koma`、`koma-debug`。安装不会覆盖其他 profile 已占用的命令。既有 Debug 安装留下的协议注册、命令和钥匙串不由发行版清理。
 
@@ -41,6 +41,6 @@ Koma 的 Electron 包只携带共享 Koma CLI，不再附带未使用的上游 v
 
 GitHub 仓库的 Release 与 Git 标签分开管理。清理上游 Release 不删除上游历史标签，也不改写上游提交历史。
 
-Koma Debug 与 Koma 复用工作台和后端代码，默认数据与凭据分离；`bun run debug` 生成 Koma Debug.app。仅 Debug 默认使用 `~/.koma`，并为已有 Lab profile 保留物理目录、锁和兼容链接，不复制数据库。旧存储文件名和上游 OpenCode 引擎包名保留兼容用途；它们不表示发行版应继承旧应用身份。
+Koma Debug 与 Koma 复用工作台和后端代码，默认数据共用，凭据服务身份保持各自规则；`bun run debug` 生成 Koma Debug.app。发行版与 Debug 均默认使用 `~/.koma`，并为已有 Lab profile 保留物理目录、锁和兼容链接，不复制数据库。修正默认路径不代表已完成物理迁移；移动真实数据须另行授权，并先停止占用该目录的应用和后端。旧存储文件名和上游 OpenCode 引擎包名保留兼容用途；它们不表示发行版应继承旧应用身份。
 
 分支同步与发布入口约束见 [分支策略](branches.md)。`dev` 只镜像上游，不能作为 Koma 发布源码；旧的 `script/release`、`script/version.ts`、`script/publish.ts`、`script/beta.ts` 在 Koma 仓库中会拒绝运行。

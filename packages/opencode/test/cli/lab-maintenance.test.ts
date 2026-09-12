@@ -117,12 +117,19 @@ test("version and maintenance help do not resolve or initialize a profile", asyn
   }
 })
 
-test("both release backend instances report one fresh default profile without inspecting Lab data", async () => {
+test("both release backend instances report the same Koma default and preserve its legacy alias", async () => {
   await using input = await fixture()
   delete input.env.OPENCODE_HOME
   const old = join(input.env.HOME!, ".opencode")
   await mkdir(old)
-  await writeFile(join(old, "storage.json"), "invalid old metadata")
+  const manifest = JSON.stringify({
+    version: 2,
+    backendProtocol: 1,
+    source: null,
+    status: "complete",
+    database: "opencode.db",
+  })
+  await writeFile(join(old, "storage.json"), manifest)
   const paths = []
   for (const instance of ["electron", "tauri"]) {
     const result = await input.run(["backend", "paths"], { KOMA_RELEASE: "1", KOMA_BACKEND_INSTANCE: instance })
@@ -132,9 +139,9 @@ test("both release backend instances report one fresh default profile without in
   expect(paths[0].distribution).toBe("release")
   expect(paths[0].profile).toBe(paths[1].profile)
   expect(paths[0].state).not.toBe(paths[1].state)
-  expect(paths[0].profile).not.toBe(old)
-  expect(await stat(paths[0].profile).catch(() => undefined)).toBeUndefined()
-  expect(await stat(join(input.env.HOME!, ".koma")).catch(() => undefined)).toBeUndefined()
+  expect(paths[0].profile).toBe(old)
+  expect(await realpath(join(input.env.HOME!, ".koma"))).toBe(old)
+  expect(await readFile(join(old, "storage.json"), "utf8")).toBe(manifest)
 })
 
 test("Lab uninstall refuses independent files and unmanaged links", async () => {

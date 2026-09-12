@@ -22,6 +22,8 @@ export function keychainName(root: string, legacyRoot: string, release = false) 
 
 /** Called only after the profile's desktop single-instance lock has been acquired. */
 export function saveKeychainName(root: string, name: "Koma" | "Koma Debug" | "OpenCode Lab" | "com.kafeifei.koma") {
+  // Release uses its fixed identity without replacing the shared profile's Debug compatibility marker.
+  if (name === "com.kafeifei.koma") return
   const marker = join(root, "koma-brand.json")
   const temporary = `${marker}.${process.pid}.tmp`
   writeFileSync(temporary, JSON.stringify({ version: 1, keychainName: name }), { mode: 0o600 })

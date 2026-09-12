@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { keychainName, saveKeychainName } from "./koma-keychain"
@@ -17,6 +17,10 @@ test("only Debug preserves a legacy profile's keychain service; release never re
     saveKeychainName(root, "Koma")
     expect(keychainName(root, legacy)).toBe("Koma")
     saveKeychainName(root, "OpenCode Lab")
+    expect(keychainName(root, legacy)).toBe("OpenCode Lab")
+    const marker = readFileSync(join(root, "koma-brand.json"), "utf8")
+    saveKeychainName(root, keychainName(root, legacy, true))
+    expect(readFileSync(join(root, "koma-brand.json"), "utf8")).toBe(marker)
     expect(keychainName(root, legacy)).toBe("OpenCode Lab")
     writeFileSync(join(root, "koma-brand.json"), "invalid old marker")
     expect(keychainName(root, legacy, true)).toBe("com.kafeifei.koma")

@@ -14,7 +14,6 @@ export async function serve(root: string, port = 0) {
     const lease = await StorageMigration.lock(root)
     try {
       const legacyRoot = KomaProfile.legacyRoot(root, join(homedir(), "Library", "Application Support", "OpenCode Lab"))
-      if (KomaProfile.isRelease()) KomaProfile.assertReleaseHome(root, legacyRoot)
       const manifest = StoragePaths.metadata(root)
       if (!manifest && existsSync(legacyRoot)) {
         throw new Error(
