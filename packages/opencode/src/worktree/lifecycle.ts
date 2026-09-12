@@ -268,6 +268,34 @@ const layer = Layer.effect(
     })
     const busy = (owner: Owner) => busyDirectory(owner.directory)
 
+    // Removing only stale task metadata must not depend on unrelated native tasks
+    // in the same former checkout. The task being deleted and its children still own execution.
+    const busyFamily = Effect.fnUntraced(function* (sessionID: string) {
+      const rows = yield* db
+        .select({ id: SessionTable.id, parentID: SessionTable.parent_id, engine: SessionTable.engine })
+        .from(SessionTable)
+        .all()
+        .pipe(Effect.orDie)
+      const parents = new Map<string, string | null>(rows.map((row) => [row.id, row.parentID]))
+      const member = (id: string) => {
+        const seen = new Set<string>()
+        let current: string | null | undefined = id
+        while (current && !seen.has(current)) {
+          if (current === sessionID) return true
+          seen.add(current)
+          current = parents.get(current)
+        }
+        return false
+      }
+      const leased = () =>
+        [...gates.values()].some((gate) => [...gate.leases].some(([id, count]) => count > 0 && member(id)))
+      if (leased()) return true
+      for (const row of rows) {
+        if (row.engine !== "opencode" && member(row.id) && !(yield* externalOwnership.isIdle(row.id))) return true
+      }
+      return leased()
+    })
+
     const familyShared = Effect.fnUntraced(function* (owner: Owner) {
       if (!owner.sessionID) return false
       const candidates = yield* db
@@ -757,7 +785,7 @@ const layer = Layer.effect(
       )
     })
 
-    const supersedeFailedLifecycle = Effect.fnUntraced(function* (owner: Owner) {
+    const supersedeLifecycle = Effect.fnUntraced(function* (owner: Owner) {
       if (owner.intent === "restore") {
         yield* verifyArchive(owner)
         const registered = yield* registeredCheckout(owner)
@@ -779,7 +807,12 @@ const layer = Layer.effect(
       }
       if (owner.intent !== "archive" || owner.phase === "removed") return owner
       if (!(yield* directoryExists(owner))) {
-        return yield* fail("busy", "worktree archive has not finished removing the checkout", owner)
+        const registered = yield* registeredCheckout(owner)
+        if (registered?.locked) {
+          return yield* fail("conflict", "managed worktree is locked; session and checkout were preserved", owner)
+        }
+        yield* verifyArchive(owner)
+        return { ...owner, phase: "removed" as const, branchOwned: false }
       }
       const resident = yield* assertResidentCheckoutIdentity(owner)
       if (resident.locked) {
@@ -793,6 +826,20 @@ const layer = Layer.effect(
       return current.branch === owner.branch ? current : { ...current, branchOwned: false }
     })
 
+    const abandonedArchive = Effect.fnUntraced(function* (owner: Owner) {
+      if (owner.intent !== "archive" || owner.phase === "removed" || owner.oid) return false
+      const present = yield* fs
+        .exists(owner.directory)
+        .pipe(Effect.mapError((error) => fail("unavailable", error.message, owner)))
+      if (present || (yield* registeredCheckout(owner))) return false
+      const saved = yield* git.run(["show-ref", "--verify", "--quiet", ref(owner)], { cwd: owner.root })
+      if (saved.exitCode === 0) {
+        return yield* fail("conflict", "archive snapshot identity is missing; saved archive was preserved", owner)
+      }
+      if (saved.exitCode !== 1) return yield* fail("git", "could not verify the missing archive snapshot", owner)
+      return true
+    })
+
     const prepareDelete = Effect.fn("WorktreeLifecycle.prepareDelete")(function* (sessionID: string) {
       const owner = yield* get(sessionID)
       if (!owner) return { managed: false }
@@ -804,13 +851,26 @@ const layer = Layer.effect(
           if (found.intent === "restore" && !found.lastError) {
             return yield* fail("busy", "worktree has a pending restore request", found)
           }
-          if (found.intent === "archive" && found.phase !== "removed" && !found.lastError) {
-            return yield* fail("busy", "worktree archive has not finished removing the checkout", found)
+          // The directory lock has already joined any in-flight archive. A persisted
+          // archive intent alone is not evidence that checkout removal is still running.
+          if ((found.intent === "delete" && found.phase === "delete-preserve") || (yield* abandonedArchive(found))) {
+            if (yield* busyFamily(sessionID)) {
+              return yield* fail("busy", "session or a background child is still using the worktree", found)
+            }
+            yield* block(found.directory)
+            yield* write({
+              ...found,
+              intent: "delete",
+              phase: "delete-preserve",
+              branchOwned: false,
+              lastError: undefined,
+            }).pipe(Effect.onError(() => unblock(found.directory)))
+            return { managed: true }
           }
           if (yield* busy(found)) {
             return yield* fail("busy", "session or a background child is still using the worktree", found)
           }
-          const current = yield* supersedeFailedLifecycle(found)
+          const current = yield* supersedeLifecycle(found)
           const shared = yield* familyShared(current)
           yield* block(current.directory)
           const planned = yield* write({

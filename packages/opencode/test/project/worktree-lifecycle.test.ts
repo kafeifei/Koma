@@ -139,6 +139,195 @@ const fixture = Effect.fn("WorktreeLifecycleTest.fixture")(function* (directoryF
 })
 
 describe("WorktreeLifecycle", () => {
+  for (const failed of [false, true]) {
+    it.live(`deletes an abandoned archive without a checkout or snapshot (${failed ? "failed" : "pending"})`, () =>
+      Effect.gen(function* () {
+        const input = yield* fixture()
+        yield* input.lifecycle.prepareArchive(input.sessionID)
+        yield* input.db
+          .update(SessionTable)
+          .set({ time_archived: Date.now() })
+          .where(eq(SessionTable.id, input.sessionID))
+          .run()
+          .pipe(Effect.orDie)
+        yield* git(input.root, ["worktree", "remove", "--force", input.directory])
+        // A reused branch and unrelated native task must survive this record-only deletion.
+        const peer = SessionID.descending()
+        yield* input.db
+          .insert(SessionTable)
+          .values({
+            id: peer,
+            project_id: input.projectID,
+            slug: peer,
+            directory: input.directory,
+            title: "unrelated native task",
+            engine: "codex",
+            version: "test",
+            time_created: Date.now(),
+            time_updated: Date.now(),
+          })
+          .run()
+          .pipe(Effect.orDie)
+        if (failed) {
+          const storage = yield* Storage.Service
+          yield* storage.writeAtomic(
+            ["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")],
+            {
+              ...(yield* input.lifecycle.get(input.sessionID)),
+              lastError: "archive snapshot oid is missing",
+            },
+          )
+        }
+        expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+        expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({
+          intent: "delete",
+          phase: "delete-preserve",
+        })
+        expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+        yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+        yield* input.lifecycle.finalizeDelete(input.sessionID)
+        yield* input.lifecycle.finalizeDelete(input.sessionID)
+        expect(yield* input.lifecycle.get(input.sessionID)).toBeUndefined()
+        expect(yield* exists(input.directory)).toBe(false)
+        expect(yield* git(input.root, ["rev-parse", `refs/heads/${input.branch}`])).toBe(
+          yield* git(input.root, ["rev-parse", "HEAD"]),
+        )
+        expect(
+          yield* input.db
+            .select({ id: SessionTable.id })
+            .from(SessionTable)
+            .where(eq(SessionTable.id, peer))
+            .get()
+            .pipe(Effect.orDie),
+        ).toEqual({ id: peer })
+      }),
+    )
+  }
+
+  it.live("deletes a pending archive while its idle checkout still exists", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+      yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+      yield* input.lifecycle.finalizeDelete(input.sessionID)
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(yield* input.lifecycle.get(input.sessionID)).toBeUndefined()
+    }),
+  )
+
+  for (const execution of ["lease", "native"] as const) {
+    it.live(`preserves an abandoned archive until its child ${execution} is idle`, () =>
+      Effect.gen(function* () {
+        const input = yield* fixture()
+        const child = SessionID.descending()
+        yield* input.db
+          .insert(SessionTable)
+          .values({
+            id: child,
+            parent_id: input.sessionID,
+            project_id: input.projectID,
+            slug: child,
+            directory: input.directory,
+            title: "active child",
+            engine: execution === "native" ? "codex" : "opencode",
+            version: "test",
+            time_created: Date.now(),
+            time_updated: Date.now(),
+          })
+          .run()
+          .pipe(Effect.orDie)
+        if (execution === "lease") yield* input.lifecycle.acquire({ directory: input.directory, sessionID: child })
+        yield* input.lifecycle.prepareArchive(input.sessionID)
+        yield* input.db
+          .update(SessionTable)
+          .set({ time_archived: Date.now() })
+          .where(eq(SessionTable.id, input.sessionID))
+          .run()
+          .pipe(Effect.orDie)
+        yield* git(input.root, ["worktree", "remove", "--force", input.directory])
+
+        expect((yield* input.lifecycle.prepareDelete(input.sessionID).pipe(Effect.flip)).reason).toBe("busy")
+        expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive" })
+        if (execution === "lease") {
+          yield* input.lifecycle.release({ directory: input.directory, sessionID: child })
+        } else {
+          const ownership = yield* SessionExternalOwnership.Service
+          yield* ownership.beginGeneration("abandoned-home", "host:1")
+          yield* ownership.confirmIdle({ runtimeScope: "abandoned-home", generation: "host:1", sessionID: child })
+        }
+        expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+      }),
+    )
+  }
+
+  for (const replacement of ["directory", "locked registration", "unidentified snapshot"] as const) {
+    it.live(`preserves an abandoned archive with a ${replacement}`, () =>
+      Effect.gen(function* () {
+        const input = yield* fixture()
+        yield* input.lifecycle.prepareArchive(input.sessionID)
+        if (replacement === "locked registration") {
+          yield* git(input.root, ["worktree", "lock", input.directory])
+          yield* Effect.addFinalizer(() => git(input.root, ["worktree", "unlock", input.directory]).pipe(Effect.ignore))
+          yield* Effect.promise(() => fs.rm(input.directory, { recursive: true }))
+        } else {
+          yield* git(input.root, ["worktree", "remove", "--force", input.directory])
+          if (replacement === "directory") {
+            yield* Effect.promise(() => fs.mkdir(input.directory))
+            yield* Effect.promise(() => fs.writeFile(`${input.directory}/keep.txt`, "replacement data"))
+          } else {
+            yield* git(input.root, ["update-ref", `refs/opencode/worktree-archive/${input.sessionID}`, "HEAD"])
+          }
+        }
+        expect((yield* input.lifecycle.prepareDelete(input.sessionID).pipe(Effect.flip)).reason).toBe("conflict")
+        expect(yield* input.lifecycle.get(input.sessionID)).toMatchObject({ intent: "archive" })
+        if (replacement === "directory") {
+          expect(yield* Effect.promise(() => fs.readFile(`${input.directory}/keep.txt`, "utf8"))).toBe(
+            "replacement data",
+          )
+        }
+      }),
+    )
+  }
+
+  it.live("finishes deleting an archive interrupted after Git removed its checkout", () =>
+    Effect.gen(function* () {
+      const input = yield* fixture()
+      yield* input.lifecycle.prepareArchive(input.sessionID)
+      yield* input.db
+        .update(SessionTable)
+        .set({ time_archived: Date.now() })
+        .where(eq(SessionTable.id, input.sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      yield* input.lifecycle.continueArchive(input.sessionID)
+      const storage = yield* Storage.Service
+      yield* storage.writeAtomic(["worktree_lifecycle", createHash("sha256").update(input.directory).digest("hex")], {
+        ...(yield* input.lifecycle.get(input.sessionID)),
+        phase: "captured",
+      })
+      expect(yield* input.lifecycle.prepareDelete(input.sessionID)).toEqual({ managed: true })
+      yield* input.db.delete(SessionTable).where(eq(SessionTable.id, input.sessionID)).run().pipe(Effect.orDie)
+      yield* input.lifecycle.finalizeDelete(input.sessionID)
+      expect(yield* input.lifecycle.get(input.sessionID)).toBeUndefined()
+      expect(yield* exists(input.directory)).toBe(false)
+      expect(yield* git(input.root, ["rev-parse", `refs/heads/${input.branch}`])).not.toBe("")
+      const saved = yield* Effect.promise(() =>
+        $`git show-ref --verify --quiet refs/opencode/worktree-archive/${input.sessionID}`
+          .cwd(input.root)
+          .quiet()
+          .nothrow(),
+      )
+      expect(saved.exitCode).toBe(1)
+    }),
+  )
+
   it.live("preserves external worktrees until the current native owner confirms idle", () =>
     Effect.gen(function* () {
       const input = yield* fixture()
