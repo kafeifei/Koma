@@ -38,3 +38,5 @@ resources/*.metainfo.xml
 /dist-debug/
 resources/koma
 resources/koma.exe
+
+resources/koma.build.json

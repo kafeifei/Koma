@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto"
 import { execFile } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { Flock } from "./util/flock"
 import { StoragePaths } from "./storage-paths"
 
-// This is a Lab process contract, not a Session execution coordinator.
+// Own one backend instance's lifecycle. Data and the upstream runtime are shared
+// independently of this registry; a different instance may open the same database.
 export const protocol = 1
 const claims = new Map<string, string>()
 
@@ -77,7 +78,7 @@ export async function claim(root: string) {
     async () => {
       const previous = await read(root)
       if (previous && alive(previous.pid))
-        throw new Error(`Koma backend already owns this profile (PID ${previous.pid})`)
+        throw new Error(`Koma backend already owns this instance (PID ${previous.pid})`)
       await assertNoLegacyOwners(root)
       const owner: Owner = {
         pid: process.pid,
@@ -113,8 +114,7 @@ export async function claim(root: string) {
   )
 }
 
-// v2 retains all paths and data. Its required backend protocol makes older Lab
-// entrypoints refuse the profile, instead of silently resuming independent writes.
+// Retain the existing storage metadata format without gating database access.
 export async function activate(root: string) {
   const metadata = StoragePaths.metadata(root)
   if (!metadata || metadata.status !== "complete")
@@ -130,25 +130,6 @@ export async function activate(root: string) {
 
 export function headers(connection: Pick<Connection, "username" | "password">) {
   return { Authorization: `Basic ${Buffer.from(`${connection.username}:${connection.password}`).toString("base64")}` }
-}
-
-// The one core hook needed to prevent another entrypoint from bypassing Lab's
-// client adapter. It does nothing for upstream or unactivated v1 profiles.
-export function assertWriter(root: string) {
-  if (StoragePaths.metadata(root)?.version !== 2) return
-  const owner: unknown = JSON.parse(readFileSync(join(stateDirectory(root), "backend.json"), "utf8"))
-  if (
-    !owner ||
-    typeof owner !== "object" ||
-    !("pid" in owner) ||
-    owner.pid !== process.pid ||
-    !("protocol" in owner) ||
-    owner.protocol !== protocol ||
-    !("token" in owner) ||
-    claims.get(StoragePaths.resolve(root).root) !== owner.token
-  ) {
-    throw new Error("This Lab profile is owned by the shared backend; connect using koma")
-  }
 }
 
 export async function stop(root: string, expected?: Pick<Connection, "pid" | "password">) {
@@ -293,8 +274,35 @@ async function assertNoLegacyOwners(root: string) {
 
 export * as KomaBackend from "./koma-backend"
 
-/** Legacy paths retain their original locks while an older backend owns the profile. */
-export function stateDirectory(root: string) {
+/** Recovery must not treat another live instance's native work as abandoned. */
+export async function hasOtherInstances(root: string) {
+  const instances = join(root, "bin", ".koma-instances")
+  const names = await readdir(instances).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return []
+    throw error
+  })
+  const directories = [
+    join(root, "bin", ".lab-backend"),
+    join(root, "bin", ".koma-backend"),
+    ...names.filter((name) => /^[a-z][a-z0-9-]{0,47}$/.test(name)).map((name) => join(instances, name)),
+  ]
+  for (const directory of directories) {
+    const raw = await readFile(join(directory, "backend.json"), "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!raw) continue
+    const owner = JSON.parse(raw)
+    if (Number.isSafeInteger(owner.pid) && owner.pid > 0 && owner.pid !== process.pid && alive(owner.pid)) return true
+  }
+  return false
+}
+
+/** A host's process records are separate from the shared data/configuration paths. */
+export function stateDirectory(root: string, instance = process.env.KOMA_BACKEND_INSTANCE ?? "electron") {
+  if (!/^[a-z][a-z0-9-]{0,47}$/.test(instance)) throw new Error("Invalid Koma backend instance name")
+  if (instance !== "electron") return join(root, "bin", ".koma-instances", instance)
+  // Keep the existing Electron/CLI identity so upgrades don't lose a live owner.
   const current = join(root, "bin", ".koma-backend")
   const legacy = join(root, "bin", ".lab-backend")
   if (existsSync(current) && existsSync(legacy)) throw new Error("Conflicting Koma backend state directories")

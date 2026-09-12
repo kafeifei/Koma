@@ -2,7 +2,7 @@ import { defineConfig } from "vite"
 import { fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
 import appPlugin from "@opencode-ai/app/vite"
-import pkg from "../app/package.json"
+import pkg from "../desktop/package.json"
 
 const root = fileURLToPath(new URL("../..", import.meta.url))
 const git = (args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim()
@@ -16,7 +16,8 @@ export default defineConfig({
     "import.meta.env.OPENCODE_BUILD": JSON.stringify({
       id: `tauri-test-${builtAt}`,
       version: pkg.version,
-      channel: "tauri-test",
+      channel: "lab",
+      release: false,
       commit: git(["rev-parse", "HEAD"]),
       dirty: !!git(["status", "--porcelain"]),
       builtAt,

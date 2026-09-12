@@ -4,7 +4,7 @@ Electron 壳复用 [App](../app/README.md)，持有平台能力、窗口和连�
 
 ## 共享后端
 
-同一 profile 的 Desktop、Web 和 Koma CLI 连接一个经过认证的 loopback 后端。Desktop 先将同包 `koma` 发布到不可变版本路径，再启动 `backend serve`；底层仍是现有 HTTP 服务与 Session 引擎。Lab 不通过固定版本 V2 sidecar 启动第二个数据所有者，其他渠道保留原选择。
+Electron 的 Desktop、Web 和 Koma CLI 默认连接 electron 实例；Tauri 以 tauri 实例独立启动后端，使用不同端口，共用同一 profile 的数据。Desktop 先将同包 `koma` 发布到不可变版本路径，再启动 `backend serve`；底层仍是现有 HTTP 服务与 Session 引擎。两种宿主打包同一份 Koma CLI 产物；其他渠道保留原选择。
 
 关闭窗口、网页或 CLI 不停止后端。完整退出／重启 Desktop 时先查询活动任务：存在任务或查询失败时默认取消；确认后停止已连接的本地后端及全部任务（包括 CLI 任务），等待 profile 释放。安装新包不替换运行中后端，下次启动才使用安装后的程序。`koma backend status` 返回实际 PID、版本和协议；`backend stop` 是显式停止入口。
 
@@ -27,7 +27,7 @@ CLI 的 TUI、`run`、会话查询／删除／导出、模型查询和权限应�
 
 桌面首次启动迁移旧 `~/Library/Application Support/OpenCode Lab`；CLI 不执行旧桌面迁移。迁移先取得旧单实例锁，旧进程／服务占用、目标已有独立数据、跨文件系统均阻止迁移。目录重命名保留 SQLite 与 WAL，持久清单支持中断恢复，兼容链接和原逻辑目录身份保留任务、权限及输入的原 key。独立 profile 仅采用相邻 `<OPENCODE_HOME>.legacy`。
 
-共享后端激活前检查旧数据库占用，再将清单提升至 v2（`backendProtocol: 1`）；旧 Lab 拒绝该格式，独立数据库入口须符合后端所有权。协议不兼容、所有权无效、存活但无响应的后端均阻止接管。应用包回退不构成数据回退。
+共享后端激活前检查旧数据库占用，再将清单提升至 v2（`backendProtocol: 1`）；保留该格式兼容性；数据库入口沿用上游行为，不再校验单个后端 PID。协议不兼容、所有权无效、存活但无响应的后端均阻止接管。应用包回退不构成数据回退。
 
 Lab 清除所属配置／数据库环境覆盖项，禁用自动更新与项目配置自动加载，不迁入官方配置或认证。用户代码目录仍是真实目录；profile 隔离不提供文件系统沙箱。迁移保留旧文件与已归档目录身份，不自动恢复任务。
 

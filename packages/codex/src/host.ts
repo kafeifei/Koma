@@ -13,6 +13,7 @@ import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
 import { SessionExternalOwnership } from "@opencode-ai/core/session/external/ownership"
+import { KomaBackend } from "@opencode-ai/core/koma-backend"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import {
   Account,
@@ -199,6 +200,13 @@ const layer = Layer.effect(
       closed: boolean
     } = { closed: false, recovery: Promise.resolve(), lastGeneration: 0 }
     const run = Effect.runPromise
+    const recover = async () => {
+      const shared = process.env.OPENCODE_HOME && (await KomaBackend.hasOtherInstances(process.env.OPENCODE_HOME))
+      const owned = [...entries.values()]
+        .filter((entry) => (entry.resumed || entry.executionObserved) && !entry.observedOnly)
+        .map((entry) => entry.record.session.id)
+      await run(sessions.recover(runtimeScope, shared ? owned : undefined))
+    }
     const globalInstructions = () =>
       run(instructions.load({ engine: "codex" }).pipe(Effect.map(KomaInstructions.render)))
     const generation = (connected: CodexRuntime) => `${epoch}:${connected.generation}`
@@ -476,7 +484,7 @@ const layer = Layer.effect(
         const connected = await state.manager.get()
         state.runtime = connected
         state.lastGeneration = connected.generation
-        await run(sessions.recover(runtimeScope))
+        await recover()
         await run(ownership.beginGeneration(runtimeScope, generation(connected)))
         if (!current(connected)) return fail("unavailable", "Codex connection closed during startup")
         connected.onNativeNotification((notification) => {
@@ -487,7 +495,7 @@ const layer = Layer.effect(
           state.runtime = undefined
           const recovery = (async () => {
             await run(ownership.invalidateScope(runtimeScope))
-            await run(sessions.recover(runtimeScope))
+            await recover()
           })()
           state.recovery = recovery
           for (const entry of entries.values()) {

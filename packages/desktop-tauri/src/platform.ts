@@ -11,7 +11,7 @@ export const platform: Platform = {
   version: import.meta.env.OPENCODE_BUILD.version,
   buildInfo: import.meta.env.OPENCODE_BUILD,
   debugTools: true,
-  windowID: "tauri-test-main",
+  windowID: "koma-tauri-main",
   windowFullscreen,
   draftStore: createBrowserDraftStore(),
   getDefaultServer: async () => ServerConnection.Key.make("sidecar"),

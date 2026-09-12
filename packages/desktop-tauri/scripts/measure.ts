@@ -5,7 +5,7 @@ import { packageRoot, testRoot } from "./paths"
 
 const phase = process.argv[2] ?? "size"
 if (!/^[a-z0-9-]+$/.test(phase)) throw new Error("Use a simple lowercase phase name")
-const app = join(packageRoot, "src-tauri/target/release/bundle/macos/OpenCode Lab Tauri Test.app")
+const app = join(packageRoot, "src-tauri/target/release/bundle/macos/Koma Tauri Debug.app")
 async function inventory(directory: string): Promise<{ path: string; bytes: number; allocatedBytes: number }[]> {
   const output = []
   for (const name of await readdir(directory)) {

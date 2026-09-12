@@ -55,6 +55,21 @@ const input = {
 } satisfies SessionExternal.CreateInput
 
 describe("SessionExternal", () => {
+  it.effect("recovery of one host leaves the other host's delivery and queue unchanged", () =>
+    Effect.gen(function* () {
+      const external = yield* SessionExternal.Service
+      const own = yield* external.create(input)
+      const other = yield* external.create({ ...input, requestID: "other-host-input" })
+      yield* external.claimBinding({ sessionID: own.session.id, generation: "own:1" })
+      yield* external.claimBinding({ sessionID: other.session.id, generation: "other:1" })
+      const before = yield* external.get(other.session.id)
+      yield* external.recover(input.runtimeScope, [])
+      expect((yield* external.get(own.session.id)).binding.state).toBe("creating")
+      yield* external.recover(input.runtimeScope, [own.session.id])
+      expect((yield* external.get(own.session.id)).binding.state).toBe("unknown")
+      expect(yield* external.get(other.session.id)).toEqual(before)
+    }),
+  )
   it.effect("titles new native tasks from the first prompt line without changing exact retries", () =>
     Effect.gen(function* () {
       const external = yield* SessionExternal.Service

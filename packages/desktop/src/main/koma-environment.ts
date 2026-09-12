@@ -21,6 +21,7 @@ export function legacyKomaBackendEnvironment(root: string) {
 }
 
 export function prepareKomaEnvironment(environment: NodeJS.ProcessEnv, root: string) {
+  environment.KOMA_BACKEND_INSTANCE = "electron"
   return KomaEnvironment.prepare(environment, root)
 }
 

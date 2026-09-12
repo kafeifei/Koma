@@ -28,13 +28,19 @@ async function fixture() {
     ? [path.resolve(process.env.OPENCODE_LAB_TEST_BINARY)]
     : [process.execPath, path.join(import.meta.dir, "../../src/koma.ts")]
   const children: Bun.Subprocess<"ignore", "pipe", "pipe">[] = []
-  const spawn = (args: string[]) => {
-    const child = Bun.spawn(args, { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  const spawn = (args: string[], instance = "electron") => {
+    const child = Bun.spawn(args, {
+      cwd: project,
+      env: { ...env, KOMA_BACKEND_INSTANCE: instance },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    })
     children.push(child)
     return child
   }
-  const run = async (args: string[]) => {
-    const child = spawn(args)
+  const run = async (args: string[], instance = "electron") => {
+    const child = spawn(args, instance)
     const timeout = setTimeout(() => child.kill("SIGKILL"), 30_000)
     const result = await Promise.all([
       child.exited,
@@ -92,8 +98,8 @@ async function fixture() {
     requests,
     model,
     run,
-    start: () => spawn([...command, "backend", "serve"]),
-    cli: (args: string[]) => run([...command, ...args]),
+    start: (instance = "electron") => spawn([...command, "backend", "serve"], instance),
+    cli: (args: string[], instance = "electron") => run([...command, ...args], instance),
     async [Symbol.asyncDispose]() {
       // Cleanup authority comes from the subprocess handles we created, never a profile PID record.
       await Promise.all(
@@ -119,6 +125,71 @@ async function until<T>(label: string, read: () => Promise<T | undefined>) {
   }
   throw new Error(`Timed out waiting for ${label}`)
 }
+
+test("independent Koma backends share real sessions and survive the other instance stopping", async () => {
+  await using input = await fixture()
+  const connections = new Map<string, { pid: number; url: string; username: string; password: string }>()
+  for (const instance of ["electron", "tauri"]) {
+    const backend = input.start(instance)
+    // Drain both streams while the process runs so startup cannot block on logs.
+    void new Response(backend.stdout).text()
+    void new Response(backend.stderr).text()
+    const connection = await until(`${instance} connection`, async () => {
+      if (backend.exitCode !== null) throw new Error(`${instance} exited: ${backend.exitCode}`)
+      const directory = instance === "electron" ? ".koma-backend" : `.koma-instances/${instance}`
+      const file = Bun.file(path.join(input.root, "bin", directory, "backend.json"))
+      if (!(await file.exists())) return
+      const value = await file.json()
+      if (value.url) return value
+    })
+    connections.set(instance, connection)
+    expect(connection.pid).toBe(backend.pid)
+  }
+  const a = connections.get("electron")!
+  const b = connections.get("tauri")!
+  expect(a.pid).not.toBe(b.pid)
+  expect(a.url).not.toBe(b.url)
+  expect(a.password).not.toBe(b.password)
+  const call = async (instance: string, route: string, method = "GET", body?: unknown) => {
+    const connection = connections.get(instance)!
+    const response = await fetch(new URL(route, connection.url), {
+      method,
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${connection.username}:${connection.password}`).toString("base64")}`,
+        "Content-Type": "application/json",
+        "x-opencode-directory": encodeURIComponent(input.project),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    })
+    const value = await response.json()
+    expect(response.status, JSON.stringify(value)).toBe(200)
+    return value
+  }
+  const first = await call("electron", "/session", "POST", { title: "Created by Electron" })
+  expect((await call("tauri", `/session/${first.id}`)).title).toBe("Created by Electron")
+  await call("tauri", `/session/${first.id}`, "PATCH", { title: "Renamed by Tauri" })
+  expect((await call("electron", `/session/${first.id}`)).title).toBe("Renamed by Tauri")
+  const created = await Promise.all(
+    Array.from({ length: 10 }, (_, i) =>
+      call(i % 2 ? "electron" : "tauri", "/session", "POST", { title: `Concurrent ${i}` }),
+    ),
+  )
+  expect(new Set(created.map((session) => session.id)).size).toBe(10)
+  for (const session of created) {
+    expect((await call("electron", `/session/${session.id}`)).id).toBe(session.id)
+    expect((await call("tauri", `/session/${session.id}`)).id).toBe(session.id)
+  }
+  const pathsA = JSON.parse(await input.cli(["backend", "paths"]))
+  const pathsB = JSON.parse(await input.cli(["backend", "paths"], "tauri"))
+  expect(pathsA.profile).toBe(pathsB.profile)
+  expect(pathsA.state).not.toBe(pathsB.state)
+  await input.cli(["backend", "stop"], "tauri")
+  expect((await call("electron", "/global/health")).healthy).toBe(true)
+  const continued = await call("electron", "/session", "POST", { title: "After Tauri stopped" })
+  expect((await call("electron", `/session/${continued.id}`)).title).toBe("After Tauri stopped")
+  await input.cli(["backend", "stop"])
+}, 120_000)
 
 test("backend survives CLI exit, gates real writes and preserves files through worktree archive and restore", async () => {
   await using input = await fixture()

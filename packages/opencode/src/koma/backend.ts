@@ -7,7 +7,7 @@ import { KomaEnvironment } from "@opencode-ai/core/koma-environment"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
 
-export async function serve(root: string) {
+export async function serve(root: string, port = 0) {
   KomaEnvironment.prepare(process.env, root)
   const owner = await KomaBackend.claim(root)
   try {
@@ -30,7 +30,7 @@ export async function serve(root: string) {
     }
     Object.assign(process.env, { OPENCODE_SERVER_USERNAME: owner.username, OPENCODE_SERVER_PASSWORD: owner.password })
     const { Server } = await import("../server/server")
-    const listener = await Server.listen({ hostname: "127.0.0.1", port: 0, cors: ["oc://renderer"] })
+    const listener = await Server.listen({ hostname: "127.0.0.1", port, cors: ["oc://renderer", "tauri://localhost"] })
     await owner.ready(`http://127.0.0.1:${listener.port}`)
     console.log(`Koma backend listening on http://127.0.0.1:${listener.port}`)
     await new Promise<void>((resolve) => {

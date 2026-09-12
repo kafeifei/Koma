@@ -10,7 +10,6 @@ import { DatabaseMigration } from "./migration"
 import { InstallationChannel } from "../installation/version"
 import { makeGlobalNode } from "../effect/app-node"
 import { StoragePaths } from "../storage-paths"
-import { KomaBackend } from "../koma-backend"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 type DatabaseShape = Effect.Success<typeof makeDatabase>
@@ -43,7 +42,6 @@ export function layerFromPath(filename: string) {
 }
 
 export function path() {
-  if (Global.Path.root) KomaBackend.assertWriter(Global.Path.root)
   if (Flag.OPENCODE_DB) {
     if (Flag.OPENCODE_DB === ":memory:" || isAbsolute(Flag.OPENCODE_DB)) return Flag.OPENCODE_DB
     return join(Global.Path.data, Flag.OPENCODE_DB)

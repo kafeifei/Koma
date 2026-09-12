@@ -25,10 +25,10 @@ async function fixture() {
     OPENCODE_HOME: root,
     OPENCODE_DISABLE_MODELS_FETCH: "true",
   }
-  function start(mode: string) {
+  function start(mode: string, instance = "electron") {
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixture/lab-backend-worker.ts"), mode, root], {
       cwd: base,
-      env,
+      env: { ...env, KOMA_BACKEND_INSTANCE: instance },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -36,8 +36,8 @@ async function fixture() {
     children.push(child)
     return child
   }
-  async function run(mode: string): Promise<Result> {
-    const child = start(mode)
+  async function run(mode: string, instance = "electron"): Promise<Result> {
+    const child = start(mode, instance)
     const [code, stdout, stderr] = await Promise.all([
       child.exited,
       new Response(child.stdout).text(),
@@ -105,14 +105,14 @@ test("concurrent independent ensure callers share one backend process", async ()
   expect((await fetch(new URL("/global/health", first.url), { headers: KomaBackend.headers(first) })).status).toBe(200)
 }, 20_000)
 
-test("a second process cannot claim an owned profile", async () => {
+test("a second process cannot claim an owned instance", async () => {
   await using input = await fixture()
   const first = await input.run("ensure")
   const file = join(input.root, "bin/.koma-backend/backend.json")
   const before = await readFile(file, "utf8")
   const second = await input.run("claim")
   expect(second.ok).toBe(false)
-  expect(second.error).toContain(`already owns this profile (PID ${first.pid})`)
+  expect(second.error).toContain(`already owns this instance (PID ${first.pid})`)
   expect(await readFile(file, "utf8")).toBe(before)
   expect(() => process.kill(first.pid, 0)).not.toThrow()
 }, 20_000)
@@ -175,67 +175,17 @@ test("incompatible backend protocol fails before starting another process", asyn
   expect(await readFile(join(input.root, "bin/.koma-backend/backend.json"), "utf8")).toBe(record)
 }, 20_000)
 
-test("writer checks preserve unactivated v1 behavior without creating an owner", async () => {
-  await using input = await fixture()
-  expect((await input.run("writer")).ok).toBe(true)
-  await mkdir(input.root, { recursive: true })
-  await writeFile(
-    join(input.root, "storage.json"),
-    JSON.stringify({
-      version: 1,
-      source: null,
-      status: "complete",
-      database: "opencode.db",
-    }),
-  )
-  expect((await input.run("writer")).ok).toBe(true)
-  expect(await Bun.file(join(input.root, "bin/.koma-backend/backend.json")).exists()).toBe(false)
-}, 20_000)
-
-test("only the activated backend owner can pass writer and core database guards", async () => {
+test("independent processes resolve the same database without a host ownership gate", async () => {
   await using input = await fixture()
   const owner = await input.run("ensure")
   expect(owner.ok).toBe(true)
-  const record = await readFile(join(input.root, "bin/.koma-backend/backend.json"), "utf8")
-  expect((await fetch(new URL("/test/writer", owner.url), { headers: KomaBackend.headers(owner) })).status).toBe(200)
-  for (const mode of ["writer", "database-path"]) {
-    const result = await input.run(mode)
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("owned by the shared backend")
-  }
-  expect(await readFile(join(input.root, "bin/.koma-backend/backend.json"), "utf8")).toBe(record)
-  expect(await Bun.file(join(input.root, "data/opencode.db")).exists()).toBe(false)
-}, 20_000)
-
-test("a reused PID without a claim token cannot become the database writer", async () => {
-  await using input = await fixture()
-  await mkdir(join(input.root, "bin/.koma-backend"), { recursive: true })
-  await writeFile(
-    join(input.root, "storage.json"),
-    JSON.stringify({
-      version: 2,
-      backendProtocol: 1,
-      source: null,
-      status: "complete",
-      database: "opencode.db",
-    }),
-  )
-  const record = {
-    pid: process.pid,
-    protocol: 1,
-    token: randomUUID(),
-    username: "opencode",
-    password: randomUUID(),
-  }
-  const file = join(input.root, "bin/.koma-backend/backend.json")
-  await writeFile(file, JSON.stringify(record))
-  const result = await input.run("same-pid-writer")
-  expect(result.ok).toBe(false)
-  expect(result.error).toContain("owned by the shared backend")
-  const retained = await Bun.file(file).json()
-  expect(retained.pid).not.toBe(process.pid)
-  expect(retained.token).toBe(record.token)
-  expect(await input.spawned()).toEqual([])
+  const first = await input.run("database-path")
+  const second = await input.run("database-path")
+  expect(first.ok).toBe(true)
+  expect(second.ok).toBe(true)
+  expect(first.pid).not.toBe(second.pid)
+  expect((first as Result & { path: string }).path).toBe(join(input.root, "data/opencode.db"))
+  expect((second as Result & { path: string }).path).toBe((first as Result & { path: string }).path)
 }, 20_000)
 
 test.skipIf(!Bun.which("lsof"))(
@@ -289,3 +239,23 @@ test.skipIf(!Bun.which("lsof"))(
   },
   20_000,
 )
+
+test("Electron and Tauri instances have independent ports and shutdown with one data path", async () => {
+  await using input = await fixture()
+  const electron = await input.run("ensure", "electron")
+  const tauri = await input.run("ensure", "tauri")
+  expect(electron.ok).toBe(true)
+  expect(tauri.ok).toBe(true)
+  expect(tauri.pid).not.toBe(electron.pid)
+  expect(tauri.url).not.toBe(electron.url)
+  expect(tauri.password).not.toBe(electron.password)
+  const [left, right] = await Promise.all([input.run("database-path", "electron"), input.run("database-path", "tauri")])
+  expect(left.ok && right.ok).toBe(true)
+  expect((left as Result & { path: string }).path).toBe((right as Result & { path: string }).path)
+  expect((await input.run("stop", "tauri")).ok).toBe(true)
+  expect(
+    (await fetch(new URL("/global/health", electron.url), { headers: KomaBackend.headers(electron) })).status,
+  ).toBe(200)
+  expect(await Bun.file(join(input.root, "bin/.koma-instances/tauri/backend.json")).exists()).toBe(false)
+  expect((await input.run("ensure", "electron")).pid).toBe(electron.pid)
+}, 20_000)

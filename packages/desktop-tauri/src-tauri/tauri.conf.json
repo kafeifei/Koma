@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenCode Lab Tauri Test",
+  "productName": "Koma Tauri Debug",
   "version": "0.1.0",
   "identifier": "ai.opencode.lab.tauri-test",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "OpenCode Lab Tauri Test",
+        "title": "Koma Tauri Debug",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
@@ -32,8 +32,8 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
-    "icon": ["../../desktop/icons/dev/128x128.png", "../../desktop/icons/dev/icon.icns"],
-    "externalBin": ["binaries/opencode-lab"],
+    "icon": ["../../desktop/icons/koma/128x128.png", "../../desktop/icons/koma/icon.icns"],
+    "externalBin": ["binaries/koma"],
     "resources": ["binaries/build-info.json"],
     "macOS": {
       "minimumSystemVersion": "12.0"

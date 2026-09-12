@@ -8,18 +8,7 @@ const [mode, root] = process.argv.slice(2)
 const base = dirname(root)
 
 async function main() {
-  if (mode === "same-pid-writer") {
-    const file = join(root, "bin/.koma-backend/backend.json")
-    const previous = JSON.parse(await readFile(file, "utf8"))
-    // Model a retained ownership record whose PID has since been reused by this unrelated process.
-    await writeFile(file, JSON.stringify({ ...previous, pid: process.pid }))
-    KomaBackend.assertWriter(root)
-    return { pid: process.pid }
-  }
-  if (mode === "writer") {
-    KomaBackend.assertWriter(root)
-    return { pid: process.pid }
-  }
+  if (mode === "stop") { await KomaBackend.stop(root); return { pid: process.pid } }
   if (mode === "database-path") {
     const { Database } = await import("../../src/database/database")
     return { pid: process.pid, path: Database.path() }
@@ -65,7 +54,6 @@ async function main() {
     await using lease = await StorageMigration.lock(root)
     StorageMigration.prepareUnifiedHome({ root, legacyRoot: join(base, "legacy"), acquireLock: () => true })
     await KomaBackend.activate(root)
-    KomaBackend.assertWriter(root)
   }
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -75,10 +63,6 @@ async function main() {
         return new Response("unauthorized", { status: 401 })
       }
       const route = new URL(request.url).pathname
-      if (route === "/test/writer") {
-        KomaBackend.assertWriter(root)
-        return new Response("allowed")
-      }
       if (route === "/test/unhealthy") {
         await writeFile(join(base, "unhealthy"), "")
         return new Response("ok")

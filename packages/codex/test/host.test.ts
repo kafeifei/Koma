@@ -303,6 +303,40 @@ async function complete(home: string) {
 }
 
 describe("CodexHost native process boundaries", () => {
+  test("starting a host preserves a live sibling's pending input and thread creation", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const prior = process.env.OPENCODE_HOME
+      const root = path.join(home, "shared-profile")
+      const registry = path.join(root, "bin/.koma-instances/sibling")
+      await mkdir(registry, { recursive: true })
+      // The parent is live, but no process is started or controlled by this fixture.
+      await writeFile(path.join(registry, "backend.json"), JSON.stringify({ pid: process.ppid }))
+      process.env.OPENCODE_HOME = root
+      try {
+        const own = await seed(sessions, scope)
+        const other = await run(
+          sessions.create({
+            runtimeScope: scope,
+            requestID: "sibling-input",
+            engine: "codex",
+            location: location(),
+            payload: prompt,
+            settings: prompt.settings,
+            delivery: "steer",
+          }),
+        )
+        await run(sessions.claimBinding({ sessionID: other.session.id, generation: "sibling:1" }))
+        const before = await run(sessions.get(other.session.id))
+        const queue = await run(sessions.deliveries(other.session.id))
+        await run(host.snapshot(own))
+        expect(await run(sessions.get(other.session.id))).toEqual(before)
+        expect(await run(sessions.deliveries(other.session.id))).toEqual(queue)
+      } finally {
+        if (prior === undefined) delete process.env.OPENCODE_HOME
+        else process.env.OPENCODE_HOME = prior
+      }
+    }))
+
   test("injects common and personal Codex rules and refreshes them only after native execution is idle", () =>
     harness(async ({ host, home }) => {
       await mkdir(path.join(home, ".agents"), { recursive: true })

@@ -140,7 +140,7 @@ export interface Interface {
   readonly completeDelete: (input: { sessionID: SessionSchema.ID; generation: string }) => Effect.Effect<void, Error>
   readonly wasDeleted: (input: { runtimeScope: string; nativeThreadID: string }) => Effect.Effect<boolean>
   readonly setQueuePaused: (sessionID: SessionSchema.ID, paused: boolean) => Effect.Effect<void, Error>
-  readonly recover: (runtimeScope: string) => Effect.Effect<void>
+  readonly recover: (runtimeScope: string, sessionIDs?: readonly SessionSchema.ID[]) => Effect.Effect<void>
   readonly syncTitle: (input: {
     sessionID: SessionSchema.ID
     runtimeScope: string
@@ -1166,7 +1166,12 @@ const layer = Layer.effect(
           .run()
           .pipe(Effect.orDie)
       }),
-      recover: Effect.fn("SessionExternal.recover")(function* (runtimeScope) {
+      recover: Effect.fn("SessionExternal.recover")(function* (runtimeScope, sessionIDs) {
+        if (sessionIDs?.length === 0) return
+        const scope = and(
+          eq(SessionExternalBindingTable.runtime_scope, runtimeScope),
+          sessionIDs ? inArray(SessionExternalBindingTable.session_id, [...sessionIDs]) : undefined,
+        )
         yield* db
           .transaction(
             () =>
@@ -1174,7 +1179,7 @@ const layer = Layer.effect(
                 const sessions = db
                   .select({ sessionID: SessionExternalBindingTable.session_id })
                   .from(SessionExternalBindingTable)
-                  .where(eq(SessionExternalBindingTable.runtime_scope, runtimeScope))
+                  .where(scope)
                 yield* db
                   .update(SessionExternalDeliveryTable)
                   .set({ state: "unknown", time_updated: Date.now() })
@@ -1198,18 +1203,9 @@ const layer = Layer.effect(
                 yield* db
                   .update(SessionExternalBindingTable)
                   .set({ state: "unknown", time_updated: Date.now() })
-                  .where(
-                    and(
-                      eq(SessionExternalBindingTable.runtime_scope, runtimeScope),
-                      eq(SessionExternalBindingTable.state, "creating"),
-                    ),
-                  )
+                  .where(and(scope, eq(SessionExternalBindingTable.state, "creating")))
                   .run()
-                yield* db
-                  .update(SessionExternalBindingTable)
-                  .set({ queue_paused: true })
-                  .where(eq(SessionExternalBindingTable.runtime_scope, runtimeScope))
-                  .run()
+                yield* db.update(SessionExternalBindingTable).set({ queue_paused: true }).where(scope).run()
               }),
             { behavior: "immediate" },
           )

@@ -19,7 +19,7 @@ Koma 是一个基于 OpenCode 的桌面 Agent 工作台，探索类似 Codex 的
 Desktop / 本地 Web / Remote → 同一 App ─┐
 CLI ──────────────────────────────────┤
                                      ↓
-                          同一 profile 的 Lab Backend
+                          各客户端的 Koma Backend
                             ├─ OpenCode Session Runtime
                             └─ Codex Host → 原生 app-server
 ```
@@ -31,7 +31,7 @@ CLI ─────────────────────────�
 | 任务和目录生命周期 | 现有 Session 持有任务元数据；[worktree](./packages/opencode/src/worktree/lifecycle.ts) 管理目录占用、归档快照与回收                                                    |
 | 原生 Codex         | [codex](./packages/codex/README.md) 适配原生执行、历史和审批；[Session external](./packages/core/src/session/external/index.ts) 持久保存绑定与投递回执                 |
 
-Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Desktop、Web、CLI 不各自运行一套执行循环；客户端断开不改变任务的后端归属。
+Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Electron 与 Tauri 各自运行独立后端；同一客户端的 Web／CLI 入口连接对应后端。共享持久数据不改变运行中任务的进程归属。
 
 ## 数据与权限
 
@@ -46,7 +46,7 @@ Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Desktop、
 
 Koma 首个 beta 沿用 Lab 的内部身份、协议和存储布局，以保持已有任务与配置的兼容性；应用展示名为 Koma。
 
-- Lab 身份为 `com.kafeifei.koma.debug`（Debug）／`com.kafeifei.koma`（发行包），协议为 `koma`，默认数据根为 `~/.koma`。同一 profile 只有一个共享后端，桌面和本 fork 的 CLI 通过认证 loopback 接入；官方渠道的数据与登录不主动迁入。
+- Lab 身份为 `com.kafeifei.koma.debug`（Debug）／`com.kafeifei.koma`（发行包），协议为 `koma`，默认数据根为 `~/.koma`。同一 profile 可供 Electron 与 Tauri 的独立后端共用；各实例通过独立认证 loopback 端口接入，PID 与退出控制按实例隔离；官方渠道的数据与登录不主动迁入。
 - 关闭窗口、断开 Web 或 CLI 不停止后端；完整退出桌面时，活动任务或状态查询失败会触发确认，确认后停止所连接的本地后端及其任务。
 - 本地 Web 网关只监听 loopback。Remote 是显式开启、默认仅所属账号可访问的独立隧道；远端任务仍属于原设备的后端，网站不转发工作台流量。
 - profile 隔离覆盖应用与后端状态，不是文件系统沙箱。项目目录仍是真实文件系统；原生 Codex 使用独立 home，模型配置与凭据接入不改变原生执行归属。
