@@ -1,18 +1,47 @@
 import { expect, test } from "bun:test"
 import {
   directoryInputID,
+  composerInput,
   prefillDirectoryInput,
   removeLegacyDrafts,
   resolveInputDirectory,
 } from "@/context/input-retention"
 import type { Platform } from "@/context/platform"
-import type { ServerConnection } from "@/context/server"
+import { ServerConnection } from "@/context/server"
 import type { Tab } from "@/context/tabs"
 import { createDraftStore } from "@/utils/draft-store"
 import { Persist, removePersisted } from "@/utils/persist"
 import { ServerScope } from "@/utils/server-scope"
 import { createRoot } from "solid-js"
 import { createPromptSession, createPromptState } from "@/context/prompt-state"
+
+test("the window composer reuses its input across targets and keeps its permission choice", () => {
+  const server = ServerConnection.Key.make("sidecar")
+  const original = composerInput([], { server, directory: "/first", permissionMode: "full" })
+  const switched = composerInput([original], { server: ServerConnection.Key.make("remote"), directory: "C:\\second\\" })
+  expect(switched.draftID).toBe(original.draftID)
+  expect(switched.directory).toBe("C:/second")
+  expect(switched.permissionMode).toBe("full")
+  expect(composerInput([], { server, directory: "/first" }).draftID).not.toBe(original.draftID)
+})
+
+test("an existing composer can reopen offline, but the same path on another server must resolve", async () => {
+  const server = ServerConnection.Key.make("sidecar")
+  const tab = composerInput([], { server, directory: "/repo" })
+  const input = {
+    directory: "/repo",
+    scope: ServerScope.local,
+    server,
+    tabs: [tab],
+    resolve: async () => {
+      throw new Error("offline")
+    },
+  }
+  expect(await resolveInputDirectory(input)).toBe("/repo")
+  await expect(resolveInputDirectory({ ...input, server: ServerConnection.Key.make("remote") })).rejects.toThrow(
+    "offline",
+  )
+})
 
 test("directory inputs use existing server scopes and normalized actual paths", () => {
   const local = directoryInputID(ServerScope.local, "C:\\project\\feature\\")

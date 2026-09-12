@@ -6,10 +6,10 @@ import { ServerConnection, useServer } from "./server"
 import { createEffect, getOwner, onCleanup, startTransition, untrack } from "solid-js"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { usePlatform } from "./platform"
-import { pathKey } from "@/utils/path-key"
 import {
-  directoryInputID,
+  composerInput,
   isDirectoryInput,
+  isRetainedInput,
   isLegacyDraft,
   prefillDirectoryInput,
   removeLegacyDrafts,
@@ -189,7 +189,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       void startTransition(() => {
         setStore(
           produce((tabs) => {
-            if (!draftID || !isDirectoryInput(draftID)) tabs.splice(index, 1)
+            if (!draftID || !isRetainedInput(draftID)) tabs.splice(index, 1)
           }),
         )
         if (nextTab === null) {
@@ -198,12 +198,13 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         }
         if (nextTab) navigateTab(nextTab)
       }).finally(() => closing.delete(key))
-      // Pending attachment reads and submissions still own this directory's prompt state.
-      if (!draftID || !isDirectoryInput(draftID)) memory.remove(key)
+      // Pending attachment reads and submissions still own the input's prompt state.
+      if (!draftID || !isRetainedInput(draftID)) memory.remove(key)
       removeInfo(key)
-      if (draftID && !isDirectoryInput(draftID)) removeDraftPersisted(draftID)
+      if (draftID && !isRetainedInput(draftID)) removeDraftPersisted(draftID)
     }
 
+    let draftRequest = 0
     const actions = {
       addSessionTab: (tab: Omit<SessionTab, "type">) => {
         const next = { type: "session" as const, ...tab }
@@ -240,11 +241,13 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         model?: PromptModel,
         options?: { worktree?: "main" },
       ) {
+        const request = ++draftRequest
         await ready.promise
         const conn = global.servers.list().find((conn) => ServerConnection.key(conn) === draft.server)
         const directory = await resolveInputDirectory({
           directory: draft.directory,
           scope: server.scope(draft.server),
+          server: draft.server,
           tabs: store,
           resolve: async (directory) => {
             if (!conn) return directory
@@ -256,16 +259,18 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
             description: cause instanceof Error ? cause.message : language.t("common.requestFailed"),
           })
         })
-        if (directory === undefined) return
-        const draftID = directoryInputID(server.scope(draft.server), directory)
-        const existing = store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === draftID)
-        const tab = existing ?? { type: "draft" as const, draftID, ...draft, directory: pathKey(directory) }
+        if (directory === undefined || request !== draftRequest) return
+        const tab = composerInput(store, { ...draft, directory })
+        const draftID = tab.draftID
         const input = memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { model }))
         await prefillDirectoryInput(input, prompt)
+        if (request !== draftRequest) return
         await startTransition(() => {
           setStore(
             produce((tabs) => {
-              if (!tabs.some((tab) => tab.type === "draft" && tab.draftID === draftID)) tabs.push(tab)
+              const existing = tabs.find((tab) => tab.type === "draft" && tab.draftID === draftID)
+              if (existing) Object.assign(existing, tab)
+              else tabs.push(tab)
             }),
           )
           navigate(`${draftHref(draftID)}${options?.worktree === "main" ? "&worktree=main" : ""}`)
@@ -273,6 +278,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return tab
       },
       updateDraft(draftID: string, draft: Partial<Omit<DraftTab, "type" | "draftID">>) {
+        if (draft.server !== undefined || draft.directory !== undefined) draftRequest++
         void startTransition(() => {
           setStore(
             (tab) => tab.type === "draft" && tab.draftID === draftID,
@@ -289,7 +295,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           setStore(
             produce((tabs) => {
               const index = tabs.findIndex((tab) => tab.type === "draft" && tab.draftID === draftID)
-              if (isDirectoryInput(draftID)) {
+              if (isRetainedInput(draftID)) {
                 if (!tabs.some((tab) => tabKey(tab) === tabKey(next))) tabs.push(next)
                 return
               }
@@ -299,7 +305,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           if (active && recent.key === `draft:${draftID}`) setRecentKey(tabKey(next))
           if (active) navigateTab(next)
         })
-        if (!isDirectoryInput(draftID)) {
+        if (!isRetainedInput(draftID)) {
           memory.remove(`draft:${draftID}`)
           removeDraftPersisted(draftID)
         }

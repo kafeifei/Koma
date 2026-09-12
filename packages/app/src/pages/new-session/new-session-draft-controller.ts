@@ -32,7 +32,9 @@ export function createNewSessionDraftController(workspace: {
   const controls = createPromptInputController({
     sessionKey: route.sessionKey,
     sessionID: () => route.params.id,
-    queryOptions: serverSync().queryOptions,
+    get queryOptions() {
+      return serverSync().queryOptions
+    },
     model,
   })
   const projectControls = createPromptProjectControls()

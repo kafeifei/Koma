@@ -64,6 +64,8 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const layout = useLayout()
 
     const scope = createMemo(() => sdk().directory)
+    const targetKey = createMemo(() => JSON.stringify([sdk().scope, sdk().directory]))
+    const serverScope = createMemo(() => serverSDK().scope)
     const path = createPathHelpers(scope)
     const tabs = layout.tabs(() =>
       SessionStateKey.from(serverSDK().scope, SessionRouteKey.fromRoute(base64Encode(sdk().directory), params.id)),
@@ -77,7 +79,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     })
 
     const tree = createFileTreeStore({
-      scope,
+      scope: targetKey,
       normalizeDir: path.normalizeDir,
       list: (dir) =>
         sdk()
@@ -107,7 +109,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     }
 
     createEffect(() => {
-      scope()
+      targetKey()
       inflight.clear()
       resetFileContentLru()
       batch(() => {
@@ -116,8 +118,12 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       })
     })
 
-    const viewCache = createFileViewCache(serverSDK().scope)
-    const view = createMemo(() => viewCache.load(scope(), params.id))
+    const viewCache = createMemo(() => {
+      const cache = createFileViewCache(serverScope())
+      onCleanup(cache.clear)
+      return cache
+    })
+    const view = createMemo(() => viewCache().load(scope(), params.id))
 
     const ensure = (file: string) => {
       if (!file) return
@@ -168,7 +174,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       const file = path.normalize(input)
       if (!file) return Promise.resolve()
 
-      const directory = scope()
+      const directory = targetKey()
       const key = `${directory}\n${file}`
       ensure(file)
 
@@ -183,7 +189,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       const promise = sdk()
         .client.file.read({ path: file })
         .then((x) => {
-          if (scope() !== directory) return
+          if (targetKey() !== directory) return
           const content = x.data
           setLoaded(file, content)
 
@@ -192,7 +198,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           evictContent(new Set([file]))
         })
         .catch((e) => {
-          if (scope() !== directory) return
+          if (targetKey() !== directory) return
           setLoadError(file, errorMessage(e, language.t("error.chain.unknown")))
         })
         .finally(() => {
@@ -222,20 +228,23 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           },
         )
 
-    const stop = sdk().event.listen((e) => {
-      invalidateFromWatcher(e.details, {
-        normalize: path.normalize,
-        hasFile: (file) => Boolean(store.file[file]),
-        isOpen: (file) => tabs.all().some((tab) => path.pathFromTab(tab) === file),
-        loadFile: (file) => {
-          void load(file, { force: true })
-        },
-        node: tree.node,
-        isDirLoaded: tree.isLoaded,
-        refreshDir: (dir) => {
-          void tree.listDir(dir, { force: true })
-        },
+    createEffect(() => {
+      const stop = sdk().event.listen((e) => {
+        invalidateFromWatcher(e.details, {
+          normalize: path.normalize,
+          hasFile: (file) => Boolean(store.file[file]),
+          isOpen: (file) => tabs.all().some((tab) => path.pathFromTab(tab) === file),
+          loadFile: (file) => {
+            void load(file, { force: true })
+          },
+          node: tree.node,
+          isDirLoaded: tree.isLoaded,
+          refreshDir: (dir) => {
+            void tree.listDir(dir, { force: true })
+          },
+        })
       })
+      onCleanup(stop)
     })
 
     const get = (input: string) => {
@@ -261,11 +270,6 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const setScrollLeft = (input: string, left: number) => withPath(input, (file) => view().setScrollLeft(file, left))
     const setSelectedLines = (input: string, range: SelectedLineRange | null) =>
       withPath(input, (file) => view().setSelectedLines(file, range))
-
-    onCleanup(() => {
-      stop()
-      viewCache.clear()
-    })
 
     return {
       ready: () => view().ready(),

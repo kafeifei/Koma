@@ -55,7 +55,7 @@ import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
-import { isDirectoryInput } from "@/context/input-retention"
+import { isRetainedInput } from "@/context/input-retention"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
 import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
@@ -102,9 +102,11 @@ const SessionRoute = () => {
   })
 
   return (
-    <SessionRouteErrorBoundary sessionID={params.id}>
-      <SessionPage />
-    </SessionRouteErrorBoundary>
+    <Show when={!settings.general.newLayoutDesigns()}>
+      <SessionRouteErrorBoundary sessionID={params.id}>
+        <SessionPage />
+      </SessionRouteErrorBoundary>
+    </Show>
   )
 }
 
@@ -192,7 +194,7 @@ function DraftRoute() {
       <Show
         when={tabs.store.find(
           (tab): tab is DraftTab =>
-            tab.type === "draft" && isDirectoryInput(tab.draftID) && tab.draftID === search.draftId,
+            tab.type === "draft" && isRetainedInput(tab.draftID) && tab.draftID === search.draftId,
         )}
         keyed
         fallback={<Navigate href="/" />}
@@ -216,22 +218,22 @@ function ResolvedDraftRoute(props: { draft: DraftTab }) {
   const directory = () => props.draft.directory
   const serverKey = () => props.draft.server
 
+  // Only the input identity owns the page lifetime. Its server/directory are reactive
+  // destinations, so retargeting must not recreate the composer or its local state.
   return (
-    <Show when={`${props.draft.server}\0${props.draft.directory}`} keyed>
-      <ServerSDKProvider server={conn}>
-        <ServerSyncProvider server={conn}>
-          <ModelsProvider directory={directory}>
-            <SDKProvider directory={directory}>
-              <DirectoryDataProvider directory={directory} server={serverKey}>
-                <DraftProviders>
-                  <NewSession />
-                </DraftProviders>
-              </DirectoryDataProvider>
-            </SDKProvider>
-          </ModelsProvider>
-        </ServerSyncProvider>
-      </ServerSDKProvider>
-    </Show>
+    <ServerSDKProvider server={conn}>
+      <ServerSyncProvider server={conn}>
+        <ModelsProvider directory={directory}>
+          <SDKProvider directory={directory}>
+            <DirectoryDataProvider directory={directory} server={serverKey}>
+              <DraftProviders>
+                <NewSession />
+              </DraftProviders>
+            </DirectoryDataProvider>
+          </SDKProvider>
+        </ModelsProvider>
+      </ServerSyncProvider>
+    </ServerSDKProvider>
   )
 }
 

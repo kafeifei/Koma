@@ -371,7 +371,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const sourceServerSync = serverSync()
     const draftID = search.draftId
     const draftServer = draftID ? tabs.draft(draftID).server : undefined
-    const active = () => !disposed && prompt.capture() === target
+    const active = () => !disposed && prompt.capture() === target && sdk() === sourceSDK
     const submission = createPromptSubmissionState({
       target,
       prompt: target.current(),
@@ -741,11 +741,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         submission.retarget(destination?.capture() ?? prompt.capture(scope))
         await startTransition(() => {
           if (!session) return
-          local.session.promote(sessionDirectory, session.id, {
-            agent: currentAgent!.name,
-            model: { providerID: currentModel!.provider.id, modelID: currentModel!.id },
-            variant: variant ?? null,
-          })
+          if (active())
+            local.session.promote(sessionDirectory, session.id, {
+              agent: currentAgent!.name,
+              model: { providerID: currentModel!.provider.id, modelID: currentModel!.id },
+              variant: variant ?? null,
+            })
           if (active()) layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
           if (draftID && draftServer)
             tabs.promoteDraft(
