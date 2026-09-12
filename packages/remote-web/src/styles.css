@@ -220,6 +220,55 @@ h2 {
   opacity: 0.65;
 }
 
+.remote-mobile {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 28px;
+  padding: 14px;
+  border: 1px solid var(--remote-line);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.remote-mobile img {
+  width: 140px;
+  height: 140px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.remote-mobile h2 {
+  margin-bottom: 6px;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.remote-mobile p,
+.remote-mobile a {
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.remote-mobile p {
+  color: var(--remote-muted);
+}
+
+.remote-mobile a {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--remote-green);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .remote-mobile {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
 .remote-secondary,
 .remote-refresh,
 .remote-code-row button,

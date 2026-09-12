@@ -249,6 +249,14 @@ export function App() {
               </button>
               <p class="remote-fine">{language.t("login.hint")}</p>
               <p class="remote-attribution">{language.t("login.attribution")}</p>
+              <aside class="remote-mobile" aria-label={language.t("login.mobile.title")}>
+                <img src="/mobile-access.svg" width="140" height="140" alt={language.t("login.mobile.qr")} />
+                <div>
+                  <h2>{language.t("login.mobile.title")}</h2>
+                  <p>{language.t("login.mobile.description")}</p>
+                  <a href="https://koma-remote.vercel.app/">koma-remote.vercel.app</a>
+                </div>
+              </aside>
             </section>
           </Match>
 
