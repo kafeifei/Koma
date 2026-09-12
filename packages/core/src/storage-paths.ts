@@ -12,6 +12,7 @@ export interface Metadata {
   readonly database: string
   readonly codexScope?: string
   readonly worktrees?: ReadonlyArray<WorktreeMapping>
+  readonly directoryAliases?: ReadonlyArray<WorktreeMapping>
 }
 
 export interface WorktreeMapping {
@@ -115,6 +116,9 @@ export function metadata(root: string): Metadata | undefined {
   if (value.worktrees !== undefined && !isWorktrees(value.worktrees)) {
     throw new Error(`Invalid OpenCode storage worktree mapping: ${file}`)
   }
+  if (value.directoryAliases !== undefined && !isWorktrees(value.directoryAliases)) {
+    throw new Error(`Invalid OpenCode storage directory alias: ${file}`)
+  }
   return {
     version: value.version,
     ...(value.version === 2 ? { backendProtocol: 1 as const } : {}),
@@ -123,6 +127,7 @@ export function metadata(root: string): Metadata | undefined {
     database: value.database,
     ...(value.codexScope === undefined ? {} : { codexScope: value.codexScope }),
     ...(value.worktrees === undefined ? {} : { worktrees: value.worktrees }),
+    ...(value.directoryAliases === undefined ? {} : { directoryAliases: value.directoryAliases }),
   }
 }
 
