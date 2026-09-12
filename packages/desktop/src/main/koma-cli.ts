@@ -5,7 +5,12 @@ import { join, resolve, sep } from "node:path"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
-export async function installKomaCli(input: { source: string; root: string; linkDirectory?: string }) {
+export async function installKomaCli(input: {
+  source: string
+  root: string
+  linkDirectory?: string
+  linkName?: "koma" | "koma-debug"
+}) {
   const root = StoragePaths.resolve(input.root).root
   const lease = await StorageMigration.lock(root)
   try {
@@ -13,7 +18,8 @@ export async function installKomaCli(input: { source: string; root: string; link
     const directory = join(root, "bin")
     const managed = join(directory, ".koma")
     const target = join(directory, name)
-    const requested = input.linkDirectory ? join(resolve(input.linkDirectory), name) : undefined
+    const shellName = (input.linkName ?? "koma") + (process.platform === "win32" ? ".exe" : "")
+    const requested = input.linkDirectory ? join(resolve(input.linkDirectory), shellName) : undefined
     const link = requested === target ? undefined : requested
     for (const path of [root, directory, managed]) await checkDirectory(path)
     const previous = await checkTarget(directory, name)

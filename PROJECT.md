@@ -46,9 +46,9 @@ Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Electron �
 
 ## 运行边界
 
-Koma 首个 beta 沿用 Lab 的内部身份、协议和存储布局，以保持已有任务与配置的兼容性；应用展示名为 Koma。
+Koma 发行版具有独立、稳定的应用身份、数据根和凭据服务；内部存储格式与上游执行协议保持兼容。发行版不自动导入 Lab 或 Debug 数据。
 
-- Lab 身份为 `com.kafeifei.koma.debug`（Debug）／`com.kafeifei.koma`（发行包），协议为 `koma`，默认数据根为 `~/.koma`。同一 profile 可供 Electron 与 Tauri 的独立后端共用；各实例通过独立认证 loopback 端口接入，PID 与退出控制按实例隔离；官方渠道的数据与登录不主动迁入。
+- Electron 身份为 `com.kafeifei.koma.debug`（Debug）／`com.kafeifei.koma`（发行），协议分别为 `koma-debug`／`koma`。macOS 发行默认数据根为 `~/Library/Application Support/Koma/profile`，Debug 保留 `~/.koma`。同一渠道的 profile 可供 Electron 与 Tauri 的独立后端共用；各实例通过独立认证 loopback 端口接入，PID 与退出控制按实例隔离。
 - 关闭窗口、断开 Web 或 CLI 不停止后端；完整退出桌面时，活动任务或状态查询失败会触发确认，确认后停止所连接的本地后端及其任务。
 - 本地 Web 网关只监听 loopback。Remote 是显式开启、默认仅所属账号可访问的独立隧道；远端任务仍属于原设备的后端，网站不转发工作台流量。
 - profile 隔离覆盖应用与后端状态，不是文件系统沙箱。项目目录仍是真实文件系统；原生 Codex 使用独立 home，模型配置与凭据接入不改变原生执行归属。
@@ -63,11 +63,11 @@ Lab 的差异集中在工作台、宿主接入和独立适配模块。数据一�
 
 上游 Session 执行与上下文不变量见 [CONTEXT.md](./CONTEXT.md) 和 [Session API](./specs/v2/session.md)。原生 Codex 通过独立宿主接入，不进入 OpenCode 的模型 Provider 或执行循环；当前范围不包含 Cindy／ACP 主架构、Claude／DSH 原生接入、跨引擎调度或云端团队平台。
 
-Koma Debug 与 Koma 使用同一工作台和共享后端；`bun run debug` 生成 Koma Debug.app。新 profile 默认使用 `~/.koma`，可用绝对路径 `KOMA_HOME` 指定。已有 Lab profile 保留物理目录和锁，以 `~/.koma` 兼容链接继续使用，不复制数据库；`OPENCODE_HOME` 仍兼容。旧协议标识、存储文件名和上游 OpenCode 引擎包名保留兼容用途。
+Koma Debug 与 Koma 复用同一工作台和后端代码，默认数据与凭据分离；`bun run debug` 生成 Koma Debug.app。`KOMA_HOME` 可指定绝对路径，`OPENCODE_HOME` 仍兼容。只有 Debug 自动保留已有 Lab profile 的物理目录、锁和 `~/.koma` 兼容链接。存储文件名和上游 OpenCode 引擎包名保留兼容用途。完整发行身份与验证边界见 [发布说明](docs/release.md)。
 
 ## 新安装默认值
 
-- 默认 profile 为 `~/.koma`；已有 Lab 数据保留原位置并通过兼容链接接入。
+- macOS 发行默认 profile 为 `~/Library/Application Support/Koma/profile`；Debug 的 `~/.koma` 兼容规则不影响发行版。
 - Codex 与 OpenCode 的可用模型汇总到同一 Provider 模型管理目录，共享显隐偏好；Codex 只负责执行，不提供独立模型目录或登录。模型、endpoint 与认证均来自已有 Provider，各引擎按协议支持能力筛选；旧任务无法确定 Provider 时保留历史并要求重选模型。
 - 后台子代理默认开启，显式关闭的设置或环境覆盖继续有效。
 - 新任务默认开启 Worktree；未保存分支选择时依次选已有的 `main`、`dev`、当前分支。分支选择与工作目录隔离分别控制。

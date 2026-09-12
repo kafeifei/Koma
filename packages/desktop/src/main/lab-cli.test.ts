@@ -21,6 +21,30 @@ import { installKomaCli } from "./koma-cli"
 const name = process.platform === "win32" ? "koma.exe" : "koma"
 const identity = (content: string) => join(".koma", createHash("sha256").update(content).digest("hex"), name)
 
+test("release and Debug shell commands install and upgrade independently", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "koma-cli-coexistence-"))
+  try {
+    const source = join(directory, "candidate")
+    const linkDirectory = join(directory, "shell-bin")
+    await writeFile(source, "release one")
+    const release = await installKomaCli({ source, root: join(directory, "release"), linkDirectory, linkName: "koma" })
+    await writeFile(source, "debug one")
+    const debug = await installKomaCli({
+      source,
+      root: join(directory, "debug"),
+      linkDirectory,
+      linkName: "koma-debug",
+    })
+    expect(release).not.toBe(debug)
+    await writeFile(source, "release two")
+    await installKomaCli({ source, root: join(directory, "release"), linkDirectory, linkName: "koma" })
+    expect(await readFile(release, "utf8")).toBe("release two")
+    expect(await readFile(debug, "utf8")).toBe("debug one")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("Lab CLI installs and upgrades atomically while preserving the official command and prior executable", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-cli-install-"))
   try {

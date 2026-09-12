@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -11,10 +11,48 @@ test("Lab has an independent desktop identity and no updater", () => {
   expect(desktopIdentity(channel)).toEqual({
     appId: "com.kafeifei.koma.debug",
     name: "Koma Debug",
-    scheme: "koma",
+    scheme: "koma-debug",
     icon: "koma",
   })
   expect(desktopUpdaterEnabled(true, channel)).toBe(false)
+  expect(desktopIdentity(channel, true)).toMatchObject({ appId: "com.kafeifei.koma", name: "Koma", scheme: "koma" })
+})
+
+test("release initializes and reopens its own profile without creating or adopting a legacy directory", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "koma-release-home-")))
+  try {
+    const root = join(directory, "profile")
+    const legacyRoot = `${root}.legacy`
+    let userData = ""
+    const input = {
+      root,
+      legacyRoot,
+      release: true,
+      setUserData: (path: string) => {
+        userData = path
+      },
+      acquireLock: () => {
+        expect(userData).toBe(join(root, "desktop"))
+        expect(existsSync(join(root, "storage.json"))).toBe(true)
+        writeFileSync(join(userData, "SingletonLock"), "electron")
+        return true
+      },
+    }
+    expect(await prepareKomaDesktopHome(input)).toBe(true)
+    expect(existsSync(legacyRoot)).toBe(false)
+    const before = await readFile(join(root, "storage.json"), "utf8")
+    expect(JSON.parse(before).source).toBeNull()
+    await writeFile(join(userData, "opencode.settings"), "release settings")
+    expect(await prepareKomaDesktopHome(input)).toBe(true)
+    expect(await readFile(join(root, "storage.json"), "utf8")).toBe(before)
+    expect(await readFile(join(userData, "opencode.settings"), "utf8")).toBe("release settings")
+    mkdirSync(legacyRoot)
+    await writeFile(join(legacyRoot, "opencode.settings"), "developer credentials")
+    await expect(prepareKomaDesktopHome(input)).rejects.toThrow("cannot automatically import")
+    expect(await readFile(join(legacyRoot, "opencode.settings"), "utf8")).toBe("developer credentials")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("Lab uses an explicit home without changing other tools' XDG directories", () => {

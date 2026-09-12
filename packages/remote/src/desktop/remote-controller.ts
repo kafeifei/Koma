@@ -80,6 +80,7 @@ export function createRemoteController(deps: Dependencies) {
     error: null,
   }
   let credential: GitHubCredential | undefined
+  let credentialReadAttempted = false
   let account: Account | undefined
   let host: Connection | undefined
   let login: AbortController | undefined
@@ -146,6 +147,10 @@ export function createRemoteController(deps: Dependencies) {
     check(generation)
     if (account) return
     if (!credential) {
+      // A denied or locked credential store may show a native authorization dialog.
+      // Polling must not repeatedly ask; only an explicit refresh retries the read.
+      if (credentialReadAttempted) return
+      credentialReadAttempted = true
       const saved = await deps.credentials.read()
       check(generation)
       credential = saved
@@ -345,6 +350,7 @@ export function createRemoteController(deps: Dependencies) {
       }),
     refresh: () =>
       run("refresh", async (generation) => {
+        if (!credential) credentialReadAttempted = false
         await restoreAccount(generation)
         if (!account) {
           if (state.enabled) publish({ status: "offline", error: "authentication" })

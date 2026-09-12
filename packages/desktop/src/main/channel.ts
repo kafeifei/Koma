@@ -1,8 +1,8 @@
 export type DesktopChannel = "dev" | "lab" | "beta" | "prod"
 
 const identities = {
-  dev: { appId: "com.kafeifei.koma.debug", name: "Koma Debug", scheme: "koma", icon: "koma" },
-  lab: { appId: "com.kafeifei.koma.debug", name: "Koma Debug", scheme: "koma", icon: "koma" },
+  dev: { appId: "com.kafeifei.koma.debug", name: "Koma Debug", scheme: "koma-debug", icon: "koma" },
+  lab: { appId: "com.kafeifei.koma.debug", name: "Koma Debug", scheme: "koma-debug", icon: "koma" },
   beta: { appId: "com.kafeifei.koma", name: "Koma", scheme: "koma", icon: "koma" },
   prod: { appId: "com.kafeifei.koma", name: "Koma", scheme: "koma", icon: "koma" },
 } as const

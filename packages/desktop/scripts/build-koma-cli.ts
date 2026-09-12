@@ -14,10 +14,11 @@ if (target.os !== process.platform || target.cpu !== process.arch)
 const repository = join(import.meta.dir, "../../..")
 const git = (args: string[]) => execFileSync("git", args, { cwd: repository })
 const version = process.env.OPENCODE_VERSION ?? pkg.version
+const release = process.env.KOMA_RELEASE === "1"
 const fingerprint = createHash("sha256")
   .update(git(["rev-parse", "HEAD"]))
   .update(git(["diff", "HEAD"]))
-  .update(`${Bun.version}:${version}:${process.platform}:${process.arch}`)
+  .update(`${Bun.version}:${version}:${process.platform}:${process.arch}:${release}`)
 for (const file of git(["ls-files", "--others", "--exclude-standard", "-z"]).toString().split("\0").filter(Boolean)) {
   fingerprint.update(file).update(await readFile(join(repository, file)))
 }
@@ -49,6 +50,7 @@ if (previous?.sourceIdentity === sourceIdentity && previous.sha256 === (await di
       {
         sourceIdentity,
         version,
+        release,
         sha256: await digest(),
         bun: Bun.version,
         commit: git(["rev-parse", "HEAD"]).toString().trim(),

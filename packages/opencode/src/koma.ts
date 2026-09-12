@@ -9,7 +9,9 @@ import { KomaProfile } from "@opencode-ai/core/koma-profile"
 // Koma's host adapter uses the upstream server/runtime. Instance selection only
 // scopes process discovery and shutdown; project/config/history storage is shared.
 const args = process.argv.slice(2)
-const root = KomaProfile.resolveHome()
+declare const KOMA_RELEASE: boolean
+const release = typeof KOMA_RELEASE !== "undefined" ? KOMA_RELEASE : process.env.KOMA_RELEASE === "1"
+process.env.KOMA_DISTRIBUTION = release ? "release" : "debug"
 try {
   await main()
 } catch (error) {
@@ -34,6 +36,7 @@ async function main() {
   }
   if (args[0] === "upgrade")
     throw new Error("Update koma using a verified Koma build; the official OpenCode installer cannot update Koma.")
+  const root = KomaProfile.resolveHome()
   if (args[0] === "uninstall") {
     const { uninstall } = await import("./koma/maintenance")
     return uninstall(root, args.slice(1))
@@ -61,7 +64,13 @@ async function main() {
     throw new Error("Use koma backend serve, status [--connection], paths, or stop")
   }
   if (args[0] === "backend" && args[1] === "paths") {
-    console.log(JSON.stringify({ profile: root, state: KomaBackend.stateDirectory(root) }))
+    console.log(
+      JSON.stringify({
+        profile: root,
+        state: KomaBackend.stateDirectory(root),
+        distribution: release ? "release" : "debug",
+      }),
+    )
     return
   }
   if (args[0] === "backend" && args[1] === "stop") return KomaBackend.stop(root)

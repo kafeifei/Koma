@@ -194,6 +194,7 @@ for (const item of targets) {
       ...(embeddedFileMap ? ["opencode-web-ui.gen.ts"] : []),
     ],
     define: {
+      ...(Script.channel === "lab" ? { KOMA_RELEASE: JSON.stringify(process.env.KOMA_RELEASE === "1") } : {}),
       FFF_LIBC: JSON.stringify(item.abi === "musl" ? "musl" : "gnu"),
       OPENCODE_VERSION: `'${Script.version}'`,
       OPENCODE_MODELS_DEV: generated.modelsData,

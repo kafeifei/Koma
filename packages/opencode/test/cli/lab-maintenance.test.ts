@@ -13,6 +13,7 @@ async function fixture() {
     Object.entries(process.env).filter(
       ([key]) =>
         !key.startsWith("OPENCODE_") &&
+        !key.startsWith("KOMA_") &&
         !key.startsWith("XDG_") &&
         !key.startsWith("CODEX_") &&
         !["HOME", "TMPDIR", "NODE_OPTIONS", "BUN_OPTIONS"].includes(key),
@@ -60,7 +61,7 @@ async function managed(input: Awaited<ReturnType<typeof fixture>>) {
   const hash = "a".repeat(64)
   const version = join(input.root, "bin/.koma", hash, name)
   const target = join(input.root, "bin", name)
-  const shell = join(input.env.HOME!, ".local/bin", name)
+  const shell = join(input.env.HOME!, ".local/bin", process.platform === "win32" ? "koma-debug.exe" : "koma-debug")
   await mkdir(join(version, ".."), { recursive: true })
   await mkdir(join(shell, ".."), { recursive: true })
   await writeFile(version, "backend executable")
@@ -73,6 +74,7 @@ async function managed(input: Awaited<ReturnType<typeof fixture>>) {
   await mkdir(join(input.root, "config"), { recursive: true })
   await writeFile(join(input.root, "config/opencode.json"), "shared config")
   await writeFile(join(input.env.HOME!, ".local/bin/opencode"), "official opencode")
+  await writeFile(join(input.env.HOME!, ".local/bin", name), "release command")
   return { version, target, shell }
 }
 
@@ -103,6 +105,36 @@ test("Lab uninstall plans then removes only managed command entries", async () =
   expect(await readFile(join(input.root, "data/opencode.db"), "utf8")).toBe("shared database")
   expect(await readFile(join(input.root, "config/opencode.json"), "utf8")).toBe("shared config")
   expect(await readFile(join(input.env.HOME!, ".local/bin/opencode"), "utf8")).toBe("official opencode")
+  expect(await readFile(join(input.env.HOME!, ".local/bin", name), "utf8")).toBe("release command")
+})
+
+test("version and maintenance help do not resolve or initialize a profile", async () => {
+  await using input = await fixture()
+  for (const args of [["--version"], ["backend", "--help"]]) {
+    const result = await input.run(args, { KOMA_HOME: "invalid-relative-path", KOMA_RELEASE: "1" })
+    expect(result.code, result.stderr).toBe(0)
+    expect(await stat(input.root).catch(() => undefined)).toBeUndefined()
+  }
+})
+
+test("both release backend instances report one fresh default profile without inspecting Lab data", async () => {
+  await using input = await fixture()
+  delete input.env.OPENCODE_HOME
+  const old = join(input.env.HOME!, ".opencode")
+  await mkdir(old)
+  await writeFile(join(old, "storage.json"), "invalid old metadata")
+  const paths = []
+  for (const instance of ["electron", "tauri"]) {
+    const result = await input.run(["backend", "paths"], { KOMA_RELEASE: "1", KOMA_BACKEND_INSTANCE: instance })
+    expect(result.code, result.stderr).toBe(0)
+    paths.push(JSON.parse(result.stdout))
+  }
+  expect(paths[0].distribution).toBe("release")
+  expect(paths[0].profile).toBe(paths[1].profile)
+  expect(paths[0].state).not.toBe(paths[1].state)
+  expect(paths[0].profile).not.toBe(old)
+  expect(await stat(paths[0].profile).catch(() => undefined)).toBeUndefined()
+  expect(await stat(join(input.env.HOME!, ".koma")).catch(() => undefined)).toBeUndefined()
 })
 
 test("Lab uninstall refuses independent files and unmanaged links", async () => {

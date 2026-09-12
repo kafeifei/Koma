@@ -16,7 +16,7 @@ import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
 import { checkAppExists, resolveAppPath } from "./apps"
-import { APP_ID, APP_NAME, APP_PROTOCOL, CHANNEL } from "./constants"
+import { APP_ID, APP_NAME, APP_PROTOCOL, CHANNEL, RELEASE } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
 import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as writeLog } from "./logging"
@@ -81,7 +81,9 @@ function useEnvProxy() {
 
 function emitDeepLinks(urls: string[]) {
   if (urls.length === 0) return
-  const normalized = urls.map((url) => url.replace(/^(?:koma|opencode-lab):\/\//, "opencode://"))
+  const normalized = urls.map((url) =>
+    url.replace(RELEASE ? /^koma:\/\// : /^(?:koma-debug|opencode-lab):\/\//, "opencode://"),
+  )
   pendingDeepLinks.push(...normalized)
   const win = getLastFocusedWindow()
   if (win) sendDeepLinks(win, normalized)
@@ -143,6 +145,7 @@ const main = Effect.gen(function* () {
   })()
   app.setName(APP_NAME)
   app.setAppUserModelId(appId)
+  process.env.KOMA_DISTRIBUTION = RELEASE ? "release" : "debug"
   const labRoot = CHANNEL === "lab" && !onboardingTestRoot ? KomaProfile.resolveHome() : undefined
   if (labRoot) {
     const prepared = yield* Effect.promise(async () => {
@@ -150,13 +153,14 @@ const main = Effect.gen(function* () {
         const root = StoragePaths.resolve(labRoot).root
         const paths = {
           root,
-          legacyRoot: KomaProfile.isDefault(root) ? join(app.getPath("appData"), "OpenCode Lab") : `${root}.legacy`,
+          legacyRoot: KomaProfile.legacyRoot(root, join(app.getPath("appData"), "OpenCode Lab")),
         }
-        const storageName = keychainName(root, paths.legacyRoot)
+        const storageName = keychainName(root, paths.legacyRoot, RELEASE)
         if (process.platform === "darwin") app.setName(storageName)
         if (
           !(await prepareKomaDesktopHome({
             ...paths,
+            release: RELEASE,
             setUserData: (path) => app.setPath("userData", path),
             acquireLock: () => app.requestSingleInstanceLock(),
           }))
@@ -332,7 +336,8 @@ const main = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
   app.setName(APP_NAME)
 
-  if (!TEST_ONBOARDING && (!labRoot || StoragePaths.resolve(labRoot).root === join(homedir(), ".opencode"))) migrate()
+  if (!RELEASE && !TEST_ONBOARDING && (!labRoot || StoragePaths.resolve(labRoot).root === join(homedir(), ".opencode")))
+    migrate()
   yield* Effect.promise(() => cleanupStoreFiles(app.getPath("userData"))).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {

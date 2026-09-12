@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  lstatSync,
+  symlinkSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { KomaProfile } from "../src/koma-profile"
@@ -73,5 +82,29 @@ test("a new explicit home has the same identity before and after creation throug
     expect(before).toBe(realpathSync(requested))
   } finally {
     rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test("release ignores conflicting developer profiles and never creates a compatibility alias", () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "koma-release-profile-")))
+  const release = { KOMA_DISTRIBUTION: "release" }
+  try {
+    mkdirSync(join(home, ".opencode"))
+    // Even unreadable legacy metadata must not affect release startup.
+    writeFileSync(join(home, ".opencode/storage.json"), "old invalid metadata")
+    const expected = KomaProfile.releaseHome(release, home)
+    expect(KomaProfile.resolveHome(release, home)).toBe(expected)
+    expect(existsSync(join(home, ".koma"))).toBe(false)
+    symlinkSync(join(home, ".opencode"), join(home, ".koma"))
+    expect(KomaProfile.resolveHome(release, home)).toBe(expected)
+    mkdirSync(expected, { recursive: true })
+    expect(KomaProfile.resolveHome(release, home)).toBe(expected)
+    expect(KomaProfile.isDefault(expected, home, release)).toBe(true)
+    expect(KomaProfile.isDefault(join(home, ".opencode"), home, release)).toBe(false)
+    expect(KomaProfile.resolveHome({ ...release, KOMA_HOME: join(home, "test") }, home)).toBe(join(home, "test"))
+    expect(KomaProfile.commandName(release)).toBe("koma")
+    expect(KomaProfile.commandName({})).toBe("koma-debug")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
   }
 })

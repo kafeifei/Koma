@@ -4,7 +4,7 @@ macOS Apple Silicon 的 Tauri 宿主，复用 App、Session UI 和 Koma CLI。El
 
 ## 数据与进程
 
-- 数据目录由 Koma CLI 解析：`KOMA_HOME` 优先，其次兼容 `OPENCODE_HOME`，默认 `~/.koma`。已有 Lab 的兼容链接与物理目录保留。
+- 数据目录由 Koma CLI 解析：`KOMA_HOME` 优先，其次兼容 `OPENCODE_HOME`；macOS 发行默认 `~/Library/Application Support/Koma/profile`。只有 Debug 默认使用 `~/.koma` 并保留已有 Lab 的兼容链接与物理目录。发行与 Debug 的 CLI 构建缓存、默认数据和凭据分离。
 - Electron 使用既有实例登记，Tauri 使用 `KOMA_BACKEND_INSTANCE=tauri`，登记、凭据与日志位于数据目录的 `bin/.koma-instances/tauri/`。
 - 两边打包完全相同的 `packages/desktop/resources/koma` 产物；构建脚本校验源码身份及 SHA-256。Tauri 不再另行生成 opencode-lab 后端。
 - 关闭窗口保留自身后端。完整退出经确认只停止自身后端，不停止另一个客户端的后端。
@@ -37,7 +37,7 @@ macOS Apple Silicon 的 Tauri 宿主，复用 App、Session UI 和 Koma CLI。El
 
 在 `packages/app` 运行 `bunx playwright install chromium webkit` 后，执行 `bun run test:desktop-layout`。同一条回归覆盖两种内核的首页高度、聊天输入框、终端以及窗口尺寸变化，不维护另一份 Tauri 页面或浏览器专属 CSS。
 
-原生验收必须使用 `.local/desktop-tests` 下的独立 profile。Electron 验证包须由 electron-builder 使用独立的 `Validation` productName 完整打包，再运行 `packages/desktop/scripts/prepare-validation.ts source.app destination.app profile`。该脚本只对验证副本开启 Chromium mock Keychain，并设置独立应用身份；不能把这个副本安装为日常 Debug。仅改名或 ad-hoc 重签真实 profile 的 Electron 包会触发 `Koma Safe Storage` 的访问提示。
+原生验收使用独立测试 profile。日常 UI 自动化可由 electron-builder 使用独立的 `Validation` productName 完整打包，再运行 `packages/desktop/scripts/prepare-validation.ts source.app destination.app profile`；该脚本对验证副本开启 Chromium mock Keychain，不能安装为日常 Debug，也不能证明发行凭据行为。发行验收必须检查未经修改、Developer ID 签名的发行 App，使用真实系统凭据服务验证首次安装、重开和升级，不能用 mock Keychain 的结果代替。测试不读取旧 Lab／Debug 的真实凭据。
 
 Tauri 的窗口按钮通过 AppKit 读取系统基线，再使用 Tauri 的原生 inset 配置；重绘不另行修改页面坐标。菜单快捷键在 WebKit 处理键盘事件之前交给原生菜单，保证终端获得焦点时仍可退出、关闭窗口和打开设置。
 

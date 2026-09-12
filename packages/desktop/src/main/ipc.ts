@@ -85,6 +85,7 @@ export function registerIpcHandlers(deps: Deps) {
         process.platform === "win32" ? "koma.exe" : "koma",
       ),
       root: process.env.OPENCODE_HOME,
+      linkName: KomaProfile.commandName(),
       linkDirectory:
         KomaProfile.isDefault(process.env.OPENCODE_HOME) && process.platform !== "win32"
           ? join(homedir(), ".local/bin")

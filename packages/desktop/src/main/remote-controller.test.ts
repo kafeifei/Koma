@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { GitHubAuthError } from "@opencode-ai/remote/github"
 import { createRemoteController } from "./remote-controller"
 import { createRemoteCredentials } from "./remote-credentials"
@@ -73,6 +73,45 @@ function fixture(
 }
 
 describe("remote controller", () => {
+  test("denied credential access is not retried by polling or initialization, but explicit refresh can recover", async () => {
+    let poll: (() => void) | undefined
+    let reads = 0
+    let denied = true
+    const interval = globalThis.setInterval
+    const timer = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void) => {
+      poll = callback
+      return interval(() => {}, 60_000)
+    }) as typeof setInterval)
+    const input = fixture({
+      credentials: {
+        available: () => true,
+        read: () => {
+          reads++
+          if (denied) throw new Error("Keychain access denied")
+          return { accessToken: "stored-token" }
+        },
+        write: () => {},
+        clear: () => {},
+      },
+    })
+    try {
+      await input.controller.initialize()
+      expect(reads).toBe(1)
+      for (let i = 0; i < 3; i++) {
+        poll!()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      await input.controller.initialize()
+      expect(reads).toBe(1)
+      denied = false
+      expect((await input.controller.refresh()).account?.username).toBe("tester")
+      expect(reads).toBe(2)
+    } finally {
+      timer.mockRestore()
+      await input.controller.stop()
+    }
+  })
+
   test("account sign-in leaves hosting off and never projects secrets", async () => {
     const input = fixture()
     const state = await input.controller.signIn()

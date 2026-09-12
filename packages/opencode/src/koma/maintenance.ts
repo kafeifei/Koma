@@ -2,6 +2,7 @@ import { lstat, readlink, unlink } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
+import { KomaProfile } from "@opencode-ai/core/koma-profile"
 
 // Removing the terminal entry does not transfer ownership of the shared profile
 // to the CLI. Published binaries remain available to a running backend.
@@ -13,7 +14,8 @@ export async function uninstall(root: string, args: string[]) {
   try {
     const name = process.platform === "win32" ? "koma.exe" : "koma"
     const target = join(root, "bin", name)
-    const shell = join(homedir(), ".local", "bin", name)
+    const shellName = KomaProfile.commandName() + (process.platform === "win32" ? ".exe" : "")
+    const shell = join(homedir(), ".local", "bin", shellName)
     const current = await link(target)
     if (
       current !== undefined &&

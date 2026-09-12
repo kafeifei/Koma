@@ -59,7 +59,7 @@ const info = {
   version: pkg.version,
   release,
   builtAt: new Date().toISOString(),
-  profile: "KOMA_HOME or the existing ~/.koma",
+  profile: release ? "KOMA_HOME or ~/Library/Application Support/Koma/profile" : "KOMA_HOME or the existing ~/.koma",
   instance: "tauri",
   backendSha256: cli.sha256,
   bun: Bun.version,
