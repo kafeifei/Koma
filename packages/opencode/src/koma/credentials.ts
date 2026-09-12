@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { z } from "zod"
+import { StoragePaths } from "@opencode-ai/core/storage-paths"
 
 const credential = z.object({
   accessToken: z.string().min(1),
@@ -7,7 +8,10 @@ const credential = z.object({
   refreshToken: z.string().optional(),
 })
 export function createKomaCredentials(root: string, secrets = Bun.secrets) {
-  const key = { service: "com.kafeifei.koma.remote.tauri", name: createHash("sha256").update(root).digest("hex") }
+  const key = {
+    service: "com.kafeifei.koma.remote.tauri",
+    name: StoragePaths.metadata(root)?.credentialScope ?? createHash("sha256").update(root).digest("hex"),
+  }
   let pending: Promise<unknown> = Promise.resolve()
   const queue = <T>(action: () => Promise<T>) => {
     const result = pending.then(action)

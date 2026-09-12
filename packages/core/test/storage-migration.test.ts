@@ -453,11 +453,12 @@ test("completed-home reconciliation retains relocation identities and rejects a 
       path: join(options.root, "worktrees/project/retained"),
     },
   ]
-  writeFileSync(file, JSON.stringify({ ...manifest, directoryAliases }))
+  writeFileSync(file, JSON.stringify({ ...manifest, directoryAliases, credentialScope: "a".repeat(64) }))
   expect(migrate(options)?.status).toBe("complete")
   reconcileWorktrees(options)
   expect(JSON.parse(readFileSync(file, "utf8")).directoryAliases).toEqual(directoryAliases)
-  writeFileSync(file + ".tmp", JSON.stringify(manifest))
+  expect(JSON.parse(readFileSync(file, "utf8")).credentialScope).toBe("a".repeat(64))
+  writeFileSync(file + ".tmp", JSON.stringify({ ...manifest, directoryAliases, credentialScope: "b".repeat(64) }))
   expect(() => migrate(options)).toThrow("manifest staging is not a completed worktree identity update")
   expect(JSON.parse(readFileSync(file, "utf8")).directoryAliases).toEqual(directoryAliases)
 })
