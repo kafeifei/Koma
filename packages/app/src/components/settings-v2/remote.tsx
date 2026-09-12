@@ -385,27 +385,27 @@ export function SettingsRemoteV2(props: { remoteAccess: RemoteAccessPlatform }) 
                       >
                         <span />
                       </SettingsRowV2>
-                      <Show when={store.state?.website}>
-                        {(website) => (
-                          <SettingsRowV2
-                            title={language.t("settings.remote.local.website")}
-                            description={
-                              <a
-                                class="settings-v2-remote-link"
-                                href={website()}
-                                onClick={(event) => {
-                                  event.preventDefault()
-                                  platform.openExternal(website())
-                                }}
-                              >
-                                {website()}
-                              </a>
-                            }
-                          >
-                            <span />
-                          </SettingsRowV2>
-                        )}
-                      </Show>
+                    </Show>
+                    <Show when={store.state?.website}>
+                      {(website) => (
+                        <SettingsRowV2
+                          title={language.t("settings.remote.local.website")}
+                          description={
+                            <a
+                              class="settings-v2-remote-link"
+                              href={website()}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                platform.openExternal(website())
+                              }}
+                            >
+                              {website()}
+                            </a>
+                          }
+                        >
+                          <span />
+                        </SettingsRowV2>
+                      )}
                     </Show>
                   </SettingsListV2>
                   <p class="settings-v2-remote-note">

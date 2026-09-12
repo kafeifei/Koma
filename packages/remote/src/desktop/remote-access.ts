@@ -23,7 +23,7 @@ export function createRemoteAccess(options: {
   const saved = settings.get("remoteDeviceID")
   const deviceID = typeof saved === "string" && /^[a-f0-9-]{36}$/.test(saved) ? saved : randomUUID()
   settings.set("remoteDeviceID", deviceID)
-  const website = options.website
+  const website = options.website || "https://opencode-lab-remote.vercel.app/"
   const url = website ? URL.parse(website) : null
   return createRemoteController({
     credentials: options.credentials,
