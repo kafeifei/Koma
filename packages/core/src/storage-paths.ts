@@ -11,6 +11,7 @@ export interface Metadata {
   readonly status: "migrating" | "complete"
   readonly database: string
   readonly codexScope?: string
+  readonly credentialScope?: string
   readonly worktrees?: ReadonlyArray<WorktreeMapping>
   readonly directoryAliases?: ReadonlyArray<WorktreeMapping>
 }
@@ -116,6 +117,12 @@ export function metadata(root: string): Metadata | undefined {
   if (value.worktrees !== undefined && !isWorktrees(value.worktrees)) {
     throw new Error(`Invalid OpenCode storage worktree mapping: ${file}`)
   }
+  if (
+    value.credentialScope !== undefined &&
+    (typeof value.credentialScope !== "string" || !/^[a-f0-9]{64}$/.test(value.credentialScope))
+  ) {
+    throw new Error(`Invalid OpenCode storage credential scope: ${file}`)
+  }
   if (value.directoryAliases !== undefined && !isWorktrees(value.directoryAliases)) {
     throw new Error(`Invalid OpenCode storage directory alias: ${file}`)
   }
@@ -126,6 +133,7 @@ export function metadata(root: string): Metadata | undefined {
     status: value.status,
     database: value.database,
     ...(value.codexScope === undefined ? {} : { codexScope: value.codexScope }),
+    ...(value.credentialScope === undefined ? {} : { credentialScope: value.credentialScope }),
     ...(value.worktrees === undefined ? {} : { worktrees: value.worktrees }),
     ...(value.directoryAliases === undefined ? {} : { directoryAliases: value.directoryAliases }),
   }

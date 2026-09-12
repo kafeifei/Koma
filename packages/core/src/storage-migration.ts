@@ -31,6 +31,7 @@ export type HomeStorage = {
   status: "migrating" | "complete"
   database: string
   codexScope: string
+  credentialScope?: string
   worktrees: { directory: string; path: string }[]
   directoryAliases?: { directory: string; path: string }[]
   operations: Operation[]
@@ -385,6 +386,8 @@ function readManifest(root: string, legacyRoot: string, temporary = false): Home
     (manifest.source !== null && manifest.source !== legacyRoot) ||
     !databases.includes(manifest.database ?? "") ||
     !/^codex:[a-f0-9]{64}$/.test(manifest.codexScope ?? "") ||
+    (manifest.credentialScope !== undefined &&
+      (typeof manifest.credentialScope !== "string" || !/^[a-f0-9]{64}$/.test(manifest.credentialScope))) ||
     !Array.isArray(manifest.operations) ||
     !Array.isArray(manifest.worktrees)
   )
@@ -427,6 +430,7 @@ function validateWorktreeStaging(root: string, legacyRoot: string, manifest: Hom
     pending.status !== "complete" ||
     pending.database !== manifest.database ||
     pending.codexScope !== manifest.codexScope ||
+    pending.credentialScope !== manifest.credentialScope ||
     pending.source !== manifest.source ||
     JSON.stringify(pending.directoryAliases) !== JSON.stringify(manifest.directoryAliases) ||
     JSON.stringify(pending.operations) !== JSON.stringify(manifest.operations) ||
