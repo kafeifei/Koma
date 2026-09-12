@@ -1,0 +1,32 @@
+{
+  "name": "@opencode-ai/desktop-tauri-test",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/run.ts dev",
+    "build": "bun scripts/run.ts build",
+    "dev:ui": "vite",
+    "build:ui": "vite build",
+    "fixture": "bun scripts/fixture.ts",
+    "measure": "bun scripts/measure.ts",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test ./scripts/paths.test.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/app": "workspace:*",
+    "@opencode-ai/ui": "workspace:*",
+    "@solidjs/router": "catalog:",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.3",
+    "@tauri-apps/plugin-opener": "2.5.5",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "vite": "catalog:"
+  }
+}

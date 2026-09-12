@@ -27,6 +27,7 @@ target
 .direnv/
 
 # Local dev files
+/.local/desktop-tests/
 /.cache/
 opencode-dev
 UPCOMING_CHANGELOG.md
