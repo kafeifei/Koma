@@ -6,6 +6,8 @@ import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 export type Model = {
   id: string
   modelID?: string
+  executionID?: string
+  serviceTier?: string
   name: string
   efforts: string[]
   defaultEffort?: string
@@ -44,11 +46,19 @@ export function modelID(providerID: string, model: string) {
   return `${providerID}/${model}`
 }
 
-export function nativeProviderID(providerID: string) {
-  return `opencode_${providerID}`
+export function nativeProviderID(providerID: string, executionID?: string) {
+  return executionID
+    ? `koma_model_${Buffer.from(JSON.stringify([providerID, executionID])).toString("hex")}`
+    : `opencode_${providerID}`
 }
 
 export function observedModel(model: string | undefined | null, providerID: string | undefined | null) {
+  if (providerID?.startsWith("koma_model_")) {
+    try {
+      const [provider, execution] = JSON.parse(Buffer.from(providerID.slice("koma_model_".length), "hex").toString())
+      if (typeof provider === "string" && typeof execution === "string") return modelID(provider, execution)
+    } catch {}
+  }
   if (!model || !providerID?.startsWith("opencode_")) return model ?? undefined
   return modelID(providerID.slice("opencode_".length), model)
 }

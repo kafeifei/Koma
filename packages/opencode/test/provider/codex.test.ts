@@ -1,39 +1,28 @@
 import { expect } from "bun:test"
 import { CodexProviders } from "@opencode-ai/codex/providers"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
-import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Effect, Layer } from "effect"
 import { Auth } from "../../src/auth"
 import { OpenAIAuth } from "../../src/auth/openai"
 import { GlobalBus } from "../../src/bus/global"
-import { Config } from "../../src/config/config"
+import { InstanceStore } from "../../src/project/instance-store"
+import { Provider } from "../../src/provider/provider"
 import { CodexProvider } from "../../src/provider/codex"
 import { testEffect } from "../lib/effect"
 
 function fixture() {
-  const state: {
-    config: ConfigV1.Info
-    auth: Record<string, Auth.Info>
-    catalog: Record<string, ModelsDev.Provider>
-    authListeners: Set<(providerID: string) => void>
-  } = {
-    config: {},
-    auth: {},
-    catalog: {},
-    authListeners: new Set(),
+  const state = {
+    catalog: {} as Record<string, Provider.Info>,
+    auth: {} as Record<string, Auth.Info>,
+    listeners: new Set<() => void>(),
   }
   const layer = LayerNode.compile(CodexProvider.node, [
+    [Provider.node, Layer.mock(Provider.Service, { list: () => Effect.succeed(state.catalog) })],
+    [InstanceStore.node, Layer.mock(InstanceStore.Service, { provide: (_input, effect) => effect })],
     [
       OpenAIAuth.node,
       Layer.succeed(OpenAIAuth.Service, {
         get: async () => (state.auth.openai?.type === "oauth" ? state.auth.openai : undefined),
-      }),
-    ],
-    [
-      Config.node,
-      Layer.mock(Config.Service, {
-        getGlobal: () => Effect.succeed(state.config),
       }),
     ],
     [
@@ -42,279 +31,114 @@ function fixture() {
         all: () => Effect.succeed(state.auth),
         onSelection: (listener) =>
           Effect.sync(() => {
-            state.authListeners.add(listener)
-            return () => state.authListeners.delete(listener)
+            const notify = () => listener("openai")
+            state.listeners.add(notify)
+            return () => state.listeners.delete(notify)
           }),
-      }),
-    ],
-    [
-      ModelsDev.node,
-      Layer.mock(ModelsDev.Service, {
-        get: () => Effect.succeed(state.catalog),
       }),
     ],
   ])
   return { state, it: testEffect(layer) }
 }
-
-const listing = fixture()
-
-listing.it.live("lists only configured API-key Responses providers and applies model overrides", () =>
-  Effect.gen(function* () {
-    listing.state.auth = {
-      xd: new Auth.Api({ type: "api", key: "secret-xd" }),
-      oauth: new Auth.Oauth({ type: "oauth", access: "access", refresh: "refresh", expires: 1 }),
-      disabled: new Auth.Api({ type: "api", key: "secret-disabled" }),
-      chat: new Auth.Api({ type: "api", key: "secret-chat" }),
-      local: new Auth.Api({ type: "api", key: "secret-local" }),
-      split: new Auth.Api({ type: "api", key: "secret-split" }),
-      "not-enabled": new Auth.Api({ type: "api", key: "secret-not-enabled" }),
-    }
-    listing.state.config = {
-      enabled_providers: ["xd", "configured", "oauth", "disabled", "chat", "local", "split"],
-      disabled_providers: ["disabled"],
-      provider: {
-        xd: {
-          name: "XD Gateway",
-          npm: "@ai-sdk/openai",
-          whitelist: ["gpt", "gpt-alias", "alias", "chat", "blocked"],
-          blacklist: ["blocked"],
-          options: { baseURL: "https://xd.example.test/v1" },
-          models: {
-            gpt: {
-              name: "Configured GPT",
-              reasoning: true,
-              limit: { context: 421_053, output: 32_000 },
-              variants: {
-                default: { reasoningEffort: "low" },
-                high: { disabled: true },
-                extra: { reasoningEffort: "xhigh" },
-                invalid: { reasoningEffort: "extreme" },
-              },
-            },
-            alias: { id: "gpt-alias", reasoning: false },
-            chat: { provider: { npm: "@ai-sdk/anthropic" } },
-            blocked: {},
-          },
-        },
-        oauth: {
-          npm: "@ai-sdk/openai",
-          options: { baseURL: "https://oauth.example.test/v1" },
-          models: { gpt: {} },
-        },
-        disabled: {
-          npm: "@ai-sdk/openai",
-          options: { baseURL: "https://disabled.example.test/v1" },
-          models: { gpt: {} },
-        },
-        chat: {
-          npm: "@ai-sdk/anthropic",
-          options: { baseURL: "https://chat.example.test/v1" },
-          models: { claude: {} },
-        },
-        local: {
-          npm: "@ai-sdk/openai",
-          options: { baseURL: "file:///tmp/models" },
-          models: { gpt: { provider: { api: "https://must-not-fallback.example.test/v1" } } },
-        },
-        split: {
-          npm: "@ai-sdk/openai",
-          models: {
-            first: { provider: { api: "https://first.example.test/v1" } },
-            second: { provider: { api: "https://second.example.test/v1" } },
-          },
-        },
-        configured: {
-          name: "Config key",
-          npm: "@ai-sdk/openai-compatible",
-          options: { baseURL: "http://configured.example.test/v1", apiKey: "secret-configured" },
-          models: { gpt: { name: "Configured only" } },
-        },
-        "not-enabled": {
-          npm: "@ai-sdk/openai",
-          options: { baseURL: "https://not-enabled.example.test/v1" },
-          models: { gpt: {} },
-        },
-      },
-    }
-    listing.state.catalog = {
-      xd: {
-        id: "xd",
-        name: "Catalog XD",
-        env: [],
+function catalog() {
+  return Provider.applyConfiguredProviders(
+    {},
+    {
+      openai: {
+        name: "Existing OpenAI",
         npm: "@ai-sdk/openai",
+        options: { baseURL: "https://api.example.test/v1" },
         models: {
-          gpt: {
-            id: "gpt",
-            name: "Catalog GPT",
-            release_date: "2026-01-01",
-            attachment: true,
-            reasoning: true,
-            temperature: false,
-            tool_call: true,
-            reasoning_options: [{ type: "effort", values: [null, "low", "high", "extreme"] }],
-            limit: { context: 100_000, output: 32_000 },
-          },
-          "gpt-alias": {
-            id: "gpt-alias",
-            name: "Catalog alias target",
-            release_date: "2026-01-01",
-            attachment: true,
-            reasoning: true,
-            temperature: false,
-            tool_call: true,
-            reasoning_options: [{ type: "effort", values: ["low", "medium"] }],
-            limit: { context: 200_000, output: 32_000 },
+          normal: { id: "wire", name: "Normal", limit: { context: 400000, output: 32000 } },
+          fast: {
+            id: "wire",
+            name: "Fast",
+            options: { serviceTier: "priority" },
+            limit: { context: 400000, output: 32000 },
           },
         },
       },
-    }
-
+    },
+    {},
+  )
+}
+const listing = fixture()
+listing.it.live("preserves final Provider aliases, names and Fast settings without rebuilding the catalog", () =>
+  Effect.gen(function* () {
+    listing.state.catalog = catalog()
+    listing.state.auth = { openai: new Auth.Api({ type: "api", key: "provider-key" }) }
     const service = yield* CodexProviders.Service
     const providers = yield* Effect.promise(() => service.list())
-
-    expect(providers).toEqual([
-      {
-        id: "xd",
-        name: "XD Gateway",
-        baseURL: "https://xd.example.test/v1",
-        models: [
-          {
-            id: "gpt",
-            modelID: "gpt",
-            name: "Configured GPT",
-            efforts: ["none", "low", "xhigh"],
-            defaultEffort: "low",
-            contextWindow: 421_053,
-          },
-          {
-            id: "gpt-alias",
-            modelID: "alias",
-            name: "alias",
-            efforts: ["low", "medium"],
-            contextWindow: 200_000,
-          },
-        ],
-      },
-      {
-        id: "configured",
-        name: "Config key",
-        baseURL: "http://configured.example.test/v1",
-        models: [{ id: "gpt", modelID: "gpt", name: "Configured only", efforts: [] }],
-      },
+    expect(providers[0]?.name).toBe("Existing OpenAI")
+    expect(
+      providers[0]?.models.map((model) => ({
+        id: model.id,
+        modelID: model.modelID,
+        executionID: model.executionID,
+        tier: model.serviceTier,
+      })),
+    ).toEqual([
+      { id: "wire", modelID: "normal", executionID: "normal", tier: undefined },
+      { id: "wire", modelID: "fast", executionID: "fast", tier: "priority" },
     ])
-    expect(JSON.stringify(providers)).not.toContain("secret-xd")
-    expect(JSON.stringify(providers)).not.toContain("secret-configured")
+    expect(JSON.stringify(providers)).not.toContain("provider-key")
+    // A catalog removal must disappear; the adapter must not resurrect it from models.dev.
+    delete listing.state.catalog.openai.models.fast
+    expect((yield* Effect.promise(() => service.list()))[0]?.models.map((model) => model.modelID)).toEqual(["normal"])
+    listing.state.catalog = {}
+    expect(yield* Effect.promise(() => service.list())).toEqual([])
   }),
 )
-
 const credentials = fixture()
-
-credentials.it.live("resolves credentials live and fails closed when the endpoint or eligibility changes", () =>
+credentials.it.live("resolves current Provider credentials and rejects endpoint or account changes", () =>
   Effect.gen(function* () {
-    credentials.state.config = {
-      provider: {
-        xd: {
-          npm: "@ai-sdk/openai-compatible",
-          options: { baseURL: "https://one.example.test/v1" },
-          models: { gpt: {} },
-        },
-      },
-    }
-    credentials.state.auth = { xd: new Auth.Api({ type: "api", key: "first" }) }
+    credentials.state.catalog = catalog()
+    credentials.state.auth = { openai: new Auth.Api({ type: "api", key: "first" }) }
     const service = yield* CodexProviders.Service
-
-    expect(yield* Effect.promise(() => service.key("xd", "https://one.example.test/v1"))).toBe("first")
-    credentials.state.config.provider!.xd.options!.apiKey = "configured"
-    expect(yield* Effect.promise(() => service.key("xd", "https://one.example.test/v1"))).toBe("configured")
-    delete credentials.state.config.provider!.xd.options!.apiKey
-    credentials.state.auth.xd = new Auth.Api({ type: "api", key: "second" })
-    expect(yield* Effect.promise(() => service.key("xd", "https://one.example.test/v1"))).toBe("second")
-
-    credentials.state.config.provider!.xd.options!.baseURL = "https://two.example.test/v1"
-    expect(yield* Effect.promise(() => service.key("xd", "https://one.example.test/v1"))).toBeUndefined()
-    expect(yield* Effect.promise(() => service.key("xd", "https://two.example.test/v1"))).toBe("second")
-
-    credentials.state.config.disabled_providers = ["xd"]
-    expect(yield* Effect.promise(() => service.key("xd", "https://two.example.test/v1"))).toBeUndefined()
-  }),
-)
-
-const changes = fixture()
-
-changes.it.live("notifies for auth selection and global config disposal until unsubscribed", () =>
-  Effect.gen(function* () {
-    const service = yield* CodexProviders.Service
-    let calls = 0
-    const unsubscribe = service.onChange(() => calls++)
-
-    changes.state.authListeners.forEach((listener) => listener("xd"))
-    GlobalBus.emit("event", { directory: "global", payload: { type: "global.disposed", properties: {} } })
-    expect(calls).toBe(2)
-
-    unsubscribe()
-    changes.state.authListeners.forEach((listener) => listener("xd"))
-    GlobalBus.emit("event", { directory: "global", payload: { type: "global.disposed", properties: {} } })
-    expect(calls).toBe(2)
-  }),
-)
-
-const connected = fixture()
-connected.it.live("uses connected catalog Providers without requiring custom configuration", () =>
-  Effect.gen(function* () {
-    connected.state.config = {}
-    connected.state.catalog = {
-      openai: {
-        id: "openai",
-        name: "OpenAI",
-        env: [],
-        npm: "@ai-sdk/openai",
-        api: "https://api.openai.com/v1",
-        models: Object.fromEntries(
-          ["gpt-5.5", "gpt-5.5-pro", "gpt-5.4-mini"].map((id) => [
-            id,
-            {
-              id,
-              name: id,
-              release_date: "2026-01-01",
-              attachment: true,
-              reasoning: true,
-              temperature: false,
-              tool_call: true,
-              limit: { context: 200_000, output: 32_000 },
-            },
-          ]),
-        ),
-      },
-    }
-    connected.state.auth = { openai: new Auth.Api({ type: "api", key: "provider-api-key" }) }
-    const service = yield* CodexProviders.Service
-    expect((yield* Effect.promise(() => service.list()))[0]?.models).toHaveLength(3)
-    expect(yield* Effect.promise(() => service.key("openai", "https://api.openai.com/v1"))).toBe("provider-api-key")
-    connected.state.auth.openai = new Auth.Oauth({
+    expect(yield* Effect.promise(() => service.key("openai", "https://api.example.test/v1"))).toBe("first")
+    credentials.state.auth.openai = new Auth.Api({ type: "api", key: "second" })
+    expect(yield* Effect.promise(() => service.key("openai", "https://api.example.test/v1"))).toBe("second")
+    credentials.state.catalog.openai.options.baseURL = "https://other.example.test/v1"
+    expect(yield* Effect.promise(() => service.key("openai", "https://api.example.test/v1"))).toBeUndefined()
+    credentials.state.auth.openai = new Auth.Oauth({
       type: "oauth",
-      access: "provider-access",
+      access: "access",
       refresh: "refresh",
       expires: Date.now() + 3600000,
       accountId: "account-1",
     })
     const providers = yield* Effect.promise(() => service.list())
-    expect(providers[0]?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-5.4-mini"])
-    expect(providers[0]?.models[0]?.contextWindow).toBe(400_000)
+    expect(providers[0]?.models).toHaveLength(2)
     expect(providers[0]?.baseURL).toBe("https://chatgpt.com/backend-api/codex")
-    expect(providers[0]?.accountID).toBe("account-1")
-    expect(JSON.stringify(providers)).not.toContain("provider-access")
-    expect(yield* Effect.promise(() => service.key("openai", providers[0]!.baseURL, "account-1"))).toBe(
-      "provider-access",
-    )
-    connected.state.auth.openai = new Auth.Oauth({
-      type: "oauth",
-      access: "other-access",
-      refresh: "other-refresh",
-      expires: Date.now() + 3600000,
-      accountId: "account-2",
-    })
+    expect(yield* Effect.promise(() => service.key("openai", providers[0]!.baseURL, "account-1"))).toBe("access")
+    expect(yield* Effect.promise(() => service.key("openai", providers[0]!.baseURL, "account-2"))).toBeUndefined()
+    credentials.state.catalog = {}
     expect(yield* Effect.promise(() => service.key("openai", providers[0]!.baseURL, "account-1"))).toBeUndefined()
-    expect(yield* Effect.promise(() => service.key("openai", "https://untrusted.example", "account-2"))).toBeUndefined()
+  }),
+)
+const protocols = fixture()
+protocols.it.live("does not advertise unsupported protocols or invalid endpoints", () =>
+  Effect.gen(function* () {
+    protocols.state.catalog = catalog()
+    protocols.state.auth = { openai: new Auth.Api({ type: "api", key: "key" }) }
+    const service = yield* CodexProviders.Service
+    protocols.state.catalog.openai.models.fast.api.npm = "@ai-sdk/anthropic"
+    expect((yield* Effect.promise(() => service.list()))[0]?.models.map((model) => model.modelID)).toEqual(["normal"])
+    protocols.state.catalog.openai.options.baseURL = "file:///tmp/models"
+    expect(yield* Effect.promise(() => service.list())).toEqual([])
+  }),
+)
+const changes = fixture()
+changes.it.live("notifies on Provider selection and config changes until unsubscribed", () =>
+  Effect.gen(function* () {
+    const service = yield* CodexProviders.Service
+    let calls = 0
+    const off = service.onChange(() => calls++)
+    changes.state.listeners.forEach((listener) => listener())
+    GlobalBus.emit("event", { directory: "global", payload: { type: "global.disposed", properties: {} } })
+    expect(calls).toBe(2)
+    off()
+    changes.state.listeners.forEach((listener) => listener())
+    expect(calls).toBe(2)
   }),
 )

@@ -392,6 +392,7 @@ export const dict = {
   "codex.pendingSettings.title": "Pending settings",
   "codex.pendingSettings.hint":
     "Applied settings: {{model}} · {{effort}} · {{permission}}. New inputs use your selected settings. Inputs already submitted keep their settings; any current approval still needs a response.",
+  "codex.settings.selectProviderModel": "Reselect a Provider model",
   "codex.settings.model": "Model",
   "codex.settings.effort": "Reasoning effort",
   "codex.settings.permission": "Permissions",

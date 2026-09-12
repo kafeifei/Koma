@@ -456,6 +456,78 @@ describe("CodexHost native process boundaries", () => {
     30_000,
   )
 
+  test("Provider Fast aliases keep distinct selection IDs and clear priority when returning to normal", () =>
+    harness(
+      async ({ host, home }) => {
+        const fast = "xd/fast-alias"
+        const created = await run(
+          host.create({
+            requestID: "fast",
+            engine: "codex",
+            location: location(),
+            input: { ...prompt, settings: { model: fast } },
+            delivery: "steer",
+          }),
+        )
+        const id = created.descriptor.sessionID
+        await until(
+          () => run(host.delivery(id, "fast")),
+          (receipt) => receipt.state === "accepted",
+        )
+        expect((await run(host.snapshot(id))).descriptor.settings.model).toBe(fast)
+        const start = (await rpc(home)).find((call) => call.method === "thread/start")!
+        expect(start.params?.model).toBe("native-model")
+        expect(start.params?.serviceTier).toBe("priority")
+        expect(CodexProviders.observedModel("native-model", start.params?.modelProvider as string)).toBe(fast)
+        await complete(home)
+        await until(
+          () => run(host.snapshot(id)),
+          (value) => value.descriptor.runtimeStatus === "idle",
+        )
+        await run(
+          host.submit(id, {
+            requestID: "normal",
+            input: { ...prompt, settings: { model: "xd/native-model" } },
+            delivery: "steer",
+          }),
+        )
+        await until(
+          () => run(host.delivery(id, "normal")),
+          (receipt) => receipt.state === "accepted",
+        )
+        const calls = await rpc(home)
+        expect(calls.filter((call) => call.method === "turn/start").map((call) => call.params?.serviceTier)).toEqual([
+          "priority",
+          null,
+        ])
+        expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("xd/native-model")
+      },
+      undefined,
+      undefined,
+      {
+        ...customProviders,
+        list: async () =>
+          (await customProviders.list()).map((provider) =>
+            provider.id !== "xd"
+              ? provider
+              : {
+                  ...provider,
+                  models: [
+                    ...provider.models,
+                    {
+                      id: "native-model",
+                      modelID: "fast-alias",
+                      executionID: "fast-alias",
+                      name: "Fast",
+                      efforts: ["low", "high"],
+                      serviceTier: "priority",
+                    },
+                  ],
+                },
+          ),
+      },
+    ))
+
   test("auto approves the three native approval kinds before turn/start replies", () =>
     harness(async ({ host, home }) => {
       await configure(home, {

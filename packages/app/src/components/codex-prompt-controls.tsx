@@ -61,14 +61,7 @@ export function createCodexPromptController(input: {
   const model = (): CodexModel | undefined => {
     const modelID = settings().model
     if (!modelID) return input.sessionID() ? undefined : (options().find((item) => item.default) ?? options()[0])
-    return (
-      models.codex().find((item) => item.id === modelID) ?? {
-        id: modelID,
-        name: modelID,
-        default: false,
-        efforts: [],
-      }
-    )
+    return models.codex().find((item) => item.id === modelID)
   }
   const effort = () => settings().effort ?? model()?.defaultEffort
   const permission = () => sharedCodexPermission(settings().permission)
@@ -159,6 +152,7 @@ export function createCodexPromptController(input: {
     model: {
       options,
       current: model,
+      unavailable: () => models.ready() && !!settings().model && !model(),
       select(value: CodexModel | undefined) {
         if (!value || value.id === model()?.id) return
         const nextEffort = value.efforts.includes(effort() ?? "") ? effort() : value.defaultEffort
@@ -234,7 +228,11 @@ export function CodexModelSelect(props: { controller: CodexPromptController }) {
       value={(value) => value.id}
       label={(value) => value.name}
       groupBy={(value) => value.provider?.name ?? ""}
-      placeholder={language.t("codex.settings.model")}
+      placeholder={
+        props.controller.model.unavailable()
+          ? language.t("codex.settings.selectProviderModel")
+          : language.t("codex.settings.model")
+      }
       disabled={props.controller.busy()}
       onSelect={props.controller.model.select}
       class={classes}

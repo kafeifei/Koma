@@ -533,7 +533,7 @@ const layer = Layer.effect(
       return [
         ...configured.flatMap((provider) =>
           provider.models.map((model) => ({
-            id: CodexProviders.modelID(provider.id, model.id),
+            id: CodexProviders.modelID(provider.id, model.executionID ?? model.id),
             name: model.name,
             provider: { id: provider.id, name: provider.name },
             modelID: model.modelID ?? model.id,
@@ -549,12 +549,15 @@ const layer = Layer.effect(
     async function selectedModel(settings: Settings) {
       const configured = await providers.list()
       for (const provider of configured) {
-        const model = provider.models.find((model) => CodexProviders.modelID(provider.id, model.id) === settings.model)
+        const model = provider.models.find(
+          (model) => CodexProviders.modelID(provider.id, model.executionID ?? model.id) === settings.model,
+        )
         if (!model) continue
-        const providerID = CodexProviders.nativeProviderID(provider.id)
+        const providerID = CodexProviders.nativeProviderID(provider.id, model.executionID)
         return {
           model: model.id,
           modelProvider: providerID,
+          serviceTier: model.serviceTier ?? null,
           config: {
             [`model_providers.${providerID}`]: await credentials.config(provider),
             // Responses-compatible providers do not imply support for OpenAI's
@@ -1200,6 +1203,7 @@ const layer = Layer.effect(
         : connected.startTurn(
             {
               ...options,
+              serviceTier: selected.serviceTier,
               threadId: entry.record.binding.nativeThreadID!,
               cwd: entry.record.session.location.directory,
               clientUserMessageId: requestID,

@@ -440,6 +440,7 @@ export const dict = {
   "codex.pendingSettings.title": "待套用的設定",
   "codex.pendingSettings.hint":
     "已套用的設定：{{model}} · {{effort}} · {{permission}}。新傳送的輸入使用所選設定，已提交的輸入保留原設定；目前的核准請求仍需回覆。",
+  "codex.settings.selectProviderModel": "重新選擇 Provider 模型",
   "codex.settings.model": "模型",
   "codex.settings.effort": "推理強度",
   "codex.settings.permission": "權限",
