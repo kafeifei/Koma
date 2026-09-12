@@ -24,6 +24,7 @@ export type DesktopMenuAction =
   | "window.toggleMaximize"
 
 export type DesktopMenuRole =
+  | "appMenu"
   | "about"
   | "close"
   | "copy"
@@ -74,6 +75,7 @@ export type DesktopMenu = {
 export const DESKTOP_MENU: DesktopMenu[] = [
   {
     id: "app",
+    role: "appMenu",
     labelKey: "desktop.menu.app",
     platforms: ["macos"],
     items: [
@@ -269,10 +271,10 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     labelKey: "desktop.menu.window",
     role: "windowMenu",
     items: [
-      { type: "item", labelKey: "desktop.menu.minimize", action: "window.minimize" },
+      { type: "item", labelKey: "desktop.menu.minimize", action: "window.minimize", accelerator: { macos: "Cmd+M" } },
       { type: "item", labelKey: "desktop.menu.maximize", action: "window.toggleMaximize" },
       { type: "separator" },
-      { type: "item", labelKey: "desktop.menu.closeWindow", action: "window.close" },
+      { type: "item", labelKey: "desktop.menu.closeWindow", action: "window.close", role: "close" },
     ],
   },
   {

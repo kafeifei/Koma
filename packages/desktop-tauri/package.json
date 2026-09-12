@@ -18,9 +18,12 @@
     "@opencode-ai/ui": "workspace:*",
     "@solidjs/router": "catalog:",
     "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-clipboard-manager": "2",
     "@tauri-apps/plugin-dialog": "2.7.3",
+    "@tauri-apps/plugin-fs": "2",
     "@tauri-apps/plugin-opener": "2.5.5",
-    "solid-js": "catalog:"
+    "solid-js": "catalog:",
+    "@opencode-ai/remote": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4",

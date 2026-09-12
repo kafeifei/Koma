@@ -1,6 +1,7 @@
-import { mkdir, copyFile, chmod, writeFile } from "node:fs/promises"
+import { mkdir, copyFile, chmod, writeFile, cp } from "node:fs/promises"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
+import { withKomaBuildSequence } from "../../desktop/scripts/koma-build-sequence"
 import { packageRoot, repository, testRoot } from "./paths"
 
 const mode = process.argv[2]
@@ -17,6 +18,7 @@ async function run(args: string[], cwd: string) {
 
 // Electron and Tauri consume the exact same verified Koma CLI artifact.
 await run([process.execPath, "scripts/build-koma-cli.ts"], join(repository, "packages/desktop"))
+await run([process.execPath, "scripts/build-host.ts"], packageRoot)
 const binaries = join(packageRoot, "src-tauri/binaries")
 await mkdir(binaries, { recursive: true })
 const binary = join(binaries, "koma-aarch64-apple-darwin")
@@ -43,12 +45,26 @@ const info = {
 await writeFile(join(binaries, "build-info.json"), JSON.stringify(info, null, 2))
 await mkdir(join(testRoot, "results"), { recursive: true })
 await writeFile(join(testRoot, "results", "tauri-build.json"), JSON.stringify(info, null, 2))
-await run(
-  [join(packageRoot, "node_modules/.bin/tauri"), mode, ...(mode === "build" ? ["--bundles", "app"] : [])],
-  packageRoot,
-)
+if (mode === "dev") {
+  await run([process.execPath, "run", "build:ui"], packageRoot)
+  await cp(join(packageRoot, "dist"), join(binaries, "web"), { recursive: true })
+}
+await withKomaBuildSequence(git(["rev-parse", "--path-format=absolute", "--git-common-dir"]), async (sequence) => {
+  Object.assign(env, { OPENCODE_LAB_BUILD_SEQUENCE: String(sequence) })
+  await run(
+    [join(packageRoot, "node_modules/.bin/tauri"), mode, ...(mode === "build" ? ["--bundles", "app"] : [])],
+    packageRoot,
+  )
+})
 if (mode === "build") {
   const app = join(packageRoot, "src-tauri/target/release/bundle/macos/Koma Tauri Debug.app")
-  await run(["codesign", "--force", "--deep", "--sign", "-", app], packageRoot)
+  const identities = execFileSync("security", ["find-identity", "-v", "-p", "codesigning"], { encoding: "utf8" })
+  const identity = process.env.CSC_NAME || identities.match(/"(Developer ID Application:[^"]+)"/)?.[1]
+  if (!identity) throw new Error("Koma Debug requires a signing certificate to preserve Keychain access across updates")
+  await run(
+    ["codesign", "--force", "--timestamp=none", "--sign", identity, join(app, "Contents/Resources/node")],
+    packageRoot,
+  )
+  await run(["codesign", "--force", "--deep", "--timestamp=none", "--sign", identity, app], packageRoot)
   await run(["codesign", "--verify", "--deep", "--strict", app], packageRoot)
 }

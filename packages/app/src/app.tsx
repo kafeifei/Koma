@@ -1,4 +1,5 @@
 import "@/index.css"
+import { DesktopTheme } from "./desktop/theme"
 import * as Sentry from "@sentry/solid"
 import { I18nProvider } from "@opencode-ai/ui/context"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
@@ -6,7 +7,7 @@ import { FileComponentProvider } from "@opencode-ai/ui/context/file"
 import { File } from "@opencode-ai/session-ui/file"
 import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
-import { ThemeProvider } from "@opencode-ai/ui/theme/context"
+import { ThemeProvider, useTheme } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
 import {
   type BaseRouterProps,
@@ -284,6 +285,22 @@ declare global {
   }
 }
 
+// Business commands and native window appearance are wired once for every host.
+function DesktopBridge() {
+  const platform = usePlatform()
+  const command = useCommand()
+  const theme = useTheme()
+  const unsubscribe = platform.onMenuCommand?.((id) => command.trigger(id))
+  if (unsubscribe) onCleanup(unsubscribe)
+  createEffect(() => {
+    theme.themeId()
+    theme.mode()
+    const color = getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim()
+    if (color) void platform.setBackgroundColor?.(color)
+  })
+  return null
+}
+
 function QueryProvider(props: ParentProps) {
   const client = new QueryClient({
     defaultOptions: {
@@ -402,14 +419,16 @@ export function AppBaseProviders(
     onNativeTranslations?: Parameters<typeof LanguageProvider>[0]["onNativeTranslations"]
   }>,
 ) {
+  const platform = usePlatform()
   return (
     <MetaProvider>
       <Font />
       <ThemeProvider
         onThemeApplied={(_, mode, scheme) => {
-          void window.api?.setTitlebar?.({ mode, scheme })
+          void platform.setTitlebar?.({ mode, scheme })
         }}
       >
+        <DesktopTheme />
         <LanguageProvider locale={props.locale} onNativeTranslations={props.onNativeTranslations}>
           <UiI18nBridge>
             <ErrorBoundary
@@ -577,6 +596,7 @@ export function AppInterface(props: {
     <QueryProvider>
       <SharedProviders>
         {props.children}
+        <DesktopBridge />
         {shellProps.children}
       </SharedProviders>
     </QueryProvider>

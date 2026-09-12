@@ -98,6 +98,7 @@ const api: ElectronAPI = {
   checkAppExists: (appName) => ipcRenderer.invoke("check-app-exists", appName),
   resolveAppPath: (appName) => ipcRenderer.invoke("resolve-app-path", appName),
   storeGet: (name, key) => ipcRenderer.invoke("store-get", name, key),
+  desktopStore: (request) => ipcRenderer.invoke("desktop-store", request),
   storeSet: (name, key, value) => ipcRenderer.invoke("store-set", name, key, value),
   storeDelete: (name, key) => ipcRenderer.invoke("store-delete", name, key),
   storeClear: (name) => ipcRenderer.invoke("store-clear", name),

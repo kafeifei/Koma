@@ -153,6 +153,11 @@ export const SettingsGeneral: Component = () => {
     () => Promise.resolve(platform.getPinchZoomEnabled?.() ?? false).catch(() => false),
     { initialValue: false },
   )
+  onCleanup(
+    platform.observeStorage?.("opencode.global.dat", ({ key, newValue }) => {
+      if (key === "desktop.pinchZoom") setPinchZoom(newValue === "true")
+    }) ?? (() => {}),
+  )
 
   onMount(() => {
     void theme.loadThemes()

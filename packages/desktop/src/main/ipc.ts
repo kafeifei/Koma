@@ -1,4 +1,5 @@
 import { KomaProfile } from "@opencode-ai/core/koma-profile"
+import { createKomaDesktopStore } from "@opencode-ai/core/koma-desktop-store"
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
@@ -65,6 +66,8 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  const desktopStore = createKomaDesktopStore(app.getPath("userData"))
+  ipcMain.handle("desktop-store", (_event, request: unknown) => desktopStore(request))
   ipcMain.handle("backend-experiments-get-state", () => {
     if (!deps.backendExperiments) throw new Error("LAB_EXPERIMENTS_UNAVAILABLE")
     return deps.backendExperiments.getState()

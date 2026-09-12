@@ -31,6 +31,8 @@ CLI ─────────────────────────�
 | 任务和目录生命周期 | 现有 Session 持有任务元数据；[worktree](./packages/opencode/src/worktree/lifecycle.ts) 管理目录占用、归档快照与回收                                                    |
 | 原生 Codex         | [codex](./packages/codex/README.md) 适配原生执行、历史和审批；[Session external](./packages/core/src/session/external/index.ts) 持久保存绑定与投递回执                 |
 
+桌面页面、菜单、关闭检查、路由和缩放策略只维护一份，放在 App 的桌面共享模块；Electron 与 Tauri 仅适配原生能力。两个后端共用持久数据与桌面偏好，通过各自的事件流和持久索引刷新界面。
+
 Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Electron 与 Tauri 各自运行独立后端；同一客户端的 Web／CLI 入口连接对应后端。共享持久数据不改变运行中任务的进程归属。
 
 ## 数据与权限

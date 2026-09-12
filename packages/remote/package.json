@@ -9,16 +9,21 @@
   },
   "exports": {
     "./github": "./src/github.ts",
-    "./tunnels": "./src/tunnels.ts"
+    "./tunnels": "./src/tunnels.ts",
+    "./desktop/*": "./src/desktop/*.ts"
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@microsoft/dev-tunnels-connections": "1.3.56",
     "@microsoft/dev-tunnels-contracts": "1.3.56",
     "@microsoft/dev-tunnels-management": "1.3.56",
-    "@microsoft/dev-tunnels-ssh": "3.12.42"
+    "@microsoft/dev-tunnels-ssh": "3.12.42",
+    "@microsoft/dev-tunnels-ssh-tcp": "3.12.42",
+    "node-rsa": "1.1.1",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",

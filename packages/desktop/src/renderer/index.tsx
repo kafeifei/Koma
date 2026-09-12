@@ -1,3 +1,5 @@
+import { createDesktopStorage } from "@opencode-ai/app/desktop/storage"
+import { installDesktopPreferences } from "@opencode-ai/app/desktop/preferences"
 // @refresh reload
 
 import {
@@ -11,14 +13,13 @@ import {
   PlatformProvider,
   createDraftStore,
   ServerConnection,
-  useCommand,
   useWslServers,
   useLanguage,
 } from "@opencode-ai/app"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 import * as Sentry from "@sentry/solid"
-import type { AsyncStorage } from "@solid-primitives/storage"
-import { createMemoryHistory, MemoryRouter, type BaseRouterProps } from "@solidjs/router"
+import { type BaseRouterProps } from "@solidjs/router"
+import { DesktopMemoryRouter, getLastActiveUrl } from "@opencode-ai/app/desktop/router"
 import { createEffect, createMemo, createResource, createSignal, onCleanup, Show } from "solid-js"
 import { render } from "solid-js/web"
 import pkg from "../../package.json"
@@ -30,7 +31,6 @@ import { windowFullscreen } from "./window-fullscreen"
 import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
 import { Splash } from "@opencode-ai/ui/logo"
-import { useTheme } from "@opencode-ai/ui/theme/context"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -82,34 +82,6 @@ const listenForDeepLinks = () => {
   return window.api.onDeepLink((urls) => emitDeepLinks(urls))
 }
 
-function windowLastActiveUrlKey(windowID: string) {
-  return `opencode.desktop.window.${windowID}.last-active-url`
-}
-
-function getLastActiveUrl(windowID: string) {
-  if (typeof localStorage !== "object") return "/"
-  try {
-    const value = localStorage.getItem(windowLastActiveUrlKey(windowID))
-    if (value?.startsWith("/") && !value.startsWith("//")) return value
-  } catch {}
-  return "/"
-}
-
-function setLastActiveUrl(windowID: string, value: string) {
-  if (typeof localStorage !== "object") return
-  try {
-    localStorage.setItem(windowLastActiveUrlKey(windowID), value)
-  } catch {}
-}
-
-function DesktopMemoryRouter(props: BaseRouterProps & { windowID: string }) {
-  const history = createMemoryHistory()
-  const initialUrl = getLastActiveUrl(props.windowID)
-  if (initialUrl !== "/") history.set({ value: initialUrl, replace: true, scroll: false })
-  onCleanup(history.listen((value) => setLastActiveUrl(props.windowID, value)))
-  return <MemoryRouter {...props} history={history} />
-}
-
 const createPlatform = (windowState: DesktopWindowState): Platform => {
   const attachmentPaths = new WeakMap<File, string>()
   const os = (() => {
@@ -136,32 +108,8 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     return window.api.runDesktopMenuAction(action)
   }
 
-  const storage = (() => {
-    const cache = new Map<string, AsyncStorage>()
-
-    const createStorage = (name: string) => {
-      const api: AsyncStorage = {
-        getItem: (key: string) => window.api.storeGet(name, key),
-        setItem: (key: string, value: string) => window.api.storeSet(name, key, value),
-        removeItem: (key: string) => window.api.storeDelete(name, key),
-        clear: () => window.api.storeClear(name),
-        key: async (index: number) => (await window.api.storeKeys(name))[index],
-        getLength: () => window.api.storeLength(name),
-        get length() {
-          return api.getLength()
-        },
-      }
-      return api
-    }
-
-    return (name = "default.dat") => {
-      const cached = cache.get(name)
-      if (cached) return cached
-      const api = createStorage(name)
-      cache.set(name, api)
-      return api
-    }
-  })()
+  const desktopStorage = createDesktopStorage(window.api.desktopStore)
+  onCleanup(desktopStorage.dispose)
 
   const wslServersApi = os === "windows" ? window.api.wslServers : undefined
 
@@ -231,7 +179,8 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
       return window.api.revealPath(path)
     },
 
-    storage,
+    storage: desktopStorage.storage,
+    observeStorage: desktopStorage.observeStorage,
     draftStore: createDraftStore({
       get: window.api.draftGet,
       set: window.api.draftSet,
@@ -306,6 +255,9 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     setPinchZoomEnabled,
 
     runDesktopMenuAction,
+    onMenuCommand: window.api.onMenuCommand,
+    setTitlebar: window.api.setTitlebar,
+    setBackgroundColor: window.api.setBackgroundColor,
 
     checkAppExists: async (appName: string) => {
       return window.api.checkAppExists(appName)
@@ -322,10 +274,6 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
   }
 }
 
-let menuTrigger = null as null | ((id: string) => void)
-window.api.onMenuCommand((id) => {
-  menuTrigger?.(id)
-})
 listenForDeepLinks()
 
 function LoadingSplash() {
@@ -338,6 +286,7 @@ function LoadingSplash() {
 
 function DesktopRoot(props: { windowState: DesktopWindowState }) {
   const platform = createPlatform(props.windowState)
+  onCleanup(installDesktopPreferences(platform))
   const loadLocale = async () => {
     const current = await platform.storage?.("opencode.global.dat").getItem("language")
     const legacy = current ? undefined : await platform.storage?.().getItem("language.v1")
@@ -359,24 +308,6 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
     <DesktopMemoryRouter {...props} windowID={platform.windowID ?? "browser"} />
   )
   const onboarding = Promise.withResolvers<void>()
-
-  function Inner() {
-    const cmd = useCommand()
-    menuTrigger = (id) => cmd.trigger(id)
-
-    const theme = useTheme()
-
-    createEffect(() => {
-      theme.themeId()
-      theme.mode()
-      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim()
-      if (bg) {
-        void window.api.setBackgroundColor(bg)
-      }
-    })
-
-    return null
-  }
 
   function App() {
     const wslServers = useWslServers()
@@ -420,9 +351,7 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
                   onLoaded={onboarding.resolve}
                 />
               }
-            >
-              <Inner />
-            </AppInterface>
+            ></AppInterface>
           )}
         </Show>
       </Show>

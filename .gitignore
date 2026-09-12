@@ -37,3 +37,7 @@ tsconfig.tsbuildinfo
 
 # Python maintenance script caches
 __pycache__/
+
+# Local cross-host UI validation artifacts
+/output/playwright/
+/.playwright-cli/

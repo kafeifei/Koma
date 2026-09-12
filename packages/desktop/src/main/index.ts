@@ -250,7 +250,13 @@ const main = Effect.gen(function* () {
     confirm: () =>
       confirmBackendShutdown({
         backend: async () => (startingKomaBackend ? (await startingKomaBackend).connection : undefined),
-        showDialog: (options) => dialog.showMessageBox(options),
+        showDialog: (options) => {
+          const window = getLastFocusedWindow()
+          if (!window) return dialog.showMessageBox(options)
+          window.show()
+          window.focus()
+          return dialog.showMessageBox(window, options)
+        },
         warn: (error) => logger.warn("failed to check Koma tasks before quitting", error),
       }),
     stop: stopSidecars,

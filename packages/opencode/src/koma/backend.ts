@@ -37,6 +37,8 @@ export async function serve(root: string, port = 0) {
       process.once("SIGTERM", resolve)
       process.once("SIGINT", resolve)
     })
+    const { stopDesktopServices } = await import("./desktop-services")
+    await stopDesktopServices()
     await listener.stop(true)
   } finally {
     await owner.release()

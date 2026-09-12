@@ -14,8 +14,9 @@ export default defineConfig({
   clearScreen: false,
   define: {
     "import.meta.env.OPENCODE_BUILD": JSON.stringify({
-      id: `tauri-test-${builtAt}`,
+      id: builtAt.replace(/[-:]/g, "").replace("T", ".").slice(0, 15),
       version: pkg.version,
+      sequence: process.env.OPENCODE_LAB_BUILD_SEQUENCE ? Number(process.env.OPENCODE_LAB_BUILD_SEQUENCE) : undefined,
       channel: "lab",
       release: false,
       commit: git(["rev-parse", "HEAD"]),
@@ -25,5 +26,5 @@ export default defineConfig({
   },
   server: { host: "127.0.0.1", port: 1420, strictPort: true },
   envPrefix: ["VITE_", "TAURI_ENV_"],
-  build: { target: "safari15", sourcemap: false },
+  build: { target: "safari15", sourcemap: false, rollupOptions: { input: { index: "index.html", web: "web.html" } } },
 })

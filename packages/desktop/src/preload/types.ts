@@ -65,6 +65,7 @@ export type ElectronAPI = {
   checkAppExists: (appName: string) => Promise<boolean>
   resolveAppPath: (appName: string) => Promise<string | null>
   storeGet: (name: string, key: string) => Promise<string | null>
+  desktopStore: (request: import("@opencode-ai/core/koma-desktop-store").DesktopStoreRequest) => Promise<unknown>
   storeSet: (name: string, key: string, value: string) => Promise<void>
   storeDelete: (name: string, key: string) => Promise<void>
   storeClear: (name: string) => Promise<void>

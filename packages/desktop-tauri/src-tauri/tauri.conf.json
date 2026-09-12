@@ -14,15 +14,11 @@
       {
         "label": "main",
         "title": "Koma Tauri Debug",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
         "dragDropEnabled": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 14, "y": 14 },
-        "backgroundThrottling": "disabled"
+        "backgroundThrottling": "disabled",
+        "create": false
       }
     ],
     "security": {
@@ -34,9 +30,16 @@
     "targets": ["app"],
     "icon": ["../../desktop/icons/koma/128x128.png", "../../desktop/icons/koma/icon.icns"],
     "externalBin": ["binaries/koma"],
-    "resources": ["binaries/build-info.json"],
+    "resources": {
+      "binaries/build-info.json": "build-info.json",
+      "../dist/": "web/",
+      "binaries/node": "node",
+      "binaries/host.cjs": "host.cjs",
+      "binaries/node-LICENSE": "node-LICENSE"
+    },
     "macOS": {
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "12.0",
+      "infoPlist": "Info.plist"
     }
   }
 }

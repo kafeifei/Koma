@@ -284,7 +284,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     const target = Persist.serverGlobal(serverSdk().scope, "layout", ["layout.v6"])
     const [store, setStore, _, ready] = persisted(
-      { ...target, migrate },
+      { ...target, scope: "runtime", migrate },
       createStore({
         sidebar: {
           opened: false,
@@ -357,9 +357,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           const target = session
             ? Persist.serverSession(scope, dir, session, entry.key)
             : Persist.serverWorkspace(scope, dir, entry.key)
-          void removePersisted(target, platform)
+          void removePersisted(entry.key === "terminal" ? { ...target, scope: "runtime" } : target, platform)
 
           if (scope !== ServerScope.local) continue
+          if (entry.key === "terminal" && platform.runtimeID) continue
           const legacyKey = `${dir}/${entry.legacy}${session ? "/" + session : ""}.${entry.version}`
           void removePersisted({ key: legacyKey }, platform)
         }

@@ -2,11 +2,12 @@ import { mkdir, realpath, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
 import { execFileSync } from "node:child_process"
-import { assertTestPath, profile, testRoot } from "./paths"
+import { assertTestPath, profile as defaultProfile, testRoot } from "./paths"
 import { StorageMigration } from "../../core/src/storage-migration"
 
 // A deterministic local provider exercises the real Session -> SSE -> UI path.
 // It is deliberately labelled as a fixture and never contacts a real model.
+const profile = process.env.KOMA_FIXTURE_HOME ? assertTestPath(process.env.KOMA_FIXTURE_HOME) : defaultProfile
 await mkdir(profile, { recursive: true, mode: 0o700 })
 assertTestPath(await realpath(profile))
 // Initialize an empty profile through the same storage contract as the backend,

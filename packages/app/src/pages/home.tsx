@@ -13,12 +13,12 @@ export function NewHome() {
   return (
     <div
       class={`
-        m-2 min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px]
+        m-2 flex min-h-0 flex-1 flex-col self-stretch overflow-hidden rounded-[10px]
         bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]
       `}
     >
       <ScrollView
-        class="h-full [container-type:size]"
+        class="min-h-0 flex-1 [container-type:size]"
         thumbContainer={scroll.viewport.thumbTrack}
         thumbHoverTarget={scroll.viewport.hoverTarget}
         viewportRef={scroll.viewport.setViewport}

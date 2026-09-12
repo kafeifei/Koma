@@ -165,15 +165,17 @@ test.skipIf(process.env.OPENCODE_ELECTRON_TEST !== "1")(
       ],
     })
     expect(build.success).toBe(true)
-    const executable = resolve(
-      import.meta.dir,
-      "../../node_modules/electron/dist",
-      process.platform === "darwin"
-        ? "Electron.app/Contents/MacOS/Electron"
-        : process.platform === "win32"
-          ? "electron.exe"
-          : "electron",
-    )
+    const executable =
+      process.env.OPENCODE_NODE_TEST_BINARY ??
+      resolve(
+        import.meta.dir,
+        "../../node_modules/electron/dist",
+        process.platform === "darwin"
+          ? "Electron.app/Contents/MacOS/Electron"
+          : process.platform === "win32"
+            ? "electron.exe"
+            : "electron",
+      )
     expect(existsSync(executable)).toBe(true)
     const child = Bun.spawn([executable, join(base, "fixture.js")], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },

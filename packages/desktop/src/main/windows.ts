@@ -1,3 +1,4 @@
+import desktopWindow from "@opencode-ai/app/desktop/window"
 import windowState from "electron-window-state"
 import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
 import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
@@ -168,8 +169,8 @@ export function setDockIcon() {
 export function createMainWindow(id: string = randomUUID()) {
   const state = windowState({
     file: windowStateFile(id),
-    defaultWidth: 1280,
-    defaultHeight: 800,
+    defaultWidth: desktopWindow.width,
+    defaultHeight: desktopWindow.height,
   })
 
   const mode = tone()
@@ -186,7 +187,7 @@ export function createMainWindow(id: string = randomUUID()) {
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
-          trafficLightPosition: { x: 14, y: 14 },
+          trafficLightPosition: desktopWindow.trafficLights,
         }
       : {}),
     ...(process.platform === "win32"

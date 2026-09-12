@@ -1,7 +1,7 @@
 import { Platform, usePlatform } from "@/context/platform"
 import { makePersisted, type AsyncStorage, type SyncStorage } from "@solid-primitives/storage"
 import { checksum } from "@opencode-ai/core/util/encode"
-import { createResource, type Accessor } from "solid-js"
+import { createResource, onCleanup, type Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
 import { pathKey } from "@/utils/path-key"
 import { ScopedKey, ServerScope, type ServerScope as ServerScopeValue } from "@/utils/server-scope"
@@ -17,7 +17,7 @@ type PersistedWithReady<T> = [
 type PersistTarget = {
   draft?: boolean
   storage?: string
-  scope?: "window"
+  scope?: "window" | "runtime"
   legacyStorageNames?: string[]
   key: string
   legacy?: string[]
@@ -528,6 +528,15 @@ export const Persist = {
 }
 
 function resolveTarget(target: PersistTarget, platform: Platform): PersistTarget {
+  if (target.scope === "runtime" && platform.runtimeID) {
+    return {
+      ...target,
+      key: `runtime:${platform.runtimeID}:${target.key}`,
+      // A sibling backend's PTY ids and open panel tabs are not recoverable here.
+      legacy: undefined,
+      legacyStorageNames: undefined,
+    }
+  }
   if (target.scope !== "window") return target
   if (platform.platform === "desktop" && !platform.windowID) return { ...target, storage: GLOBAL_STORAGE }
   const windowID = platform.platform === "desktop" ? (platform.windowID ?? "browser") : "browser"
@@ -538,9 +547,10 @@ function resolveTarget(target: PersistTarget, platform: Platform): PersistTarget
 }
 
 export function removePersisted(
-  target: { draft?: boolean; storage?: string; legacyStorageNames?: string[]; key: string },
+  target: PersistTarget,
   platform?: Platform,
 ) {
+  if (platform) target = resolveTarget(target, platform)
   const pending: Promise<unknown>[] = []
   if (target.draft && platform?.draftStore) {
     pending.push(Promise.resolve(platform.draftStore.removeItem(`${target.storage ?? "default"}:${target.key}`)))
@@ -683,7 +693,22 @@ export function persisted<T>(
     return api
   })()
 
-  const [state, setState, init] = makePersisted(store, { name: config.key, storage })
+  const [state, setState, init] = makePersisted(store, {
+    name: config.key,
+    storage,
+    ...(!draft && platform.observeStorage
+      ? {
+          sync: [
+            (notify: import("@solid-primitives/storage").PersistenceSyncCallback) => {
+              onCleanup(
+                platform.observeStorage!(config.storage, (change) => notify({ ...change, timeStamp: Date.now() })),
+              )
+            },
+            () => {},
+          ] as import("@solid-primitives/storage").PersistenceSyncAPI,
+        }
+      : {}),
+  })
 
   const isAsync = init instanceof Promise
   const [ready] = createResource(

@@ -128,7 +128,7 @@ export function recoveredTerminal(current: LocalPTY, candidate: { id: string; ti
 }
 
 function terminalPersistTarget(scope: ServerScopeValue, dir: string, legacy?: string[]) {
-  return Persist.serverWorkspace(scope, dir, "terminal", legacy)
+  return { ...Persist.serverWorkspace(scope, dir, "terminal", legacy), scope: "runtime" as const }
 }
 
 export function clearWorkspaceTerminals(

@@ -11,11 +11,19 @@
     "./web-entry": "./src/web-entry.ts",
     "./web-entrypoint": "./src/entry.tsx",
     "./desktop-menu": "./src/desktop-menu.ts",
+    "./desktop/storage": "./src/desktop/storage.ts",
+    "./desktop/shutdown": "./src/desktop/shutdown.ts",
     "./i18n/desktop-native": "./src/i18n/desktop-native.ts",
     "./updater": "./src/updater.ts",
     "./wsl/types": "./src/wsl/types.ts",
     "./vite": "./vite.js",
-    "./index.css": "./src/index.css"
+    "./index.css": "./src/index.css",
+    "./desktop/shutdown-controller": "./src/desktop/shutdown-controller.ts",
+    "./desktop/zoom": "./src/desktop/zoom.ts",
+    "./desktop/window": "./src/desktop/window.json",
+    "./desktop/router": "./src/desktop/router.tsx",
+    "./desktop/services": "./src/desktop/services.ts",
+    "./desktop/preferences": "./src/desktop/preferences.ts"
   },
   "scripts": {
     "typecheck": "tsgo -b",
@@ -29,6 +37,7 @@
     "test:browser": "bun test --conditions=browser --preload ./happydom.ts ./test-browser",
     "test:unit:watch": "bun test --conditions=solid --watch --preload ./happydom.ts ./src",
     "test:e2e": "playwright test",
+    "test:desktop-layout": "playwright test desktop-layout.spec.ts --project=chromium --project=webkit",
     "test:e2e:local": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report e2e/playwright-report",
@@ -98,6 +107,7 @@
     "solid-list": "catalog:",
     "solid-presence": "0.2.0",
     "tailwindcss": "catalog:",
-    "@opencode-ai/lab-client": "workspace:@opencode-ai/client@*"
+    "@opencode-ai/lab-client": "workspace:@opencode-ai/client@*",
+    "@opencode-ai/remote": "workspace:*"
   }
 }

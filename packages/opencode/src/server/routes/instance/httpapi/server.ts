@@ -95,6 +95,8 @@ import {
 import { EventApi } from "./groups/event"
 import { LabShutdownApi } from "./groups/lab-shutdown"
 import { labShutdownHandlers } from "./handlers/lab-shutdown"
+import { LabDesktopApi } from "./groups/lab-desktop"
+import { labDesktopHandlers } from "./handlers/lab-desktop"
 import { PtyConnectApi } from "./groups/pty"
 import { eventHandlers } from "./handlers/event"
 import { configHandlers } from "./handlers/config"
@@ -222,6 +224,11 @@ const shutdownStateRoute = HttpApiBuilder.layer(LabShutdownApi).pipe(
   Layer.provide(httpApiAuthLayer),
 )
 
+const desktopRoute = HttpApiBuilder.layer(LabDesktopApi).pipe(
+  Layer.provide(labDesktopHandlers),
+  Layer.provide(httpApiAuthLayer),
+)
+
 type RouteRequirements =
   | HttpRouter.HttpRouter
   | HttpRouter.Request<"Error", unknown>
@@ -309,6 +316,7 @@ export function createRoutes(
         instanceRoutes,
         serverRoutes,
         shutdownStateRoute,
+        desktopRoute,
         docRoute,
         uiRoute,
       ).pipe(

@@ -44,6 +44,10 @@ export function createHomeSessionQuery(context: Accessor<ServerCtx | undefined>)
       staleTime: 30_000,
       refetchOnMount: true,
       refetchOnReconnect: true,
+      // Sibling desktop backends share saved sessions but have separate event
+      // streams. Refresh the shared index without changing upstream ownership.
+      refetchOnWindowFocus: "always",
+      refetchInterval: context()?.isLocal ? 5_000 : false,
     }),
     client,
   )

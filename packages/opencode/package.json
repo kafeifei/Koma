@@ -151,7 +151,8 @@
     "xdg-basedir": "5.1.0",
     "yargs": "18.0.0",
     "zod": "catalog:",
-    "@opencode-ai/codex": "workspace:*"
+    "@opencode-ai/codex": "workspace:*",
+    "@opencode-ai/remote": "workspace:*"
   },
   "overrides": {
     "drizzle-orm": "catalog:"

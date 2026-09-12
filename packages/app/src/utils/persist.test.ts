@@ -75,6 +75,21 @@ beforeEach(() => {
 })
 
 describe("persist localStorage resilience", () => {
+  test("independent desktop backends keep terminal ids private while sharing preferences", async () => {
+    const desktop = { platform: "desktop", storage: () => storage } as any
+    const tauri = { ...desktop, runtimeID: "tauri" }
+    const target = { ...Persist.workspace("/repo", "terminal"), scope: "runtime" as const }
+    const first = persistTesting.resolveTarget(target, desktop)
+    const second = persistTesting.resolveTarget(target, tauri)
+    storage.setItem(first.key, '{"all":[{"id":"electron-pty"}]}')
+    storage.setItem(second.key, '{"all":[{"id":"tauri-pty"}]}')
+    await removePersisted(target, tauri)
+    expect(storage.getItem(first.key)).toContain("electron-pty")
+    expect(storage.getItem(second.key)).toBeNull()
+    expect(second.legacy).toBeUndefined()
+    expect(second.legacyStorageNames).toBeUndefined()
+    expect(persistTesting.resolveTarget(Persist.global("model"), tauri)).toEqual(Persist.global("model"))
+  })
   test("does not cache values as persisted when quota write and eviction fail", () => {
     const storageApi = persistTesting.localStorageWithPrefix("opencode.quota.scope")
     storageApi.setItem("value", '{"value":1}')

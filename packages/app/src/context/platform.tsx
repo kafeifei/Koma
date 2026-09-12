@@ -83,12 +83,18 @@ type PlatformBase = {
 
   /** Storage mechanism, defaults to localStorage */
   storage?: (name?: string) => SyncStorage | AsyncStorage
+  observeStorage?: (
+    name: string | undefined,
+    callback: (change: { key: string; newValue: string | null }) => void,
+  ) => () => void
 
   /** Prompt drafts, history, and their blobs. */
   draftStore?: DraftStore
 
   /** Stable platform window identity for window-scoped persistence */
   windowID?: string
+  /** Local backend runtime identity; durable project and model data stay shared. */
+  runtimeID?: string
 
   /** Application-global desktop updater */
   updater?: UpdaterPlatform
@@ -125,6 +131,10 @@ type PlatformBase = {
 
   /** Run a desktop-only menu action from the app chrome */
   runDesktopMenuAction?(action: DesktopMenuAction): Promise<void> | void
+
+  onMenuCommand?(callback: (id: string) => void): () => void
+  setBackgroundColor?(color: string): Promise<void>
+  setTitlebar?(theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }): Promise<void>
 
   /** Check if an editor app exists (desktop only) */
   checkAppExists?(appName: string): Promise<boolean>
