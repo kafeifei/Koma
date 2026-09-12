@@ -441,3 +441,23 @@ describe("unified home migration", () => {
     }
   })
 })
+
+test("completed-home reconciliation retains relocation identities and rejects a conflicting staged update", () => {
+  const options = populated().options
+  migrate(options)
+  const file = join(options.root, "storage.json")
+  const manifest = JSON.parse(readFileSync(file, "utf8"))
+  const directoryAliases = [
+    {
+      directory: join(options.root, "../previous/worktrees/project/retained"),
+      path: join(options.root, "worktrees/project/retained"),
+    },
+  ]
+  writeFileSync(file, JSON.stringify({ ...manifest, directoryAliases }))
+  expect(migrate(options)?.status).toBe("complete")
+  reconcileWorktrees(options)
+  expect(JSON.parse(readFileSync(file, "utf8")).directoryAliases).toEqual(directoryAliases)
+  writeFileSync(file + ".tmp", JSON.stringify(manifest))
+  expect(() => migrate(options)).toThrow("manifest staging is not a completed worktree identity update")
+  expect(JSON.parse(readFileSync(file, "utf8")).directoryAliases).toEqual(directoryAliases)
+})

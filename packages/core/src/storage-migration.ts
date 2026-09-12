@@ -32,6 +32,7 @@ export type HomeStorage = {
   database: string
   codexScope: string
   worktrees: { directory: string; path: string }[]
+  directoryAliases?: { directory: string; path: string }[]
   operations: Operation[]
 }
 
@@ -365,6 +366,19 @@ function readManifest(root: string, legacyRoot: string, temporary = false): Home
   if (!value || typeof value !== "object") fail("invalid storage manifest", file)
   const manifest = value as Partial<HomeStorage>
   if (
+    manifest.directoryAliases !== undefined &&
+    (!Array.isArray(manifest.directoryAliases) ||
+      !manifest.directoryAliases.every(
+        (alias) =>
+          alias &&
+          typeof alias.directory === "string" &&
+          isAbsolute(alias.directory) &&
+          typeof alias.path === "string" &&
+          isAbsolute(alias.path),
+      ))
+  )
+    fail("invalid directory alias", file)
+  if (
     (manifest.version !== 1 && manifest.version !== 2) ||
     (manifest.version === 2 ? manifest.backendProtocol !== 1 : manifest.backendProtocol !== undefined) ||
     !["migrating", "complete"].includes(manifest.status ?? "") ||
@@ -414,6 +428,7 @@ function validateWorktreeStaging(root: string, legacyRoot: string, manifest: Hom
     pending.database !== manifest.database ||
     pending.codexScope !== manifest.codexScope ||
     pending.source !== manifest.source ||
+    JSON.stringify(pending.directoryAliases) !== JSON.stringify(manifest.directoryAliases) ||
     JSON.stringify(pending.operations) !== JSON.stringify(manifest.operations) ||
     manifest.worktrees.some(
       (current) =>

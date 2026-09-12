@@ -116,3 +116,47 @@ test("directory locations canonicalize unmigrated aliases without changing the c
     path: path.join(physical, "missing", "file"),
   })
 })
+
+test("home relocation preserves resident and archived task identities while new worktrees use the new root", async () => {
+  const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "koma-relocated-directory-")))
+  roots.push(home)
+  const previous = path.join(home, ".opencode")
+  const root = path.join(home, ".koma")
+  const resident = path.join(root, "worktrees/project/resident")
+  const archived = path.join(root, "worktrees/project/archived")
+  await fs.mkdir(resident, { recursive: true })
+  await fs.symlink(root, previous)
+  const aliases = [resident, archived].map((physical) => ({
+    directory: path.join(previous, path.relative(root, physical)),
+    path: physical,
+  }))
+  const metadata = {
+    version: 2,
+    backendProtocol: 1,
+    source: null,
+    status: "complete",
+    database: "opencode.db",
+    worktrees: [],
+    directoryAliases: aliases,
+  }
+  await Bun.write(path.join(root, "storage.json"), JSON.stringify(metadata))
+  for (const alias of aliases) {
+    expect(StorageDirectory.locate(alias.directory, root)).toEqual({ identity: alias.directory, path: alias.path })
+    expect(StorageDirectory.locate(alias.path, root)).toEqual({ identity: alias.directory, path: alias.path })
+    expect(StorageDirectory.locate(path.join(alias.path, "missing/file"), root).identity).toBe(
+      path.join(alias.directory, "missing/file"),
+    )
+  }
+  const fresh = path.join(root, "worktrees/project/new")
+  expect(StorageDirectory.locate(fresh, root)).toEqual({ identity: fresh, path: fresh })
+  expect(StorageDirectory.resolve(resident + "-other", root)).toBe(resident + "-other")
+  const outside = path.join(home, "external-project")
+  await fs.mkdir(outside)
+  await fs.symlink(outside, path.join(resident, "external"))
+  expect(StorageDirectory.locate(path.join(resident, "external"), root)).toEqual({ identity: outside, path: outside })
+  await Bun.write(
+    path.join(root, "storage.json"),
+    JSON.stringify({ ...metadata, directoryAliases: [{ directory: "relative", path: resident }] }),
+  )
+  expect(() => StorageDirectory.resolve(resident, root)).toThrow("Invalid OpenCode storage directory alias")
+})
