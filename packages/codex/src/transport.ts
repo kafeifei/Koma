@@ -16,20 +16,22 @@ type NotificationFor<Method extends ClientNotificationMethod> = Extract<ClientNo
 
 export type ClientRequestMethod = MethodOf<ClientRequest>
 export type ClientNotificationMethod = MethodOf<ClientNotification>
-export type ClientRequestParams<Method extends ClientRequestMethod> = RequestFor<Method> extends {
-  params: infer Params
-}
-  ? Params
-  : RequestFor<Method> extends { params?: infer Params }
-    ? Params | undefined
-    : undefined
-export type ClientNotificationParams<Method extends ClientNotificationMethod> = NotificationFor<Method> extends {
-  params: infer Params
-}
-  ? Params
-  : NotificationFor<Method> extends { params?: infer Params }
-    ? Params | undefined
-    : undefined
+export type ClientRequestParams<Method extends ClientRequestMethod> =
+  RequestFor<Method> extends {
+    params: infer Params
+  }
+    ? Params
+    : RequestFor<Method> extends { params?: infer Params }
+      ? Params | undefined
+      : undefined
+export type ClientNotificationParams<Method extends ClientNotificationMethod> =
+  NotificationFor<Method> extends {
+    params: infer Params
+  }
+    ? Params
+    : NotificationFor<Method> extends { params?: infer Params }
+      ? Params | undefined
+      : undefined
 
 export type JsonRpcID = string | number
 
@@ -226,7 +228,9 @@ export class CodexStdioTransport {
       return Promise.reject<Result>(new CodexTransportClosedError(this.generation, "Codex transport is closed"))
     }
     if (options.signal?.aborted) {
-      return Promise.reject<Result>(options.signal.reason instanceof Error ? options.signal.reason : new Error("Request aborted"))
+      return Promise.reject<Result>(
+        options.signal.reason instanceof Error ? options.signal.reason : new Error("Request aborted"),
+      )
     }
     const id = this.nextID++
     return new Promise<Result>((resolve, reject) => {
@@ -394,7 +398,10 @@ export class CodexStdioTransport {
       try {
         listener(exit)
       } catch (error) {
-        this.diagnostic("transport", `Codex exit listener failed: ${error instanceof Error ? error.message : String(error)}`)
+        this.diagnostic(
+          "transport",
+          `Codex exit listener failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     })
     this.exitListeners.clear()
@@ -434,19 +441,14 @@ export async function connectCodexAppServer(options: CodexAppServerOptions): Pro
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   })
-  const client = new CodexStdioTransport(
-    child,
-    options.generation,
-    options.requestHandler,
-    options.onDiagnostic,
-  )
+  const client = new CodexStdioTransport(child, options.generation, options.requestHandler, options.onDiagnostic)
   try {
     const initialize = await client.request<"initialize", InitializeResponse>(
       "initialize",
       {
         clientInfo: options.clientInfo ?? {
-          name: "opencode-lab",
-          title: "OpenCode Lab",
+          name: "koma",
+          title: "Koma",
           version: "1.18.29",
         },
         capabilities: options.capabilities ?? null,

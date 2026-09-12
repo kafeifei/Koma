@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { LabBackend } from "@opencode-ai/core/lab-backend"
+import { KomaBackend } from "@opencode-ai/core/koma-backend"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
 const cwd = join(import.meta.dir, "../..")
@@ -40,7 +40,7 @@ async function fixture() {
   })
 
   const start = (args: string[]) => {
-    const child = Bun.spawn([process.execPath, "run", "src/lab.ts", ...args], {
+    const child = Bun.spawn([process.execPath, "run", "src/koma.ts", ...args], {
       cwd,
       env,
       stdin: "ignore",
@@ -68,14 +68,17 @@ async function fixture() {
     async ready() {
       const deadline = Date.now() + 20_000
       while (Date.now() < deadline) {
-        const connection = await LabBackend.discover(root).catch(() => undefined)
+        const connection = await KomaBackend.discover(root).catch(() => undefined)
         if (connection) {
           // owner.ready is immediately followed by signal handler registration.
           await Bun.sleep(50)
           return connection
         }
         const exited = processes.at(-1)?.exitCode
-        if (exited !== null) throw new Error(`Lab backend exited before readiness with code ${exited}`)
+        if (exited !== null)
+          throw new Error(
+            `Koma backend exited before readiness with code ${exited}: ${await new Response(processes.at(-1)!.stderr).text()}`,
+          )
         await Bun.sleep(20)
       }
       throw new Error("Lab backend did not become ready")
@@ -106,7 +109,7 @@ test("read-only Lab commands do not initialize a profile", async () => {
 
   const help = await input.run(["--help"])
   expect(help.code, help.stderr).toBe(0)
-  expect(help.stdout).toContain("opencode-lab")
+  expect(help.stdout).toContain("koma")
   expect(await stat(input.root).catch(() => undefined)).toBeUndefined()
 
   const version = await input.run(["--version"])
@@ -129,7 +132,7 @@ test("backend serve alone initializes and activates a fresh profile", async () =
   })
   const result = await input.stop(child)
   expect(result.code, result.stderr).toBe(0)
-  expect(result.stdout).toContain("OpenCode Lab backend listening")
+  expect(result.stdout).toContain("Koma backend listening")
   expect(await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).exists()).toBe(false)
 })
 
@@ -139,7 +142,7 @@ test("backend serve refuses legacy migration and preserves it for Desktop", asyn
   await writeFile(join(input.legacyRoot, "user-data"), "preserved")
   const result = await input.run(["backend", "serve"])
   expect(result.code).not.toBe(0)
-  expect(result.stderr).toContain("start the updated Lab desktop first")
+  expect(result.stderr).toContain("start the updated Koma desktop first")
   expect(await readFile(join(input.legacyRoot, "user-data"), "utf8")).toBe("preserved")
   expect(await Bun.file(join(input.root, "storage.json")).exists()).toBe(false)
   expect(await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).exists()).toBe(false)

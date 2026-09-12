@@ -6,6 +6,8 @@ subtask: true
 
 commit and push
 
+Koma product changes belong on main or a feature branch based on main. Never commit or push product changes to dev; it mirrors upstream only. See docs/branches.md.
+
 make sure it includes a prefix like
 docs:
 tui:

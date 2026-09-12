@@ -2,8 +2,8 @@ import { expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { LabBackend } from "@opencode-ai/core/lab-backend"
-import { ensureLabBackend } from "./lab-backend"
+import { KomaBackend } from "@opencode-ai/core/koma-backend"
+import { ensureKomaBackend } from "./koma-backend"
 
 const logger = { log() {}, error() {} }
 
@@ -20,17 +20,17 @@ test("full App shutdown stops its authenticated backend and permits a fresh back
     return child.pid
   }
   try {
-    const first = await LabBackend.ensure(root, start)
-    const backend = await ensureLabBackend({ root, source: join(directory, "missing"), logger })
+    const first = await KomaBackend.ensure(root, start)
+    const backend = await ensureKomaBackend({ root, source: join(directory, "missing"), logger })
     expect(backend.connection.pid).toBe(first.pid)
     const stopping = backend.listener.stop()
     expect(backend.listener.stop()).toBe(stopping)
     await stopping
     expect(await children[0]!.exited).toBe(0)
-    expect(await LabBackend.discover(root)).toBeUndefined()
-    const second = await LabBackend.ensure(root, start)
+    expect(await KomaBackend.discover(root)).toBeUndefined()
+    const second = await KomaBackend.ensure(root, start)
     expect(second.pid).not.toBe(first.pid)
-    await LabBackend.stop(root, second)
+    await KomaBackend.stop(root, second)
     expect(await children[1]!.exited).toBe(0)
   } finally {
     for (const child of children) if (child.exitCode === null) child.kill("SIGTERM")
@@ -43,8 +43,8 @@ test("reports a missing bundled executable before starting a backend", async () 
   const directory = await mkdtemp(join(tmpdir(), "opencode-desktop-backend-missing-"))
   try {
     await expect(
-      ensureLabBackend({ root: join(directory, "home"), source: join(directory, "missing"), logger }),
-    ).rejects.toThrow('Build it with "bun run build:lab-cli"')
+      ensureKomaBackend({ root: join(directory, "home"), source: join(directory, "missing"), logger }),
+    ).rejects.toThrow('Build it with "bun run build:koma-cli"')
     expect(await Bun.file(join(directory, "home/bin/.lab-backend/backend.json")).exists()).toBe(false)
   } finally {
     await rm(directory, { recursive: true, force: true })

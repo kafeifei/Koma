@@ -1,4 +1,4 @@
-import { LabExperiments } from "@opencode-ai/core/lab-experiments"
+import { KomaExperiments } from "@opencode-ai/core/koma-experiments"
 import type { BackendExperimentsPlatform } from "@opencode-ai/app/backend-experiments"
 import type { ServerReadyData } from "../preload/types"
 
@@ -7,7 +7,7 @@ export function createBackendExperiments(input: {
   backend: () => Promise<ServerReadyData>
 }): BackendExperimentsPlatform {
   const getState = async () => {
-    const saved = LabExperiments.read(input.root)
+    const saved = KomaExperiments.read(input.root)
     const running = await input
       .backend()
       .then(async (backend) => {
@@ -29,14 +29,14 @@ export function createBackendExperiments(input: {
       })
       .catch(() => null)
     return {
-      backgroundSubagents: saved.backgroundSubagents ?? running ?? false,
+      backgroundSubagents: saved.backgroundSubagents ?? running ?? true,
       runningBackgroundSubagents: running,
     }
   }
   return {
     getState,
     async setBackgroundSubagents(enabled) {
-      await LabExperiments.setBackgroundSubagents(input.root, enabled)
+      await KomaExperiments.setBackgroundSubagents(input.root, enabled)
       return getState()
     },
   }

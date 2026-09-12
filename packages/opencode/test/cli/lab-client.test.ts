@@ -147,7 +147,7 @@ async function fixture(mode: "complete" | "permission" | "failure" = "complete")
         source
           ? source + "\nprocess.exit()"
           : `
-      const { run } = await import('./src/lab/cli.ts')
+      const { run } = await import('./src/koma/cli.ts')
       try {
         await run(JSON.parse(process.env.LAB_ARGS), async () => {
           if (process.env.LAB_CONNECT !== '1') throw new Error('Backend startup was forbidden')
@@ -322,8 +322,8 @@ test("the reused TUI components load in a version 2 client without opening the b
       [],
       false,
       `
-    const { LabEnvironment } = await import('@opencode-ai/core/lab-environment')
-    LabEnvironment.prepare(process.env, process.env.OPENCODE_HOME)
+    const { KomaEnvironment } = await import('@opencode-ai/core/koma-environment')
+    KomaEnvironment.prepare(process.env, process.env.OPENCODE_HOME)
     const { TuiConfig } = await import('./src/config/tui.ts')
     const { createLegacyTuiPluginHost } = await import('./src/plugin/tui/runtime.ts')
     const { run } = await import('./src/cli/tui/layer.ts')
@@ -351,8 +351,8 @@ test("read-only TUI loading does not change the default loader's migration behav
       [],
       false,
       `
-    const { LabEnvironment } = await import('@opencode-ai/core/lab-environment')
-    LabEnvironment.prepare(process.env, process.env.OPENCODE_HOME)
+    const { KomaEnvironment } = await import('@opencode-ai/core/koma-environment')
+    KomaEnvironment.prepare(process.env, process.env.OPENCODE_HOME)
     const { TuiConfig } = await import('./src/config/tui.ts')
     const before = await TuiConfig.get({ migrate: false })
     const after = await TuiConfig.get()

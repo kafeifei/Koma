@@ -11,7 +11,7 @@ export async function checkRemotePackage(app: string, executableName: string) {
     const { TunnelManagementHttpClient, ManagementApiVersions } = archiveRequire("@microsoft/dev-tunnels-management")
     const { TunnelRelayTunnelHost, TunnelRelayTunnelClient } = archiveRequire("@microsoft/dev-tunnels-connections")
     const management = new TunnelManagementHttpClient(
-      { name: "OpenCode-Lab-package-check", version: "1.0" },
+      { name: "Koma-package-check", version: "1.0" },
       ManagementApiVersions.Version20230927preview,
       async () => undefined,
     )

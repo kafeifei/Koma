@@ -4,10 +4,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const cwd = join(import.meta.dir, "../..")
-const name = process.platform === "win32" ? "opencode-lab.exe" : "opencode-lab"
+const name = process.platform === "win32" ? "koma.exe" : "koma"
 
 async function fixture() {
-  const base = await realpath(await mkdtemp(join(tmpdir(), "opencode-lab-maintenance-")))
+  const base = await realpath(await mkdtemp(join(tmpdir(), "koma-maintenance-")))
   const root = join(base, "profile")
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -31,7 +31,7 @@ async function fixture() {
   }
   env.OPENCODE_HOME = root
   const run = async (args: string[], extra: Record<string, string> = {}, bunArgs: string[] = []) => {
-    const child = Bun.spawn([process.execPath, ...bunArgs, "src/lab.ts", ...args], {
+    const child = Bun.spawn([process.execPath, ...bunArgs, "src/koma.ts", ...args], {
       cwd,
       env: { ...env, ...extra },
       stdin: "ignore",
@@ -58,13 +58,13 @@ async function fixture() {
 
 async function managed(input: Awaited<ReturnType<typeof fixture>>) {
   const hash = "a".repeat(64)
-  const version = join(input.root, "bin/.opencode-lab", hash, name)
+  const version = join(input.root, "bin/.koma", hash, name)
   const target = join(input.root, "bin", name)
   const shell = join(input.env.HOME!, ".local/bin", name)
   await mkdir(join(version, ".."), { recursive: true })
   await mkdir(join(shell, ".."), { recursive: true })
   await writeFile(version, "backend executable")
-  await symlink(join(".opencode-lab", hash, name), target)
+  await symlink(join(".koma", hash, name), target)
   await symlink(target, shell)
   await mkdir(join(input.root, "bin/.lab-backend"), { recursive: true })
   await writeFile(join(input.root, "bin/.lab-backend/service.log"), "running backend log")
@@ -120,7 +120,7 @@ test("Lab uninstall refuses independent files and unmanaged links", async () => 
   await symlink("custom", target)
   const link = await input.run(["uninstall", "--yes"])
   expect(link.code).not.toBe(0)
-  expect(link.stderr).toContain("CLI entry is not managed by Lab")
+  expect(link.stderr).toContain("CLI entry is not managed by Koma")
   expect(await readFile(target, "utf8")).toBe("custom command")
 })
 
@@ -167,7 +167,7 @@ test("Lab upgrade rejects before importing the upstream installer or initializin
     [`--preload=${preload}`],
   )
   expect(result.code).not.toBe(0)
-  expect(result.stderr).toContain("verified Lab build")
+  expect(result.stderr).toContain("verified Koma build")
   expect(result.stderr).not.toContain("UPSTREAM_INSTALLER_IMPORTED")
   expect(await readFile(loaded, "utf8")).toBe("loaded")
   expect(await stat(imported).catch(() => undefined)).toBeUndefined()

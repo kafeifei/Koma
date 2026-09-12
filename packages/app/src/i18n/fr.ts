@@ -1,5 +1,5 @@
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "Fichier",
   "desktop.menu.edit": "Édition",
   "desktop.menu.view": "Affichage",
@@ -43,7 +43,7 @@ export const dict = {
   "desktop.menu.supportForum": "Forum d'assistance",
   "desktop.menu.shareFeedback": "Envoyer des commentaires",
   "desktop.menu.reportBug": "Signaler un bogue",
-  "desktop.menu.ariaLabel": "Menu OpenCode",
+  "desktop.menu.ariaLabel": "Menu Koma",
 
   "desktop.updater.dialog.checkFailed.message": "La recherche de mises à jour a échoué.",
   "desktop.updater.dialog.checkFailed.title": "Erreur de mise à jour",
@@ -58,9 +58,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "Exporter les journaux",
   "desktop.recovery.action.keepWaiting": "Continuer d'attendre",
   "desktop.recovery.action.quit": "Quitter",
-  "desktop.recovery.loadFailed": "Échec du chargement d'OpenCode",
-  "desktop.recovery.terminated": "La fenêtre OpenCode s'est arrêtée de manière inattendue",
-  "desktop.recovery.unresponsive": "OpenCode ne répond pas",
+  "desktop.recovery.loadFailed": "Échec du chargement d'Koma",
+  "desktop.recovery.terminated": "La fenêtre Koma s'est arrêtée de manière inattendue",
+  "desktop.recovery.unresponsive": "Koma ne répond pas",
   "desktop.recovery.unresponsive.detail":
     "Vous pouvez relancer l'application, ouvrir les journaux ou continuer d'attendre.",
   "desktop.recovery.loadFailed.detail": "Fenêtre : {{window}}\nURL : {{url}}\nErreur : {{code}} {{description}}",
@@ -521,7 +521,7 @@ export const dict = {
   "help.tabs.title": "Présentation des onglets",
   "help.tabs.description": "Organisez votre travail et vos sessions actives à l'aide d'onglets",
   "help.tabs.date": "14 juillet",
-  "help.tabs.introduction": "OpenCode Desktop s'articule désormais autour d'onglets.",
+  "help.tabs.introduction": "Koma Desktop s'articule désormais autour d'onglets.",
   "help.tabs.sessions":
     "Démarrez une nouvelle session dans un onglet ou ouvrez une session existante depuis l'un de vos projets. Ouvrez un nouvel onglet lorsque vous commencez une nouvelle tâche et fermez-le une fois celle-ci terminée.",
   "help.tabs.organize":
@@ -631,8 +631,7 @@ export const dict = {
 
   "toast.session.listFailed.title": "Échec du chargement des sessions pour {{project}}",
   "toast.update.title": "Mise à jour disponible",
-  "toast.update.description":
-    "Une nouvelle version d'OpenCode ({{version}}) est maintenant disponible pour installation.",
+  "toast.update.description": "Une nouvelle version d'Koma ({{version}}) est maintenant disponible pour installation.",
   "toast.update.action.installRestart": "Installer et redémarrer",
   "toast.update.action.notYet": "Plus tard",
   "error.page.title": "Un problème est survenu",
@@ -646,7 +645,7 @@ export const dict = {
   "error.page.action.checking": "Vérification...",
   "error.page.action.checkUpdates": "Vérifier les mises à jour",
   "error.page.action.updateTo": "Mettre à jour vers {{version}}",
-  "error.page.report.prefix": "Veuillez signaler cette erreur à l'équipe OpenCode",
+  "error.page.report.prefix": "Veuillez signaler cette erreur à l'équipe Koma",
   "error.page.report.discord": "sur Discord",
   "error.page.version": "Version : {{version}}",
   "error.dev.rootNotFound":
@@ -835,7 +834,7 @@ export const dict = {
   "sidebar.project.clearNotifications": "Effacer les notifications",
   "sidebar.empty.title": "Aucun projet ouvert",
   "sidebar.empty.description": "Ouvrez un projet pour commencer",
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
   "settings.section.desktop": "Application de bureau",
   "settings.section.server": "Serveur",
   "settings.tab.general": "Général",
@@ -851,18 +850,18 @@ export const dict = {
   "settings.general.section.feed": "Flux",
   "settings.general.section.display": "Affichage",
   "settings.general.row.language.title": "Langue",
-  "settings.general.row.language.description": "Changer la langue d'affichage pour OpenCode",
+  "settings.general.row.language.description": "Changer la langue d'affichage pour Koma",
   "settings.general.row.shell.title": "Interpréteur de commandes du terminal",
   "settings.general.row.shell.description":
     "Choisissez le shell utilisé par votre terminal. Les shells compatibles sont également utilisés pour les appels d'outils de l'agent.",
   "settings.general.row.shell.autoDefault": "Automatique (par défaut)",
   "settings.general.row.shell.terminalOnly": "terminal uniquement",
   "settings.general.row.appearance.title": "Apparence",
-  "settings.general.row.appearance.description": "Personnaliser l'apparence d'OpenCode sur votre appareil",
+  "settings.general.row.appearance.description": "Personnaliser l'apparence d'Koma sur votre appareil",
   "settings.general.row.colorScheme.title": "Schéma de couleurs",
-  "settings.general.row.colorScheme.description": "Choisissez si OpenCode suit le thème système, clair ou sombre",
+  "settings.general.row.colorScheme.description": "Choisissez si Koma suit le thème système, clair ou sombre",
   "settings.general.row.theme.title": "Thème",
-  "settings.general.row.theme.description": "Personnaliser le thème d'OpenCode.",
+  "settings.general.row.theme.description": "Personnaliser le thème d'Koma.",
   "settings.general.row.font.title": "Police de code",
   "settings.general.row.font.description": "Personnaliser la police utilisée dans les blocs de code",
   "settings.general.row.terminalFont.title": "Police du terminal",
@@ -919,7 +918,7 @@ export const dict = {
   "settings.general.row.releaseNotes.description":
     "Afficher les fenêtres contextuelles « Quoi de neuf » après les mises à jour",
   "settings.updates.row.startup.title": "Vérifier les mises à jour au démarrage",
-  "settings.updates.row.startup.description": "Vérifier automatiquement les mises à jour au lancement d'OpenCode",
+  "settings.updates.row.startup.description": "Vérifier automatiquement les mises à jour au lancement d'Koma",
   "settings.updates.row.check.title": "Vérifier les mises à jour",
   "settings.updates.row.check.description":
     "Rechercher manuellement les mises à jour et installer toute mise à jour disponible",
@@ -928,7 +927,7 @@ export const dict = {
   "settings.updates.action.downloading": "Téléchargement...",
   "settings.updates.action.installing": "Installation...",
   "settings.updates.toast.latest.title": "Vous êtes à jour",
-  "settings.updates.toast.latest.description": "Vous utilisez la dernière version d'OpenCode.",
+  "settings.updates.toast.latest.description": "Vous utilisez la dernière version d'Koma.",
   "sound.option.none": "Aucun",
   "sound.option.alert01": "Alerte 01",
   "sound.option.alert02": "Alerte 02",

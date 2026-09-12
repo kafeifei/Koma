@@ -26,7 +26,7 @@ async function fixture() {
   // Exercise the same flow against a packaged Lab executable when one is supplied.
   const command = process.env.OPENCODE_LAB_TEST_BINARY
     ? [path.resolve(process.env.OPENCODE_LAB_TEST_BINARY)]
-    : [process.execPath, path.join(import.meta.dir, "../../src/lab.ts")]
+    : [process.execPath, path.join(import.meta.dir, "../../src/koma.ts")]
   const children: Bun.Subprocess<"ignore", "pipe", "pipe">[] = []
   const spawn = (args: string[]) => {
     const child = Bun.spawn(args, { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
@@ -134,7 +134,7 @@ test("backend survives CLI exit, gates real writes and preserves files through w
   try {
     const connection = await until("published backend connection", async () => {
       if (backend.exitCode !== null) throw new Error(`Backend exited with ${backend.exitCode}`)
-      const file = Bun.file(path.join(input.root, "bin/.lab-backend/backend.json"))
+      const file = Bun.file(path.join(input.root, "bin/.koma-backend/backend.json"))
       if (!(await file.exists())) return
       const value = (await file.json()) as { pid: number; url?: string; username: string; password: string }
       if (value.url) return { ...value, url: value.url }

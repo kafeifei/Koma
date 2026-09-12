@@ -1,8 +1,19 @@
-import { type Accessor, type ParentProps, createContext, createMemo, createResource, useContext } from "solid-js"
+import {
+  type Accessor,
+  type ParentProps,
+  createContext,
+  createMemo,
+  createResource,
+  createEffect,
+  on,
+  useContext,
+} from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { useServerSync } from "@/context/server-sync"
+import { providerCodexModel, unifiedModelCatalog } from "./model-catalog"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 
@@ -44,6 +55,16 @@ const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
   gate: false,
   init: (props: { directory?: Accessor<string | undefined> } = {}) => {
     const providers = useProviders(() => props.directory?.())
+    const serverSync = useServerSync()
+    createEffect(
+      on(
+        () => serverSync().external,
+        (external) => {
+          if (!external.data.engines) void external.refreshEngines().catch(() => undefined)
+        },
+      ),
+    )
+    const codexModels = () => serverSync().external.data.engines?.find((engine) => engine.id === "codex")?.models ?? []
 
     const preferences = useContext(PreferencesContext)
     if (!preferences) throw new Error("Model preferences context is unavailable")
@@ -113,6 +134,17 @@ const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
       })),
     )
 
+    const catalog = createMemo(() => unifiedModelCatalog(list(), codexModels()))
+    const codex = createMemo(() =>
+      codexModels()
+        .filter((model) => !!model.provider)
+        .map(providerCodexModel)
+        .map((model) => {
+          const shared = catalog().find((item) => item.provider.id === model.provider.id && item.id === model.modelID)
+          return shared ? { ...model, name: shared.name, provider: shared.provider } : model
+        }),
+    )
+
     const find = (key: ModelKey) => list().find((m) => m.id === key.modelID && m.provider.id === key.providerID)
 
     function update(model: ModelKey, state: Visibility) {
@@ -139,7 +171,7 @@ const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
       update(model, state ? "show" : "hide")
     }
 
-    const providerModels = (providerID: string) => list().filter((model) => model.provider.id === providerID)
+    const providerModels = (providerID: string) => catalog().filter((model) => model.provider.id === providerID)
     const providerVisible = (providerID: string) => {
       const models = providerModels(providerID)
       return models.length > 0 && models.every((model) => visible({ providerID, modelID: model.id }))
@@ -186,6 +218,8 @@ const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
     return {
       ready,
       list,
+      catalog,
+      codex,
       find,
       visible,
       setVisibility,

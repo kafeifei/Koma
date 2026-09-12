@@ -2,7 +2,7 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "Arkiv",
   "desktop.menu.edit": "Rediger",
   "desktop.menu.view": "Vis",
@@ -46,7 +46,7 @@ export const dict = {
   "desktop.menu.supportForum": "Brukerstøtteforum",
   "desktop.menu.shareFeedback": "Del tilbakemelding",
   "desktop.menu.reportBug": "Rapporter en feil",
-  "desktop.menu.ariaLabel": "OpenCode-meny",
+  "desktop.menu.ariaLabel": "Koma-meny",
 
   "desktop.updater.dialog.checkFailed.message": "Søket etter oppdateringer mislyktes.",
   "desktop.updater.dialog.checkFailed.title": "Oppdateringsfeil",
@@ -61,9 +61,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "Eksporter logger",
   "desktop.recovery.action.keepWaiting": "Fortsett å vente",
   "desktop.recovery.action.quit": "Avslutt",
-  "desktop.recovery.loadFailed": "OpenCode kunne ikke lastes inn",
-  "desktop.recovery.terminated": "OpenCode-vinduet ble uventet avsluttet",
-  "desktop.recovery.unresponsive": "OpenCode svarer ikke",
+  "desktop.recovery.loadFailed": "Koma kunne ikke lastes inn",
+  "desktop.recovery.terminated": "Koma-vinduet ble uventet avsluttet",
+  "desktop.recovery.unresponsive": "Koma svarer ikke",
   "desktop.recovery.unresponsive.detail": "Du kan starte appen på nytt, åpne loggene eller fortsette å vente.",
   "desktop.recovery.loadFailed.detail": "Vindu: {{window}}\nURL: {{url}}\nFeil: {{code}} {{description}}",
   "desktop.recovery.terminated.detail": "Vindu: {{window}}\nÅrsak: {{reason}}\nKode: {{code}}",
@@ -574,7 +574,7 @@ export const dict = {
   "toast.session.listFailed.title": "Kunne ikke laste sesjoner for {{project}}",
 
   "toast.update.title": "Oppdatering tilgjengelig",
-  "toast.update.description": "En ny versjon av OpenCode ({{version}}) er nå tilgjengelig for installasjon.",
+  "toast.update.description": "En ny versjon av Koma ({{version}}) er nå tilgjengelig for installasjon.",
   "toast.update.action.installRestart": "Installer og start på nytt",
   "toast.update.action.notYet": "Ikke nå",
 
@@ -587,7 +587,7 @@ export const dict = {
   "error.page.action.checking": "Sjekker...",
   "error.page.action.checkUpdates": "Se etter oppdateringer",
   "error.page.action.updateTo": "Oppdater til {{version}}",
-  "error.page.report.prefix": "Vennligst rapporter denne feilen til OpenCode-teamet",
+  "error.page.report.prefix": "Vennligst rapporter denne feilen til Koma-teamet",
   "error.page.report.discord": "på Discord",
   "error.page.version": "Versjon: {{version}}",
 
@@ -755,7 +755,7 @@ export const dict = {
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "Skrivebord",
   "settings.section.server": "Server",
@@ -773,14 +773,14 @@ export const dict = {
   "settings.general.section.display": "Skjerm",
 
   "settings.general.row.language.title": "Språk",
-  "settings.general.row.language.description": "Endre visningsspråket for OpenCode",
+  "settings.general.row.language.description": "Endre visningsspråket for Koma",
   "settings.general.row.appearance.title": "Utseende",
-  "settings.general.row.appearance.description": "Tilpass hvordan OpenCode ser ut på enheten din",
+  "settings.general.row.appearance.description": "Tilpass hvordan Koma ser ut på enheten din",
   "settings.general.row.colorScheme.title": "Fargevalg",
   "settings.general.row.colorScheme.description":
-    "Velg om OpenCode skal følge systeminnstillingen eller bruke lyst eller mørkt tema",
+    "Velg om Koma skal følge systeminnstillingen eller bruke lyst eller mørkt tema",
   "settings.general.row.theme.title": "Tema",
-  "settings.general.row.theme.description": "Tilpass temaet i OpenCode.",
+  "settings.general.row.theme.description": "Tilpass temaet i Koma.",
   "settings.general.row.font.title": "Kodefont",
   "settings.general.row.font.description": "Tilpass skrifttypen som brukes i kodeblokker",
   "settings.general.row.terminalFont.title": "Terminalskrift",
@@ -807,13 +807,13 @@ export const dict = {
   "settings.general.row.releaseNotes.description": 'Vis "Hva er nytt"-vinduer etter oppdateringer',
 
   "settings.updates.row.startup.title": "Se etter oppdateringer ved oppstart",
-  "settings.updates.row.startup.description": "Se automatisk etter oppdateringer når OpenCode starter",
+  "settings.updates.row.startup.description": "Se automatisk etter oppdateringer når Koma starter",
   "settings.updates.row.check.title": "Se etter oppdateringer",
   "settings.updates.row.check.description": "Se etter oppdateringer manuelt og installer hvis tilgjengelig",
   "settings.updates.action.checkNow": "Sjekk nå",
   "settings.updates.action.checking": "Sjekker...",
   "settings.updates.toast.latest.title": "OpenCode er oppdatert",
-  "settings.updates.toast.latest.description": "Du bruker den nyeste versjonen av OpenCode.",
+  "settings.updates.toast.latest.description": "Du bruker den nyeste versjonen av Koma.",
   "sound.option.none": "Ingen",
   "sound.option.alert01": "Varsel 01",
   "sound.option.alert02": "Varsel 02",
@@ -1173,7 +1173,7 @@ export const dict = {
   "help.tabs.title": "Vi introduserer faner",
   "help.tabs.description": "Organiser arbeidet og de aktive sesjonene dine med faner",
   "help.tabs.date": "14. juli",
-  "help.tabs.introduction": "OpenCode Desktop er nå bygget rundt faner.",
+  "help.tabs.introduction": "Koma Desktop er nå bygget rundt faner.",
   "help.tabs.sessions":
     "Start en ny sesjon i en fane, eller åpne en eksisterende sesjon fra et av prosjektene dine. Åpne en ny fane når du skal begynne på noe nytt, og lukk den når du er ferdig.",
   "help.tabs.organize":

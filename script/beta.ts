@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import "./upstream-only"
+
 import { $ } from "bun"
 import fs from "fs/promises"
 

@@ -392,6 +392,7 @@ export const dict = {
   "codex.pendingSettings.title": "Pending settings",
   "codex.pendingSettings.hint":
     "Applied settings: {{model}} · {{effort}} · {{permission}}. New inputs use your selected settings. Inputs already submitted keep their settings; any current approval still needs a response.",
+  "codex.settings.selectProviderModel": "Reselect a Provider model",
   "codex.settings.model": "Model",
   "codex.settings.effort": "Reasoning effort",
   "codex.settings.permission": "Permissions",
@@ -578,7 +579,7 @@ export const dict = {
   "help.tabs.title": "Introducing Tabs",
   "help.tabs.description": "Organize your work and active sessions with tabs",
   "help.tabs.date": "July 14",
-  "help.tabs.introduction": "OpenCode Desktop is now built around tabs.",
+  "help.tabs.introduction": "Koma Desktop is now built around tabs.",
   "help.tabs.sessions":
     "Start a new session in a tab, or open an existing session from any of your projects. Open a new tab when you're starting something new, and close it when you're done.",
   "help.tabs.organize":
@@ -707,7 +708,7 @@ export const dict = {
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
 
   "toast.update.title": "Update available",
-  "toast.update.description": "A new version of OpenCode ({{version}}) is now available to install.",
+  "toast.update.description": "A new version of Koma ({{version}}) is now available to install.",
   "toast.update.action.installRestart": "Install and restart",
   "toast.update.action.notYet": "Not yet",
 
@@ -723,7 +724,7 @@ export const dict = {
   "error.page.action.checkUpdates": "Check for updates",
   "error.page.action.updateTo": "Update to {{version}}",
   "error.page.circular": "[Circular]",
-  "error.page.report.prefix": "Please report this error to the OpenCode team",
+  "error.page.report.prefix": "Please report this error to the Koma team",
   "error.page.report.discord": "on Discord",
   "error.page.version": "Version: {{version}}",
 
@@ -1021,7 +1022,7 @@ export const dict = {
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
@@ -1056,7 +1057,7 @@ export const dict = {
   "settings.remote.local.deviceName.description": "The name shown on your other devices.",
   "settings.remote.local.status": "Connection status",
   "settings.remote.local.website": "Website",
-  "settings.remote.local.note.enabled": "Keep this computer awake and OpenCode Lab running while using remote access.",
+  "settings.remote.local.note.enabled": "Keep this computer awake and Koma running while using remote access.",
   "settings.remote.local.note.disabled": "Remote access to this computer is off. Existing tasks keep running.",
   "settings.remote.status.disabled": "Off",
   "settings.remote.status.connecting": "Connecting...",
@@ -1090,17 +1091,17 @@ export const dict = {
   "settings.general.section.display": "Display",
 
   "settings.general.row.language.title": "Language",
-  "settings.general.row.language.description": "Change the display language for OpenCode",
+  "settings.general.row.language.description": "Change the display language for Koma",
   "settings.general.row.shell.title": "Terminal shell",
   "settings.general.row.shell.description": "Shell used by the terminal and agent tools",
   "settings.general.row.shell.autoDefault": "Auto (Default)",
   "settings.general.row.shell.terminalOnly": "terminal only",
   "settings.general.row.appearance.title": "Appearance",
-  "settings.general.row.appearance.description": "Customise how OpenCode looks on your device",
+  "settings.general.row.appearance.description": "Customise how Koma looks on your device",
   "settings.general.row.colorScheme.title": "Color scheme",
-  "settings.general.row.colorScheme.description": "Choose whether OpenCode follows the system, light, or dark theme",
+  "settings.general.row.colorScheme.description": "Choose whether Koma follows the system, light, or dark theme",
   "settings.general.row.theme.title": "Theme",
-  "settings.general.row.theme.description": "Customise how OpenCode is themed.",
+  "settings.general.row.theme.description": "Customise how Koma is themed.",
   "settings.general.row.font.title": "Code Font",
   "settings.general.row.font.description": "Customise the font used in code blocks",
   "settings.general.row.terminalFont.title": "Terminal Font",
@@ -1154,7 +1155,7 @@ export const dict = {
   "settings.general.row.releaseNotes.description": "Show What's New popups after updates",
 
   "settings.updates.row.startup.title": "Check for updates on startup",
-  "settings.updates.row.startup.description": "Automatically check for updates when OpenCode launches",
+  "settings.updates.row.startup.description": "Automatically check for updates when Koma launches",
   "settings.updates.row.check.title": "Check for updates",
   "settings.updates.row.check.description": "Manually check for updates and install if available",
   "settings.updates.action.checkNow": "Check now",
@@ -1162,7 +1163,7 @@ export const dict = {
   "settings.updates.action.downloading": "Downloading...",
   "settings.updates.action.installing": "Installing...",
   "settings.updates.toast.latest.title": "You're up to date",
-  "settings.updates.toast.latest.description": "You're running the latest version of OpenCode.",
+  "settings.updates.toast.latest.description": "You're running the latest version of Koma.",
   "sound.option.none": "None",
   "sound.option.alert01": "Alert 01",
   "sound.option.alert02": "Alert 02",
@@ -1395,7 +1396,7 @@ export const dict = {
   "worktree.manager.adopt": "Adopt",
   "worktree.manager.cleanup": "Delete unbound worktree",
   "worktree.manager.confirmAdoptTitle": "Adopt this worktree?",
-  "worktree.manager.confirmAdopt": "OpenCode will manage this linked worktree. Its branch and files stay in place.",
+  "worktree.manager.confirmAdopt": "Koma will manage this linked worktree. Its branch and files stay in place.",
   "worktree.manager.confirmCleanupTitle": "Delete this unbound worktree?",
   "worktree.manager.confirmCleanup":
     "This removes {{directory}} and every local file inside it, including ignored files. It does not delete sessions.",

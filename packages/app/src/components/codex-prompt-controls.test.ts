@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
-  canSubmitWithCodexAccount,
+  canSubmitWithProviderModel,
   desiredCodexSettings,
   sharedCodexPermission,
   updateCodexSettings,
@@ -38,18 +38,9 @@ describe("Codex prompt settings", () => {
     expect(sharedCodexPermission(undefined)).toBeUndefined()
   })
 
-  test("allows an unauthenticated account only for a selected model that explicitly skips auth", () => {
-    const account = { authenticated: false, requiresAuth: true }
-
-    expect(canSubmitWithCodexAccount(account, { requiresAuth: false })).toBeTrue()
-    expect(canSubmitWithCodexAccount(account, { requiresAuth: true })).toBeFalse()
-    expect(canSubmitWithCodexAccount(account, {})).toBeFalse()
-    expect(canSubmitWithCodexAccount(account, undefined)).toBeFalse()
-  })
-
-  test("keeps the account-level behavior when authentication is already satisfied", () => {
-    expect(canSubmitWithCodexAccount({ authenticated: true, requiresAuth: true }, undefined)).toBeTrue()
-    expect(canSubmitWithCodexAccount({ authenticated: false, requiresAuth: false }, undefined)).toBeTrue()
-    expect(canSubmitWithCodexAccount(undefined, { requiresAuth: false })).toBeFalse()
+  test("requires an available Provider model, including for old native-only tasks", () => {
+    expect(canSubmitWithProviderModel({ provider: { id: "xd", name: "XD" } })).toBeTrue()
+    expect(canSubmitWithProviderModel({})).toBeFalse()
+    expect(canSubmitWithProviderModel(undefined)).toBeFalse()
   })
 })

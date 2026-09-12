@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { LabBackend } from "../src/lab-backend"
+import { KomaBackend } from "../src/koma-backend"
 import { StorageMigration } from "../src/storage-migration"
 
 type Result = { ok: boolean; error?: string; pid: number; url: string; username: "opencode"; password: string }
@@ -102,13 +102,13 @@ test("concurrent independent ensure callers share one backend process", async ()
   expect(second).toEqual(first)
   expect(await input.spawned()).toEqual([{ pid: first.pid }])
   expect((await fetch(new URL("/global/health", first.url))).status).toBe(401)
-  expect((await fetch(new URL("/global/health", first.url), { headers: LabBackend.headers(first) })).status).toBe(200)
+  expect((await fetch(new URL("/global/health", first.url), { headers: KomaBackend.headers(first) })).status).toBe(200)
 }, 20_000)
 
 test("a second process cannot claim an owned profile", async () => {
   await using input = await fixture()
   const first = await input.run("ensure")
-  const file = join(input.root, "bin/.lab-backend/backend.json")
+  const file = join(input.root, "bin/.koma-backend/backend.json")
   const before = await readFile(file, "utf8")
   const second = await input.run("claim")
   expect(second.ok).toBe(false)
@@ -123,7 +123,7 @@ test("a stale owner PID can be replaced by a healthy backend", async () => {
   expect(exited.ok).toBe(true)
   expect(() => process.kill(exited.pid, 0)).toThrow()
   await writeFile(
-    join(input.root, "bin/.lab-backend/backend.json"),
+    join(input.root, "bin/.koma-backend/backend.json"),
     JSON.stringify({
       pid: exited.pid,
       protocol: 1,
@@ -142,22 +142,22 @@ test("stop rejects a different owner and preserves the running backend", async (
   await using input = await fixture()
   const connection = await input.run("ensure")
   expect(connection.ok).toBe(true)
-  await expect(LabBackend.stop(input.root, { pid: connection.pid, password: "another-owner" })).rejects.toThrow(
+  await expect(KomaBackend.stop(input.root, { pid: connection.pid, password: "another-owner" })).rejects.toThrow(
     "ownership changed",
   )
-  expect((await LabBackend.discover(input.root))?.pid).toBe(connection.pid)
+  expect((await KomaBackend.discover(input.root))?.pid).toBe(connection.pid)
 })
 
 test("failed health never replaces a live owner and reconnects when it recovers", async () => {
   await using input = await fixture()
   const first = await input.run("ensure")
   expect(first.ok).toBe(true)
-  const headers = LabBackend.headers(first)
+  const headers = KomaBackend.headers(first)
   await fetch(new URL("/test/unhealthy", first.url), { headers })
   const connecting = input.run("ensure")
   await waitForFile(join(input.base, "health-rejected"))
   expect(await input.spawned()).toEqual([{ pid: first.pid }])
-  expect((await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).json()).pid).toBe(first.pid)
+  expect((await Bun.file(join(input.root, "bin/.koma-backend/backend.json")).json()).pid).toBe(first.pid)
   await fetch(new URL("/test/healthy", first.url), { headers })
   expect(await connecting).toEqual(first)
   expect(await input.spawned()).toEqual([{ pid: first.pid }])
@@ -165,14 +165,14 @@ test("failed health never replaces a live owner and reconnects when it recovers"
 
 test("incompatible backend protocol fails before starting another process", async () => {
   await using input = await fixture()
-  await mkdir(join(input.root, "bin/.lab-backend"), { recursive: true })
+  await mkdir(join(input.root, "bin/.koma-backend"), { recursive: true })
   const record = JSON.stringify({ protocol: 99, pid: process.pid })
-  await writeFile(join(input.root, "bin/.lab-backend/backend.json"), record)
+  await writeFile(join(input.root, "bin/.koma-backend/backend.json"), record)
   const result = await input.run("ensure")
   expect(result.ok).toBe(false)
-  expect(result.error).toContain("Incompatible OpenCode Lab backend protocol")
+  expect(result.error).toContain("Incompatible Koma backend protocol")
   expect(await input.spawned()).toEqual([])
-  expect(await readFile(join(input.root, "bin/.lab-backend/backend.json"), "utf8")).toBe(record)
+  expect(await readFile(join(input.root, "bin/.koma-backend/backend.json"), "utf8")).toBe(record)
 }, 20_000)
 
 test("writer checks preserve unactivated v1 behavior without creating an owner", async () => {
@@ -189,27 +189,27 @@ test("writer checks preserve unactivated v1 behavior without creating an owner",
     }),
   )
   expect((await input.run("writer")).ok).toBe(true)
-  expect(await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).exists()).toBe(false)
+  expect(await Bun.file(join(input.root, "bin/.koma-backend/backend.json")).exists()).toBe(false)
 }, 20_000)
 
 test("only the activated backend owner can pass writer and core database guards", async () => {
   await using input = await fixture()
   const owner = await input.run("ensure")
   expect(owner.ok).toBe(true)
-  const record = await readFile(join(input.root, "bin/.lab-backend/backend.json"), "utf8")
-  expect((await fetch(new URL("/test/writer", owner.url), { headers: LabBackend.headers(owner) })).status).toBe(200)
+  const record = await readFile(join(input.root, "bin/.koma-backend/backend.json"), "utf8")
+  expect((await fetch(new URL("/test/writer", owner.url), { headers: KomaBackend.headers(owner) })).status).toBe(200)
   for (const mode of ["writer", "database-path"]) {
     const result = await input.run(mode)
     expect(result.ok).toBe(false)
     expect(result.error).toContain("owned by the shared backend")
   }
-  expect(await readFile(join(input.root, "bin/.lab-backend/backend.json"), "utf8")).toBe(record)
+  expect(await readFile(join(input.root, "bin/.koma-backend/backend.json"), "utf8")).toBe(record)
   expect(await Bun.file(join(input.root, "data/opencode.db")).exists()).toBe(false)
 }, 20_000)
 
 test("a reused PID without a claim token cannot become the database writer", async () => {
   await using input = await fixture()
-  await mkdir(join(input.root, "bin/.lab-backend"), { recursive: true })
+  await mkdir(join(input.root, "bin/.koma-backend"), { recursive: true })
   await writeFile(
     join(input.root, "storage.json"),
     JSON.stringify({
@@ -227,7 +227,7 @@ test("a reused PID without a claim token cannot become the database writer", asy
     username: "opencode",
     password: randomUUID(),
   }
-  const file = join(input.root, "bin/.lab-backend/backend.json")
+  const file = join(input.root, "bin/.koma-backend/backend.json")
   await writeFile(file, JSON.stringify(record))
   const result = await input.run("same-pid-writer")
   expect(result.ok).toBe(false)
@@ -256,7 +256,7 @@ test.skipIf(!Bun.which("lsof"))(
     expect(result.error).toContain(String(legacy.pid))
     expect(() => process.kill(legacy.pid, 0)).not.toThrow()
     expect(await readFile(file)).toEqual(before)
-    expect(await Bun.file(join(input.root, "bin/.lab-backend/backend.json")).exists()).toBe(false)
+    expect(await Bun.file(join(input.root, "bin/.koma-backend/backend.json")).exists()).toBe(false)
   },
   20_000,
 )

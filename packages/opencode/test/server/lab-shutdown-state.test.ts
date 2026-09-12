@@ -17,7 +17,7 @@ import { InstanceDisposal } from "../../src/project/instance-disposal"
 import { Storage } from "../../src/storage/storage"
 import { Git } from "../../src/git"
 import { SessionExternalOwnership } from "@opencode-ai/core/session/external/ownership"
-import { LabShutdownState } from "../../src/lab/shutdown-state"
+import { KomaShutdownState } from "../../src/koma/shutdown-state"
 import { SessionID } from "../../src/session/schema"
 import { resetDatabase } from "../fixture/db"
 import { tmpdirScoped } from "../fixture/fixture"
@@ -87,12 +87,12 @@ describe("lab shutdown state", () => {
         .pipe(Effect.orDie)
       const lifecycle = yield* WorktreeLifecycle.Service
       const input = { database: { db }, execution, lifecycle }
-      expect(yield* LabShutdownState.read(input)).toBe(false)
+      expect(yield* KomaShutdownState.read(input)).toBe(false)
 
       yield* lifecycle.acquire({ directory, sessionID })
-      expect(yield* LabShutdownState.read(input)).toBe(true)
+      expect(yield* KomaShutdownState.read(input)).toBe(true)
       yield* lifecycle.release({ directory, sessionID })
-      expect(yield* LabShutdownState.read(input)).toBe(false)
+      expect(yield* KomaShutdownState.read(input)).toBe(false)
 
       yield* db
         .insert(SessionInputTable)
@@ -105,7 +105,7 @@ describe("lab shutdown state", () => {
         })
         .run()
         .pipe(Effect.orDie)
-      expect(yield* LabShutdownState.read(input)).toBe(true)
+      expect(yield* KomaShutdownState.read(input)).toBe(true)
       yield* db.delete(SessionInputTable).where(eq(SessionInputTable.session_id, sessionID)).run().pipe(Effect.orDie)
 
       yield* db
@@ -121,7 +121,7 @@ describe("lab shutdown state", () => {
         .run()
         .pipe(Effect.orDie)
       // A stopped, never-started native binding has no execution to interrupt.
-      expect(yield* LabShutdownState.read(input)).toBe(false)
+      expect(yield* KomaShutdownState.read(input)).toBe(false)
       for (const state of ["creating", "unknown"] as const) {
         yield* db
           .update(SessionExternalBindingTable)
@@ -129,7 +129,7 @@ describe("lab shutdown state", () => {
           .where(eq(SessionExternalBindingTable.session_id, sessionID))
           .run()
           .pipe(Effect.orDie)
-        expect(yield* LabShutdownState.read(input)).toBe(true)
+        expect(yield* KomaShutdownState.read(input)).toBe(true)
       }
       yield* db
         .update(SessionExternalBindingTable)
@@ -137,7 +137,7 @@ describe("lab shutdown state", () => {
         .where(eq(SessionExternalBindingTable.session_id, sessionID))
         .run()
         .pipe(Effect.orDie)
-      expect(yield* LabShutdownState.read(input)).toBe(true)
+      expect(yield* KomaShutdownState.read(input)).toBe(true)
       yield* db
         .update(SessionExternalBindingTable)
         .set({ execution_pending: false })
@@ -159,7 +159,7 @@ describe("lab shutdown state", () => {
         })
         .run()
         .pipe(Effect.orDie)
-      expect(yield* LabShutdownState.read(input)).toBe(true)
+      expect(yield* KomaShutdownState.read(input)).toBe(true)
       yield* db
         .delete(SessionExternalDeliveryTable)
         .where(eq(SessionExternalDeliveryTable.session_id, sessionID))
@@ -170,7 +170,7 @@ describe("lab shutdown state", () => {
         .where(eq(SessionExternalBindingTable.session_id, sessionID))
         .run()
         .pipe(Effect.orDie)
-      expect(yield* LabShutdownState.read(input)).toBe(false)
+      expect(yield* KomaShutdownState.read(input)).toBe(false)
     }),
   )
 })

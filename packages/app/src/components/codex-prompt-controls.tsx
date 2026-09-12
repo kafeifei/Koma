@@ -33,13 +33,8 @@ export function updateCodexSettings(current: CodexSettings, patch: CodexSettings
   return { ...current, ...patch }
 }
 
-export function canSubmitWithCodexAccount(
-  account: Pick<CodexEngine["account"], "authenticated" | "requiresAuth"> | undefined,
-  model: Pick<CodexModel, "requiresAuth"> | undefined,
-) {
-  if (!account) return false
-  if (!account.requiresAuth || account.authenticated) return true
-  return model?.requiresAuth === false
+export function canSubmitWithProviderModel(model: Pick<CodexModel, "provider"> | undefined) {
+  return !!model?.provider
 }
 
 export function createCodexPromptController(input: {
@@ -61,39 +56,37 @@ export function createCodexPromptController(input: {
   const engine = () => input.sessionEngine() ?? input.prompt.engine.current()
   const codex = () => external().data.engines?.find((item) => item.id === "codex")
   const settings = () => desiredCodexSettings(descriptor(), input.prompt.codex.current())
-  const displayedModel = (model: CodexModel) => {
-    const shared =
-      model.provider && model.modelID
-        ? models.find({ providerID: model.provider.id, modelID: model.modelID })
-        : undefined
-    return shared
-      ? { ...model, name: shared.name, provider: { id: shared.provider.id, name: shared.provider.name } }
-      : model
-  }
+  const options = () =>
+    models.codex().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.modelID }))
   const model = (): CodexModel | undefined => {
     const modelID = settings().model
-    if (!modelID) return input.sessionID() ? undefined : codex()?.models.find((item) => item.default)
-    return displayedModel(
-      codex()?.models.find((item) => item.id === modelID) ?? {
-        id: modelID,
-        name: modelID,
-        default: false,
-        efforts: [],
-      },
-    )
+    if (!modelID) return input.sessionID() ? undefined : (options().find((item) => item.default) ?? options()[0])
+    return models.codex().find((item) => item.id === modelID)
   }
   const effort = () => settings().effort ?? model()?.defaultEffort
   const permission = () => sharedCodexPermission(settings().permission)
   const canSubmit = () => {
     if (engine() !== "codex") return true
     if (!external().data.engines) return false
-    if (!canSubmitWithCodexAccount(codex()?.account, model())) return false
+    if (!input.sessionID() && (!models.ready() || !model())) return false
+    if (!canSubmitWithProviderModel(model())) return false
     const sessionID = input.sessionID()
     if (!sessionID) return codex()?.available === true && codex()?.capabilities.prompt === true
     const current = descriptor()
     if (!current?.capabilities.prompt) return false
     return !["disconnected", "systemError", "bindingUnavailable"].includes(current.runtimeStatus)
   }
+
+  createEffect(() => {
+    if (input.sessionID() || engine() !== "codex" || !input.prompt.ready() || !models.ready() || settings().model)
+      return
+    const selected = model()
+    if (!selected) return
+    input.prompt.codex.set(
+      { ...settings(), model: selected.id, effort: settings().effort ?? selected.defaultEffort },
+      { explicit: false },
+    )
+  })
 
   let enginesRequest: Promise<LabEnginesOutput> | undefined
   const refreshEngines = () => {
@@ -157,16 +150,9 @@ export function createCodexPromptController(input: {
       },
     },
     model: {
-      options: () =>
-        (codex()?.models ?? [])
-          .filter(
-            (model) =>
-              !model.provider ||
-              !model.modelID ||
-              models.visible({ providerID: model.provider.id, modelID: model.modelID }),
-          )
-          .map(displayedModel),
+      options,
       current: model,
+      unavailable: () => models.ready() && !!settings().model && !model(),
       select(value: CodexModel | undefined) {
         if (!value || value.id === model()?.id) return
         const nextEffort = value.efforts.includes(effort() ?? "") ? effort() : value.defaultEffort
@@ -243,7 +229,9 @@ export function CodexModelSelect(props: { controller: CodexPromptController }) {
       label={(value) => value.name}
       groupBy={(value) => value.provider?.name ?? ""}
       placeholder={
-        props.controller.session() ? language.t("codex.settings.nativeDefault") : language.t("codex.settings.model")
+        props.controller.model.unavailable()
+          ? language.t("codex.settings.selectProviderModel")
+          : language.t("codex.settings.model")
       }
       disabled={props.controller.busy()}
       onSelect={props.controller.model.select}

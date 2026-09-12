@@ -27,9 +27,13 @@ target
 .direnv/
 
 # Local dev files
+/.local/desktop-tests/
 /.cache/
 opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+# Python maintenance script caches
+__pycache__/

@@ -18,6 +18,7 @@ const buildInfo = {
   id: builtAt.replace(/[-:]/g, "").replace("T", ".").slice(0, 15),
   version: pkg.version,
   channel,
+  release: process.env.KOMA_RELEASE === "1",
   commit: spawnSync("git", ["rev-parse", "--short=10", "HEAD"], git).stdout?.trim() || undefined,
   dirty: !!spawnSync("git", ["status", "--porcelain", "--untracked-files=normal"], git).stdout?.trim(),
   builtAt,

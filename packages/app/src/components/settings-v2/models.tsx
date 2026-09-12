@@ -15,7 +15,7 @@ import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import "./settings-v2.css"
 
-type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
+type ModelItem = ReturnType<ReturnType<typeof useModels>["catalog"]>[number]
 
 const PROVIDER_ICON_SIZE = 16
 
@@ -29,7 +29,7 @@ export const SettingsModelsV2: Component = () => {
   )
 
   const list = useFilteredList<ModelItem>({
-    items: (_filter) => models.list(),
+    items: (_filter) => models.catalog(),
     key: (x) => `${x.provider.id}:${x.id}`,
     filterKeys: ["provider.name", "name", "id"],
     sortBy: (a, b) => a.name.localeCompare(b.name),

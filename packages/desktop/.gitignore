@@ -32,3 +32,9 @@ resources/opencode-cli*
 resources/opencode-lab*
 resources/icons
 resources/*.metainfo.xml
+
+/dist-release/
+
+/dist-debug/
+resources/koma
+resources/koma.exe

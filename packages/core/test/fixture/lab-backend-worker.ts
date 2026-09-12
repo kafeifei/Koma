@@ -1,6 +1,6 @@
 import { appendFile, mkdir, open, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { LabBackend } from "../../src/lab-backend"
+import { KomaBackend } from "../../src/koma-backend"
 import { StorageMigration } from "../../src/storage-migration"
 import { StoragePaths } from "../../src/storage-paths"
 
@@ -9,15 +9,15 @@ const base = dirname(root)
 
 async function main() {
   if (mode === "same-pid-writer") {
-    const file = join(root, "bin/.lab-backend/backend.json")
+    const file = join(root, "bin/.koma-backend/backend.json")
     const previous = JSON.parse(await readFile(file, "utf8"))
     // Model a retained ownership record whose PID has since been reused by this unrelated process.
     await writeFile(file, JSON.stringify({ ...previous, pid: process.pid }))
-    LabBackend.assertWriter(root)
+    KomaBackend.assertWriter(root)
     return { pid: process.pid }
   }
   if (mode === "writer") {
-    LabBackend.assertWriter(root)
+    KomaBackend.assertWriter(root)
     return { pid: process.pid }
   }
   if (mode === "database-path") {
@@ -25,7 +25,7 @@ async function main() {
     return { pid: process.pid, path: Database.path() }
   }
   if (mode === "ensure") {
-    return LabBackend.ensure(root, async () => {
+    return KomaBackend.ensure(root, async () => {
       const child = Bun.spawn([process.execPath, import.meta.path, "server", root], {
         cwd: base,
         env: process.env,
@@ -39,9 +39,9 @@ async function main() {
     })
   }
   if (mode === "claim" || mode === "activate") {
-    const owner = await LabBackend.claim(root)
+    const owner = await KomaBackend.claim(root)
     try {
-      if (mode === "activate") await LabBackend.activate(root)
+      if (mode === "activate") await KomaBackend.activate(root)
       return { pid: process.pid }
     } finally {
       await owner.release()
@@ -60,23 +60,23 @@ async function main() {
   }
   if (mode !== "server") throw new Error(`Unknown fixture mode: ${mode}`)
 
-  const owner = await LabBackend.claim(root)
+  const owner = await KomaBackend.claim(root)
   {
     await using lease = await StorageMigration.lock(root)
     StorageMigration.prepareUnifiedHome({ root, legacyRoot: join(base, "legacy"), acquireLock: () => true })
-    await LabBackend.activate(root)
-    LabBackend.assertWriter(root)
+    await KomaBackend.activate(root)
+    KomaBackend.assertWriter(root)
   }
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
-      if (request.headers.get("authorization") !== LabBackend.headers(owner).Authorization) {
+      if (request.headers.get("authorization") !== KomaBackend.headers(owner).Authorization) {
         return new Response("unauthorized", { status: 401 })
       }
       const route = new URL(request.url).pathname
       if (route === "/test/writer") {
-        LabBackend.assertWriter(root)
+        KomaBackend.assertWriter(root)
         return new Response("allowed")
       }
       if (route === "/test/unhealthy") {

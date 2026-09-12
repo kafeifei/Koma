@@ -4,7 +4,7 @@ import fs from "fs/promises"
 import path from "path"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Global } from "@opencode-ai/core/global"
-import { LabInstructions } from "@opencode-ai/core/lab-instructions"
+import { KomaInstructions } from "@opencode-ai/core/koma-instructions"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -19,7 +19,7 @@ afterAll(() => {
 
 const withFiles = <A, E>(
   files: Record<string, string>,
-  fn: (service: LabInstructions.Interface, home: string) => Effect.Effect<A, E>,
+  fn: (service: KomaInstructions.Interface, home: string) => Effect.Effect<A, E>,
   lab = true,
 ) =>
   Effect.acquireRelease(
@@ -37,11 +37,11 @@ const withFiles = <A, E>(
             }),
           ),
         )
-        const service = yield* LabInstructions.Service
+        const service = yield* KomaInstructions.Service
         return yield* fn(service, tmp.path)
       }).pipe(
         Effect.provide(
-          AppNodeBuilder.build(LabInstructions.node, [
+          AppNodeBuilder.build(KomaInstructions.node, [
             [
               Global.node,
               Global.layerWith({
@@ -64,7 +64,7 @@ const files = {
   ".claude/CLAUDE.md": "claude rules",
 }
 
-describe("LabInstructions", () => {
+describe("KomaInstructions", () => {
   test.each([
     ["gpt-6-astra", "openai"],
     ["openai/gpt-5.6-sol", "openai"],
@@ -79,7 +79,7 @@ describe("LabInstructions", () => {
     ["my-gpt-wrapper", undefined],
     ["anonymous-model", undefined],
   ] as const)("classifies the API model %s without using the gateway vendor", (model, manufacturer) => {
-    expect(LabInstructions.vendor(model)).toBe(manufacturer)
+    expect(KomaInstructions.vendor(model)).toBe(manufacturer)
   })
 
   it.live("always combines common rules with nonempty OpenCode rules", () =>

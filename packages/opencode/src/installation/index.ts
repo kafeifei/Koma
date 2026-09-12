@@ -266,7 +266,7 @@ const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProcess.Serv
         // Lab's shared profile and separately delivered binary are not owned by
         // the upstream installer. This also covers the HTTP upgrade endpoint.
         if (process.env.OPENCODE_HOME) {
-          return yield* new UpgradeFailedError({ stderr: "Update OpenCode Lab using a verified Lab build" })
+          return yield* new UpgradeFailedError({ stderr: "Update Koma using a verified Lab build" })
         }
         let upgradeResult: { code: number; stdout: string; stderr: string } | undefined
         switch (m) {

@@ -11,7 +11,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "@opencode-ai/core/global"
-import { LabInstructions } from "@opencode-ai/core/lab-instructions"
+import { KomaInstructions } from "@opencode-ai/core/koma-instructions"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID } from "./schema"
 
@@ -54,14 +54,14 @@ const layer: Layer.Layer<
   | Global.Service
   | HttpClient.HttpClient
   | RuntimeFlags.Service
-  | LabInstructions.Service
+  | KomaInstructions.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
     const cfg = yield* Config.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
-    const labInstructions = yield* LabInstructions.Service
+    const labInstructions = yield* KomaInstructions.Service
     const flags = yield* RuntimeFlags.Service
     const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
     const globalFiles = [
@@ -247,7 +247,7 @@ export function loaded(messages: SessionV1.WithParts[]) {
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Config.node, FSUtil.node, Global.node, RuntimeFlags.node, LabInstructions.node, httpClient],
+  deps: [Config.node, FSUtil.node, Global.node, RuntimeFlags.node, KomaInstructions.node, httpClient],
 })
 
 export * as Instruction from "./instruction"
