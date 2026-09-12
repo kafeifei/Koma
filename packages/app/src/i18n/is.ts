@@ -910,7 +910,7 @@ export const dict = {
   "debugBar.direction.tip": "Þvingaðu stefnu útlits forritsins í heild sinni án þess að breyta valnu tungumáli",
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
-  "app.name.desktop": "OpenCode skjáborð",
+  "app.name.desktop": "Koma skjáborð",
   "settings.section.desktop": "Skrifborð",
   "settings.section.server": "Netþjónn",
   "settings.tab.general": "Almennt",

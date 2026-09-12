@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url"
 import { withLabBuildSequence } from "./lab-build-sequence"
+import pkg from "../package.json"
 
 export async function buildLab(cwd: string, packaged: boolean) {
   const git = Bun.spawn(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
@@ -12,9 +13,18 @@ export async function buildLab(cwd: string, packaged: boolean) {
     throw new Error("Cannot resolve shared Git directory for the Lab build sequence")
 
   return withLabBuildSequence(directory, async (sequence) => {
-    const env = { ...process.env, OPENCODE_CHANNEL: "lab", OPENCODE_LAB_BUILD_SEQUENCE: String(sequence) }
+    const env = {
+      ...process.env,
+      OPENCODE_CHANNEL: "lab",
+      OPENCODE_LAB_BUILD_SEQUENCE: String(sequence),
+      ...(process.env.KOMA_RELEASE === "1" ? { OPENCODE_VERSION: pkg.version } : {}),
+    }
     const commands = packaged
-      ? [["prebuild"], ["electron-vite", "build"], ["package:lab"]]
+      ? [
+          ["prebuild"],
+          ["electron-vite", "build"],
+          [process.env.KOMA_RELEASE === "1" ? "package:release" : "package:lab"],
+        ]
       : [["electron-vite", "build"]]
     const cancellation = new AbortController()
     for (const command of commands) {

@@ -1,5 +1,5 @@
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "ไฟล์",
   "desktop.menu.edit": "แก้ไข",
   "desktop.menu.view": "มุมมอง",
@@ -43,7 +43,7 @@ export const dict = {
   "desktop.menu.supportForum": "ฟอรัมสนับสนุน",
   "desktop.menu.shareFeedback": "ส่งข้อคิดเห็น",
   "desktop.menu.reportBug": "รายงานข้อบกพร่อง",
-  "desktop.menu.ariaLabel": "เมนู OpenCode",
+  "desktop.menu.ariaLabel": "เมนู Koma",
 
   "desktop.updater.dialog.checkFailed.message": "การตรวจหาการอัปเดตล้มเหลว",
   "desktop.updater.dialog.checkFailed.title": "ข้อผิดพลาดในการอัปเดต",
@@ -58,9 +58,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "ส่งออกบันทึก",
   "desktop.recovery.action.keepWaiting": "รอต่อไป",
   "desktop.recovery.action.quit": "ออก",
-  "desktop.recovery.loadFailed": "โหลด OpenCode ไม่สำเร็จ",
-  "desktop.recovery.terminated": "หน้าต่าง OpenCode หยุดทำงานโดยไม่คาดคิด",
-  "desktop.recovery.unresponsive": "OpenCode ไม่ตอบสนอง",
+  "desktop.recovery.loadFailed": "โหลด Koma ไม่สำเร็จ",
+  "desktop.recovery.terminated": "หน้าต่าง Koma หยุดทำงานโดยไม่คาดคิด",
+  "desktop.recovery.unresponsive": "Koma ไม่ตอบสนอง",
   "desktop.recovery.unresponsive.detail": "คุณสามารถเปิดแอปอีกครั้ง เปิดบันทึก หรือรอต่อไป",
   "desktop.recovery.loadFailed.detail": "หน้าต่าง: {{window}}\nURL: {{url}}\nข้อผิดพลาด: {{code}} {{description}}",
   "desktop.recovery.terminated.detail": "หน้าต่าง: {{window}}\nสาเหตุ: {{reason}}\nรหัส: {{code}}",
@@ -879,7 +879,7 @@ export const dict = {
   "sidebar.empty.title": "ไม่มีโปรเจกต์ที่เปิดอยู่",
   "sidebar.empty.description": "เปิดโปรเจกต์เพื่อเริ่มต้น",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "เดสก์ท็อป",
   "settings.section.server": "เซิร์ฟเวอร์",

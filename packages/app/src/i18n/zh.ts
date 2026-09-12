@@ -3,7 +3,7 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
-  "desktop.shutdown.title": "退出 OpenCode Lab？",
+  "desktop.shutdown.title": "退出 Koma？",
   "desktop.shutdown.active.message": "仍有任务正在运行。",
   "desktop.shutdown.active.detail": "退出将停止所有窗口，以及连接到此应用本地后端的网页和终端客户端中的任务。",
   "desktop.shutdown.unknown.message": "无法检查任务状态。",
@@ -57,7 +57,7 @@ export const dict = {
   "settings.webEntry.title": "网页入口",
   "settings.webEntry.description": "在本机浏览器中打开桌面版的任务。",
   "settings.webEntry.error": "网页入口启动失败，请关闭后重新开启。",
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "文件",
   "desktop.menu.edit": "编辑",
   "desktop.menu.view": "视图",
@@ -101,7 +101,7 @@ export const dict = {
   "desktop.menu.supportForum": "支持论坛",
   "desktop.menu.shareFeedback": "提供反馈",
   "desktop.menu.reportBug": "报告错误",
-  "desktop.menu.ariaLabel": "OpenCode 菜单",
+  "desktop.menu.ariaLabel": "Koma 菜单",
 
   "desktop.updater.dialog.checkFailed.message": "检查更新失败。",
   "desktop.updater.dialog.checkFailed.title": "更新错误",
@@ -116,9 +116,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "导出日志",
   "desktop.recovery.action.keepWaiting": "继续等待",
   "desktop.recovery.action.quit": "退出",
-  "desktop.recovery.loadFailed": "OpenCode 加载失败",
-  "desktop.recovery.terminated": "OpenCode 窗口意外终止",
-  "desktop.recovery.unresponsive": "OpenCode 未响应",
+  "desktop.recovery.loadFailed": "Koma 加载失败",
+  "desktop.recovery.terminated": "Koma 窗口意外终止",
+  "desktop.recovery.unresponsive": "Koma 未响应",
   "desktop.recovery.unresponsive.detail": "你可以重新启动应用、打开日志或继续等待。",
   "desktop.recovery.loadFailed.detail": "窗口：{{window}}\nURL：{{url}}\n错误：{{code}} {{description}}",
   "desktop.recovery.terminated.detail": "窗口：{{window}}\n原因：{{reason}}\n代码：{{code}}",
@@ -1015,7 +1015,7 @@ export const dict = {
   "sidebar.empty.title": "没有打开的项目",
   "sidebar.empty.description": "打开一个项目以开始使用",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "桌面",
   "settings.section.server": "服务器",
@@ -1051,7 +1051,7 @@ export const dict = {
   "settings.remote.local.deviceName.description": "显示在其他设备上的名称。",
   "settings.remote.local.status": "连接状态",
   "settings.remote.local.website": "网站入口",
-  "settings.remote.local.note.enabled": "远程访问期间，请保持电脑唤醒并运行 OpenCode Lab。",
+  "settings.remote.local.note.enabled": "远程访问期间，请保持电脑唤醒并运行 Koma。",
   "settings.remote.local.note.disabled": "本机远程访问已关闭，已有任务继续运行。",
   "settings.remote.status.disabled": "已关闭",
   "settings.remote.status.connecting": "正在连接…",

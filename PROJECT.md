@@ -1,6 +1,17 @@
-# OpenCode Lab：架构差异与边界
+# Koma：基于 OpenCode 的 Agent 工作台
 
-[kafeifei/opencode](https://github.com/kafeifei/opencode) 基于 [anomalyco/opencode](https://github.com/anomalyco/opencode)，主线为 `dev`。Lab 增加项目／任务工作台、原生 Codex 接入和共享本地后端；保留上游包结构与协议，是独立实验渠道。
+Koma 是一个基于 OpenCode 的桌面 Agent 工作台，探索类似 Codex 的项目与任务工作方式：围绕项目组织任务，让用户与 Agent 持续协作，在工作区中执行、检查并接续工作。
+
+本项目与 Fumie 研究相同的问题：**Agent 工作台应该如何组织人与 Agent 的协作，让任务、执行环境和工作成果形成完整的工作流程。** 两者从各自的项目基础出发探索这一方向；Lab 以 OpenCode 为基础，发展桌面工作台体验，并接入原生 Codex。
+
+## 探索方向与当前形态
+
+- **以项目和任务组织工作**：把会话放回具体项目中，串联输入、执行状态、历史与工作成果，支持任务切换和后续接续。
+- **让执行环境清晰可控**：组织项目目录、分支和 Worktree，明确任务与目录的关系，以及归档、恢复和删除的生命周期。
+- **在工作台中接入 Agent 能力**：当前支持 OpenCode 与原生 Codex，在统一界面中呈现执行、历史和审批，同时保留各自运行时的职责与状态归属。
+- **让工作延续到不同入口**：以桌面为主要入口，本地网页与远程访问连接同一后端，让任务的执行与客户端连接状态解耦。
+
+[kafeifei/Koma](https://github.com/kafeifei/Koma) 基于 [anomalyco/opencode](https://github.com/anomalyco/opencode)，主线为 `main`。当前以 Koma 作为独立实验渠道，保留上游包结构与协议。以下记录现有实现的架构与边界。
 
 ## 架构
 
@@ -32,6 +43,8 @@ Lab 复用 OpenCode 的 HTTP 服务、Session 索引和事件链路。Desktop、
 - **生命周期**：归档保留历史和输入，后端拒绝新增输入；归档与停止执行是独立操作。恢复及删除经过目录身份、执行占用和持久保存状态检查，不以客户端显示状态替代判定。
 
 ## 运行边界
+
+Koma 首个 beta 沿用 Lab 的内部身份、协议和存储布局，以保持已有任务与配置的兼容性；应用展示名为 Koma。
 
 - Lab 身份为 `ai.opencode.lab`，协议为 `opencode-lab`，默认数据根为 `~/.opencode`。同一 profile 只有一个共享后端，桌面和本 fork 的 CLI 通过认证 loopback 接入；官方渠道的数据与登录不主动迁入。
 - 关闭窗口、断开 Web 或 CLI 不停止后端；完整退出桌面时，活动任务或状态查询失败会触发确认，确认后停止所连接的本地后端及其任务。

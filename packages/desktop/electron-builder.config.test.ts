@@ -39,9 +39,9 @@ test("keeps the Lab app independent from production", async () => {
   if (previous === undefined) delete process.env.OPENCODE_CHANNEL
   else process.env.OPENCODE_CHANNEL = previous
 
-  expect(config.productName).toBe("OpenCode Lab")
+  expect(config.productName).toBe("Koma")
   expect(config.directories?.output).toBe("dist-lab")
-  expect(config.protocols).toEqual({ name: "OpenCode Lab", schemes: ["opencode-lab"] })
+  expect(config.protocols).toEqual({ name: "Koma", schemes: ["opencode-lab"] })
   expect(config.publish).toBeUndefined()
   expect(config.mac?.identity).toBeUndefined()
   expect(config.mac?.forceCodeSigning).toBe(true)
@@ -57,6 +57,30 @@ test("falls back to the environment channel for invalid resource arguments", () 
   expect(resolveChannel("invalid")).toBe("prod")
   if (previous === undefined) delete process.env.OPENCODE_CHANNEL
   else process.env.OPENCODE_CHANNEL = previous
+})
+
+test("Koma release packages the Lab runtime with hardened signing and notarization", async () => {
+  const previous = { ...process.env }
+  try {
+    process.env.OPENCODE_CHANNEL = "lab"
+    process.env.KOMA_RELEASE = "1"
+    process.env.APPLE_KEYCHAIN_PROFILE = "test-notary-profile"
+    const { default: config } = await import("./electron-builder.config.ts?koma=release")
+    expect(config.productName).toBe("Koma")
+    expect(config.directories?.output).toBe("dist-release")
+    expect(config.mac?.target).toEqual(["dmg", "zip"])
+    expect(config.mac?.forceCodeSigning).toBe(true)
+    expect(config.mac?.hardenedRuntime).toBe(true)
+    expect(config.mac?.timestamp).toBeUndefined()
+    expect(config.mac?.notarize).toBe(true)
+    expect(config.publish).toBeUndefined()
+    expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["opencode-lab*"] })
+  } finally {
+    for (const key of ["OPENCODE_CHANNEL", "KOMA_RELEASE", "APPLE_KEYCHAIN_PROFILE"]) {
+      if (previous[key] === undefined) delete process.env[key]
+      else process.env[key] = previous[key]
+    }
+  }
 })
 
 test("keeps a hidden prod launcher for old Linux pins", async () => {

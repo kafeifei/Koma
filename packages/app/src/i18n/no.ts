@@ -2,7 +2,7 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "Arkiv",
   "desktop.menu.edit": "Rediger",
   "desktop.menu.view": "Vis",
@@ -46,7 +46,7 @@ export const dict = {
   "desktop.menu.supportForum": "Brukerstøtteforum",
   "desktop.menu.shareFeedback": "Del tilbakemelding",
   "desktop.menu.reportBug": "Rapporter en feil",
-  "desktop.menu.ariaLabel": "OpenCode-meny",
+  "desktop.menu.ariaLabel": "Koma-meny",
 
   "desktop.updater.dialog.checkFailed.message": "Søket etter oppdateringer mislyktes.",
   "desktop.updater.dialog.checkFailed.title": "Oppdateringsfeil",
@@ -61,9 +61,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "Eksporter logger",
   "desktop.recovery.action.keepWaiting": "Fortsett å vente",
   "desktop.recovery.action.quit": "Avslutt",
-  "desktop.recovery.loadFailed": "OpenCode kunne ikke lastes inn",
-  "desktop.recovery.terminated": "OpenCode-vinduet ble uventet avsluttet",
-  "desktop.recovery.unresponsive": "OpenCode svarer ikke",
+  "desktop.recovery.loadFailed": "Koma kunne ikke lastes inn",
+  "desktop.recovery.terminated": "Koma-vinduet ble uventet avsluttet",
+  "desktop.recovery.unresponsive": "Koma svarer ikke",
   "desktop.recovery.unresponsive.detail": "Du kan starte appen på nytt, åpne loggene eller fortsette å vente.",
   "desktop.recovery.loadFailed.detail": "Vindu: {{window}}\nURL: {{url}}\nFeil: {{code}} {{description}}",
   "desktop.recovery.terminated.detail": "Vindu: {{window}}\nÅrsak: {{reason}}\nKode: {{code}}",
@@ -755,7 +755,7 @@ export const dict = {
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "Skrivebord",
   "settings.section.server": "Server",

@@ -32,3 +32,5 @@ resources/opencode-cli*
 resources/opencode-lab*
 resources/icons
 resources/*.metainfo.xml
+
+/dist-release/

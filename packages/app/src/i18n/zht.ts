@@ -3,7 +3,7 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "檔案",
   "desktop.menu.edit": "編輯",
   "desktop.menu.view": "檢視",
@@ -47,7 +47,7 @@ export const dict = {
   "desktop.menu.supportForum": "支援論壇",
   "desktop.menu.shareFeedback": "提供意見回饋",
   "desktop.menu.reportBug": "回報錯誤",
-  "desktop.menu.ariaLabel": "OpenCode 選單",
+  "desktop.menu.ariaLabel": "Koma 選單",
 
   "desktop.updater.dialog.checkFailed.message": "檢查更新失敗。",
   "desktop.updater.dialog.checkFailed.title": "更新錯誤",
@@ -62,9 +62,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "匯出記錄檔",
   "desktop.recovery.action.keepWaiting": "繼續等待",
   "desktop.recovery.action.quit": "結束",
-  "desktop.recovery.loadFailed": "OpenCode 載入失敗",
-  "desktop.recovery.terminated": "OpenCode 視窗意外終止",
-  "desktop.recovery.unresponsive": "OpenCode 沒有回應",
+  "desktop.recovery.loadFailed": "Koma 載入失敗",
+  "desktop.recovery.terminated": "Koma 視窗意外終止",
+  "desktop.recovery.unresponsive": "Koma 沒有回應",
   "desktop.recovery.unresponsive.detail": "你可以重新啟動應用程式、開啟記錄檔，或繼續等待。",
   "desktop.recovery.loadFailed.detail": "視窗：{{window}}\nURL：{{url}}\n錯誤：{{code}} {{description}}",
   "desktop.recovery.terminated.detail": "視窗：{{window}}\n原因：{{reason}}\n代碼：{{code}}",
@@ -950,7 +950,7 @@ export const dict = {
   "sidebar.empty.title": "未開啟任何專案",
   "sidebar.empty.description": "開啟專案以開始使用",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
   "settings.section.desktop": "桌面",
   "settings.section.server": "伺服器",
   "settings.tab.general": "一般",

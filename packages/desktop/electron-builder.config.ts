@@ -33,11 +33,17 @@ async function signWindows(configuration: { path: string }) {
 
 const channel = resolveDesktopChannel(process.env.OPENCODE_CHANNEL)
 const identity = desktopIdentity(channel)
+const release = channel === "lab" && process.env.KOMA_RELEASE === "1"
+if (release && !process.env.APPLE_KEYCHAIN_PROFILE && !process.env.APPLE_API_KEY && !process.env.APPLE_ID) {
+  throw new Error(
+    "Koma releases require Apple notarization credentials; use APPLE_KEYCHAIN_PROFILE or Apple API credentials",
+  )
+}
 
 const getBase = (appId: string): Configuration => ({
-  artifactName: channel === "lab" ? "opencode-lab-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
+  artifactName: channel === "lab" ? "Koma-${version}-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
   directories: {
-    output: channel === "lab" ? "dist-lab" : "dist",
+    output: release ? "dist-release" : channel === "lab" ? "dist-lab" : "dist",
     buildResources: "resources",
   },
   // Linux launchers are .desktop files, so this is the desktop file name,
@@ -140,13 +146,13 @@ function getConfig(): Configuration {
         },
         mac: {
           ...base.mac,
-          target: ["dir"],
+          target: release ? ["dmg", "zip"] : ["dir"],
           // A certificate keeps Keychain access stable across Lab updates; ad-hoc signatures do not.
           forceCodeSigning: true,
           // Local Lab builds are not notarized and can be signed offline.
-          timestamp: "none",
-          hardenedRuntime: false,
-          notarize: false,
+          timestamp: release ? undefined : "none",
+          hardenedRuntime: release,
+          notarize: release,
         },
         deb: { fpm: [metainfoFpm(appId)] },
         rpm: { packageName: "opencode-lab", fpm: [metainfoFpm(appId)] },

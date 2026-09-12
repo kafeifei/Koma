@@ -1,13 +1,12 @@
 {
   "name": "@opencode-ai/desktop",
   "private": true,
-  "version": "1.18.30",
+  "version": "0.1.0-beta.1",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://github.com/kafeifei/Koma",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "kafeifei"
   },
   "scripts": {
     "typecheck": "tsgo -b",
@@ -25,7 +24,9 @@
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
-    "native:build": "bun install --cwd native"
+    "native:build": "bun install --cwd native",
+    "release:mac": "KOMA_RELEASE=1 bun ./scripts/build-lab.ts --package",
+    "package:release": "OPENCODE_CHANNEL=lab electron-builder --mac dmg zip --publish never --config electron-builder.config.ts"
   },
   "main": "./out/main/index.js",
   "dependencies": {

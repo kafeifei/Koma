@@ -922,7 +922,7 @@ export const dict = {
   "debugBar.direction.tip": "Priverskite visą programos išdėstymo kryptį nekeisdami pasirinktos kalbos",
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
-  "app.name.desktop": "OpenCode darbalaukis",
+  "app.name.desktop": "Koma darbalaukis",
   "settings.section.desktop": "Darbalaukis",
   "settings.section.server": "Serveris",
   "settings.tab.general": "Bendra",

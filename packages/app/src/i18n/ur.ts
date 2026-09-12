@@ -1,5 +1,5 @@
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "فائل",
   "desktop.menu.edit": "ترمیم",
   "desktop.menu.view": "دیکھیں",
@@ -43,7 +43,7 @@ export const dict = {
   "desktop.menu.supportForum": "معاونتی فورم",
   "desktop.menu.shareFeedback": "رائے کا اشتراک کریں",
   "desktop.menu.reportBug": "خرابی کی اطلاع دیں",
-  "desktop.menu.ariaLabel": "OpenCode مینو",
+  "desktop.menu.ariaLabel": "Koma مینو",
 
   "desktop.updater.dialog.checkFailed.message": "اپ ڈیٹ کی جانچ ناکام ہو گئی۔",
   "desktop.updater.dialog.checkFailed.title": "اپ ڈیٹ کی خرابی",
@@ -58,9 +58,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "لاگز برآمد کریں",
   "desktop.recovery.action.keepWaiting": "انتظار جاری رکھیں",
   "desktop.recovery.action.quit": "بند کریں",
-  "desktop.recovery.loadFailed": "OpenCode لوڈ نہیں ہو سکا",
-  "desktop.recovery.terminated": "OpenCode ونڈو غیر متوقع طور پر بند ہو گئی",
-  "desktop.recovery.unresponsive": "OpenCode جواب نہیں دے رہا",
+  "desktop.recovery.loadFailed": "Koma لوڈ نہیں ہو سکا",
+  "desktop.recovery.terminated": "Koma ونڈو غیر متوقع طور پر بند ہو گئی",
+  "desktop.recovery.unresponsive": "Koma جواب نہیں دے رہا",
   "desktop.recovery.unresponsive.detail":
     "آپ ایپ کو دوبارہ چلا سکتے ہیں، لاگز کھول سکتے ہیں یا انتظار جاری رکھ سکتے ہیں۔",
   "desktop.recovery.loadFailed.detail": "ونڈو: {{window}}\nURL: {{url}}\nخرابی: {{code}} {{description}}",
@@ -917,7 +917,7 @@ export const dict = {
   "debugBar.direction.tip": "منتخب زبان تبدیل کیے بغیر پوری ایپ کے لے آؤٹ کی سمت لازماً مقرر کریں",
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
-  "app.name.desktop": "OpenCode ڈیسک ٹاپ",
+  "app.name.desktop": "Koma ڈیسک ٹاپ",
   "settings.section.desktop": "ڈیسک ٹاپ",
   "settings.section.server": "سرور",
   "settings.tab.general": "عمومی",

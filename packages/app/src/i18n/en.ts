@@ -1021,7 +1021,7 @@ export const dict = {
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
@@ -1056,7 +1056,7 @@ export const dict = {
   "settings.remote.local.deviceName.description": "The name shown on your other devices.",
   "settings.remote.local.status": "Connection status",
   "settings.remote.local.website": "Website",
-  "settings.remote.local.note.enabled": "Keep this computer awake and OpenCode Lab running while using remote access.",
+  "settings.remote.local.note.enabled": "Keep this computer awake and Koma running while using remote access.",
   "settings.remote.local.note.disabled": "Remote access to this computer is off. Existing tasks keep running.",
   "settings.remote.status.disabled": "Off",
   "settings.remote.status.connecting": "Connecting...",

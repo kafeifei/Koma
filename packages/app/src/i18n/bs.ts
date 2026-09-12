@@ -1,5 +1,5 @@
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "Datoteka",
   "desktop.menu.edit": "Uredi",
   "desktop.menu.view": "Prikaz",
@@ -43,7 +43,7 @@ export const dict = {
   "desktop.menu.supportForum": "Forum za podršku",
   "desktop.menu.shareFeedback": "Pošalji povratne informacije",
   "desktop.menu.reportBug": "Prijavi grešku",
-  "desktop.menu.ariaLabel": "OpenCode meni",
+  "desktop.menu.ariaLabel": "Koma meni",
 
   "desktop.updater.dialog.checkFailed.message": "Provjera ažuriranja nije uspjela.",
   "desktop.updater.dialog.checkFailed.title": "Greška pri ažuriranju",
@@ -59,9 +59,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "Izvezi zapisnike",
   "desktop.recovery.action.keepWaiting": "Nastavi čekati",
   "desktop.recovery.action.quit": "Izađi",
-  "desktop.recovery.loadFailed": "OpenCode se nije uspio učitati",
-  "desktop.recovery.terminated": "Prozor OpenCode-a neočekivano je zatvoren",
-  "desktop.recovery.unresponsive": "OpenCode ne reaguje",
+  "desktop.recovery.loadFailed": "Koma se nije uspio učitati",
+  "desktop.recovery.terminated": "Prozor Koma-a neočekivano je zatvoren",
+  "desktop.recovery.unresponsive": "Koma ne reaguje",
   "desktop.recovery.unresponsive.detail": "Možeš ponovo pokrenuti aplikaciju, otvoriti zapisnike ili nastaviti čekati.",
   "desktop.recovery.loadFailed.detail": "Prozor: {{window}}\nURL: {{url}}\nGreška: {{code}} {{description}}",
   "desktop.recovery.terminated.detail": "Prozor: {{window}}\nRazlog: {{reason}}\nKod: {{code}}",
@@ -892,7 +892,7 @@ export const dict = {
   "sidebar.empty.title": "Nema otvorenih projekata",
   "sidebar.empty.description": "Otvori projekat za početak",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
 
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",

@@ -916,7 +916,7 @@ export const dict = {
   "debugBar.direction.tip": "Nametnite cijeli smjer izgleda aplikacije bez promjene odabranog jezika",
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
-  "app.name.desktop": "OpenCode Radna površina",
+  "app.name.desktop": "Koma Radna površina",
   "settings.section.desktop": "Radna površina",
   "settings.section.server": "Poslužitelj",
   "settings.tab.general": "Općenito",

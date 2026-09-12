@@ -10,7 +10,7 @@ test("Lab has an independent desktop identity and no updater", () => {
   const channel = resolveDesktopChannel("lab")
   expect(desktopIdentity(channel)).toEqual({
     appId: "ai.opencode.lab",
-    name: "OpenCode Lab",
+    name: "Koma",
     scheme: "opencode-lab",
     icon: "dev",
   })

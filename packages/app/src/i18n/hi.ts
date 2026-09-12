@@ -1,5 +1,5 @@
 export const dict = {
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "फ़ाइल",
   "desktop.menu.edit": "संपादित करें",
   "desktop.menu.view": "दृश्य",
@@ -43,7 +43,7 @@ export const dict = {
   "desktop.menu.supportForum": "सहायता फ़ोरम",
   "desktop.menu.shareFeedback": "प्रतिक्रिया साझा करें",
   "desktop.menu.reportBug": "बग रिपोर्ट करें",
-  "desktop.menu.ariaLabel": "OpenCode मेन्यू",
+  "desktop.menu.ariaLabel": "Koma मेन्यू",
 
   "desktop.updater.dialog.checkFailed.message": "अपडेट की जाँच विफल रही।",
   "desktop.updater.dialog.checkFailed.title": "अपडेट त्रुटि",
@@ -58,9 +58,9 @@ export const dict = {
   "desktop.recovery.action.exportLogs": "लॉग निर्यात करें",
   "desktop.recovery.action.keepWaiting": "प्रतीक्षा जारी रखें",
   "desktop.recovery.action.quit": "बाहर निकलें",
-  "desktop.recovery.loadFailed": "OpenCode लोड नहीं हो सका",
-  "desktop.recovery.terminated": "OpenCode विंडो अनपेक्षित रूप से बंद हो गई",
-  "desktop.recovery.unresponsive": "OpenCode प्रतिसाद नहीं दे रहा है",
+  "desktop.recovery.loadFailed": "Koma लोड नहीं हो सका",
+  "desktop.recovery.terminated": "Koma विंडो अनपेक्षित रूप से बंद हो गई",
+  "desktop.recovery.unresponsive": "Koma प्रतिसाद नहीं दे रहा है",
   "desktop.recovery.unresponsive.detail":
     "आप ऐप को पुनः लॉन्च कर सकते हैं, लॉग खोल सकते हैं या प्रतीक्षा जारी रख सकते हैं।",
   "desktop.recovery.loadFailed.detail": "विंडो: {{window}}\nURL: {{url}}\nत्रुटि: {{code}} {{description}}",
@@ -916,7 +916,7 @@ export const dict = {
   "debugBar.direction.tip": "चुनी गई भाषा बदले बिना पूरे ऐप की लेआउट दिशा ज़बरदस्ती सेट करें",
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Koma",
   "settings.section.desktop": "डेस्कटॉप",
   "settings.section.server": "सर्वर",
   "settings.tab.general": "सामान्य",

@@ -1,4 +1,4 @@
-# OpenCode Lab Desktop
+# Koma Desktop
 
 Electron 壳复用 [App](../app/README.md)，持有平台能力、窗口和连接入口。Renderer 通过 preload 的 `window.api` 访问主进程；IPC 位于 [`ipc.ts`](src/main/ipc.ts)。任务执行、权限和持久状态属于共享后端。
 
@@ -55,7 +55,7 @@ OAuth 应用身份沿用 Sandy／Code OSS，授权页面可能显示 Visual Stud
 
 ## 构建与运行资源
 
-[本包脚本](package.json)：`bun dev` 启动开发实例；`bun run lab` 完成预构建、前端构建和 macOS 打包签名，产物在 `dist-lab/`，不安装或启动应用。包包含本仓 Node 后端、Lab CLI 和固定版本 V2 CLI；实际 Lab 使用同包 CLI 后端。Remote 依赖在候选包内由所带 Electron 加载检查。
+[本包脚本](package.json)：`bun dev` 启动开发实例；`bun run lab` 完成预构建、前端构建和 macOS 打包签名，产物为 `dist-lab/mac-arm64/Koma.app`，不安装或启动应用。包包含本仓 Node 后端、Lab CLI 和固定版本 V2 CLI；实际 Lab 使用同包 CLI 后端。Remote 依赖在候选包内由所带 Electron 加载检查。
 
 构建信息含版本、构建 ID、序号、commit、dirty 和时间。各 worktree 共用 Git 元数据中的序号与锁；`build:lab` 成功后计数，`lab` 等全部阶段成功后计数，失败不占号，锁超时失败而不抢占。成功但未安装的包仍计数。实现：[`build-lab.ts`](scripts/build-lab.ts)、[`lab-build-sequence.ts`](scripts/lab-build-sequence.ts)。
 

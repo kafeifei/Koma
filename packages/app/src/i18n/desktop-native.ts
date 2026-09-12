@@ -222,7 +222,7 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
-  "desktop.shutdown.title": "Quit OpenCode Lab?",
+  "desktop.shutdown.title": "Quit Koma?",
   "desktop.shutdown.active.message": "Tasks are still running.",
   "desktop.shutdown.active.detail":
     "Quitting stops tasks in all windows and web or terminal clients connected to this app's local backend.",
@@ -232,7 +232,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.shutdown.cancel": "Cancel",
   "desktop.shutdown.stopAndQuit": "Stop tasks and quit",
   "desktop.shutdown.quitAnyway": "Quit anyway",
-  "desktop.menu.app": "OpenCode",
+  "desktop.menu.app": "Koma",
   "desktop.menu.file": "File",
   "desktop.menu.edit": "Edit",
   "desktop.menu.view": "View",
@@ -276,7 +276,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.menu.supportForum": "Support Forum",
   "desktop.menu.shareFeedback": "Share Feedback",
   "desktop.menu.reportBug": "Report a Bug",
-  "desktop.menu.ariaLabel": "OpenCode menu",
+  "desktop.menu.ariaLabel": "Koma menu",
 
   "desktop.updater.dialog.checkFailed.message": "Update check failed.",
   "desktop.updater.dialog.checkFailed.title": "Update Error",
@@ -291,9 +291,9 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.recovery.action.exportLogs": "Export Logs",
   "desktop.recovery.action.keepWaiting": "Keep Waiting",
   "desktop.recovery.action.quit": "Quit",
-  "desktop.recovery.loadFailed": "OpenCode failed to load",
-  "desktop.recovery.terminated": "OpenCode window terminated unexpectedly",
-  "desktop.recovery.unresponsive": "OpenCode is not responding",
+  "desktop.recovery.loadFailed": "Koma failed to load",
+  "desktop.recovery.terminated": "Koma window terminated unexpectedly",
+  "desktop.recovery.unresponsive": "Koma is not responding",
   "desktop.recovery.unresponsive.detail": "You can relaunch the app, open the logs, or keep waiting.",
   "desktop.recovery.loadFailed.detail": "Window: {{window}}\nURL: {{url}}\nError: {{code}} {{description}}",
   "desktop.recovery.terminated.detail": "Window: {{window}}\nReason: {{reason}}\nCode: {{code}}",

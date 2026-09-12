@@ -916,7 +916,7 @@ export const dict = {
     "A teljes alkalmazáselrendezési irány kényszerítése a kiválasztott nyelv megváltoztatása nélkül",
   "debugBar.direction.ltr": "LTR",
   "debugBar.direction.rtl": "RTL",
-  "app.name.desktop": "OpenCode asztali számítógép",
+  "app.name.desktop": "Koma asztali számítógép",
   "settings.section.desktop": "Asztali",
   "settings.section.server": "Kiszolgáló",
   "settings.tab.general": "Általános",
