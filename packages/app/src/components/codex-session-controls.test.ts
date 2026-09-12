@@ -8,7 +8,6 @@ import {
   isCodexDeliveryActive,
   isConfirmedCodexDelivery,
   needsCodexDeliveryConfirmation,
-  reconcileCodexLoginID,
 } from "./codex-session-controls"
 
 const snapshot = (runtimeStatus: LabSnapshotOutput["descriptor"]["runtimeStatus"], pending = true) =>
@@ -55,28 +54,6 @@ describe("Codex conditional docks", () => {
     expect(isCodexDeliveryActive("waitingInput")).toBe(true)
     expect(isCodexDeliveryActive("interrupting")).toBe(true)
     expect(isCodexDeliveryActive("idle")).toBe(false)
-  })
-})
-
-describe("Codex account controls", () => {
-  test("keeps a just-started login until the account reports a terminal state", () => {
-    expect(reconcileCodexLoginID("login-local", { authenticated: false, requiresAuth: true })).toBe("login-local")
-    expect(
-      reconcileCodexLoginID("login-local", {
-        authenticated: false,
-        requiresAuth: true,
-        loginID: "login-server",
-        loginState: "pending",
-      }),
-    ).toBe("login-server")
-    expect(
-      reconcileCodexLoginID("login-server", {
-        authenticated: false,
-        requiresAuth: true,
-        loginState: "failed",
-        error: "Login expired",
-      }),
-    ).toBeUndefined()
   })
 })
 

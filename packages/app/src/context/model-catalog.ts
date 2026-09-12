@@ -8,11 +8,11 @@ export type CatalogModel = {
   engines: Array<"opencode" | "codex">
 }
 
-/** Preserve execution IDs; native model names are grouped under their own provider identity. */
+/** Preserve execution IDs; only models supplied by a configured Provider enter the catalog. */
 export function providerCodexModel(model: CodexModel) {
   return {
     ...model,
-    provider: model.provider ?? { id: "codex", name: "Codex" },
+    provider: model.provider!,
     modelID: model.modelID ?? model.id,
   }
 }
@@ -26,6 +26,7 @@ export function unifiedModelCatalog(
     opencode.map((model) => [key(model.provider.id, model.id), { ...model, engines: ["opencode"] }]),
   )
   for (const value of codex) {
+    if (!value.provider) continue
     const model = providerCodexModel(value)
     const id = key(model.provider.id, model.modelID)
     const existing = result.get(id)

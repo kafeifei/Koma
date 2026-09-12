@@ -33,13 +33,8 @@ export function updateCodexSettings(current: CodexSettings, patch: CodexSettings
   return { ...current, ...patch }
 }
 
-export function canSubmitWithCodexAccount(
-  account: Pick<CodexEngine["account"], "authenticated" | "requiresAuth"> | undefined,
-  model: Pick<CodexModel, "requiresAuth"> | undefined,
-) {
-  if (!account) return false
-  if (!account.requiresAuth || account.authenticated) return true
-  return model?.requiresAuth === false
+export function canSubmitWithProviderModel(model: Pick<CodexModel, "provider"> | undefined) {
+  return !!model?.provider
 }
 
 export function createCodexPromptController(input: {
@@ -81,7 +76,7 @@ export function createCodexPromptController(input: {
     if (engine() !== "codex") return true
     if (!external().data.engines) return false
     if (!input.sessionID() && (!models.ready() || !model())) return false
-    if (!canSubmitWithCodexAccount(codex()?.account, model())) return false
+    if (!canSubmitWithProviderModel(model())) return false
     const sessionID = input.sessionID()
     if (!sessionID) return codex()?.available === true && codex()?.capabilities.prompt === true
     const current = descriptor()
@@ -239,9 +234,7 @@ export function CodexModelSelect(props: { controller: CodexPromptController }) {
       value={(value) => value.id}
       label={(value) => value.name}
       groupBy={(value) => value.provider?.name ?? ""}
-      placeholder={
-        props.controller.session() ? language.t("codex.settings.nativeDefault") : language.t("codex.settings.model")
-      }
+      placeholder={language.t("codex.settings.model")}
       disabled={props.controller.busy()}
       onSelect={props.controller.model.select}
       class={classes}

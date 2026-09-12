@@ -6,6 +6,8 @@ import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Effect, Layer } from "effect"
 import { Auth } from "../auth"
+import { OpenAIAuth } from "../auth/openai"
+import { supportsOpenAIOAuthModel } from "../plugin/openai/model-access"
 import { GlobalBus, type GlobalEvent } from "../bus/global"
 import { Config } from "../config/config"
 import { EffectBridge } from "../effect/bridge"
@@ -20,6 +22,7 @@ export const node = makeGlobalNode({
     CodexProviders.Service,
     Effect.gen(function* () {
       const auth = yield* Auth.Service
+      const openaiAuth = yield* OpenAIAuth.Service
       const config = yield* Config.Service
       const modelsDev = yield* ModelsDev.Service
       const bridge = yield* EffectBridge.make()
@@ -34,14 +37,21 @@ export const node = makeGlobalNode({
 
       return CodexProviders.Service.of({
         list: () => bridge.promise(resolve().pipe(Effect.map((providers) => providers.map((item) => item.provider)))),
-        key: (providerID, baseURL) =>
+        key: (providerID, baseURL, accountID) =>
           bridge.promise(
             resolve().pipe(
-              Effect.map((providers) => {
-                const provider = providers.find((item) => item.provider.id === providerID)
-                if (provider?.provider.baseURL !== baseURL) return
-                return provider.key
-              }),
+              Effect.flatMap((providers) =>
+                Effect.promise(async () => {
+                  const provider = providers.find((item) => item.provider.id === providerID)
+                  if (provider?.provider.baseURL !== baseURL || provider.provider.accountID !== accountID) return
+                  if (provider.oauth) {
+                    const current = await openaiAuth.get()
+                    if (current?.accountId !== accountID) return
+                    return current?.access
+                  }
+                  return provider.key
+                }),
+              ),
             ),
           ),
         onChange: (listener) => {
@@ -58,7 +68,7 @@ export const node = makeGlobalNode({
       })
     }),
   ),
-  deps: [Auth.node, Config.node, ModelsDev.node],
+  deps: [Auth.node, OpenAIAuth.node, Config.node, ModelsDev.node],
 })
 
 function configuredProviders(
@@ -69,9 +79,10 @@ function configuredProviders(
   const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : undefined
   const disabled = new Set(cfg.disabled_providers ?? [])
   const configured = cfg.provider ?? {}
+  const providerIDs = [...new Set([...Object.keys(configured), ...Object.keys(credentials)])]
   const database = Provider.applyConfiguredProviders(
     Object.fromEntries(
-      Object.keys(configured).flatMap((providerID) => {
+      providerIDs.flatMap((providerID) => {
         const provider = catalog[providerID]
         if (!provider) return []
         return [[providerID, Provider.toPublicInfo(Provider.fromModelsDevProvider(provider))]]
@@ -81,23 +92,47 @@ function configuredProviders(
     catalog,
   )
 
-  return Object.keys(configured).flatMap((providerID) => {
+  return providerIDs.flatMap((providerID) => {
     if (enabled && !enabled.has(providerID)) return []
     if (disabled.has(providerID)) return []
 
     const provider = database[providerID]
     if (!provider) return []
-    const models = configuredModels(provider, configured[providerID])
+    const credential = credentials[providerID]
+    const oauth = providerID === "openai" && credential?.type === "oauth"
+    const resolved = oauth
+      ? {
+          ...provider,
+          options: { ...provider.options, baseURL: "https://chatgpt.com/backend-api/codex" },
+          models: Object.fromEntries(
+            Object.entries(provider.models)
+              .filter(([, model]) => supportsOpenAIOAuthModel(model))
+              .map(([id, model]) => [
+                id,
+                {
+                  ...model,
+                  limit:
+                    model.id.includes("gpt-5.5") || model.id.includes("gpt-5.6")
+                      ? { ...model.limit, context: 400_000 }
+                      : model.limit,
+                },
+              ]),
+          ),
+        }
+      : provider
+    const models = configuredModels(resolved, configured[providerID] ?? {})
     if (!models) return []
     const key = apiKey(provider, credentials[providerID])
-    if (!key) return []
+    if (!key && !oauth) return []
     return [
       {
         key,
+        oauth,
         provider: {
           id: provider.id,
           name: provider.name,
           baseURL: models.baseURL,
+          ...(oauth && credential.accountId ? { accountID: credential.accountId } : {}),
           models: models.items,
         } satisfies CodexProviders.Provider,
       },

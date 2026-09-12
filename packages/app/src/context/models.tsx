@@ -137,6 +137,7 @@ const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
     const catalog = createMemo(() => unifiedModelCatalog(list(), codexModels()))
     const codex = createMemo(() =>
       codexModels()
+        .filter((model) => !!model.provider)
         .map(providerCodexModel)
         .map((model) => {
           const shared = catalog().find((item) => item.provider.id === model.provider.id && item.id === model.modelID)

@@ -57,7 +57,7 @@ function thread(): v2.Thread {
     sectionEnteredAt: null,
     projectId: null,
     historyMode: "legacy",
-    modelProvider: "fixture",
+    modelProvider: "opencode_fixture",
     model: "native-model",
     reasoningEffort: "low",
     createdAt: 1,
@@ -118,13 +118,13 @@ async function harness<A>(
   }) => Promise<A>,
   homeOverride?: string,
   auth?: CodexAuth.Interface,
-  providers?: CodexProviders.Interface,
+  providers: CodexProviders.Interface = customProviders,
   databasePath = ":memory:",
 ) {
   const home = homeOverride ?? (await mkdtemp(path.join(directory, "home-")))
   await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages: [] }))
   process.env.OPENCODE_CODEX_HOME = home
-  await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread() }))
+  await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread(), reflectProvider: true }))
   const gate = { refuse: false, acquired: 0, released: 0, prepared: 0, finalized: 0 }
   const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node, Database.node]), [
     ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
@@ -168,7 +168,7 @@ async function harness<A>(
   )
 }
 const run = Effect.runPromise
-const prompt = { prompt: { text: "hello" }, settings: {} }
+const prompt = { prompt: { text: "hello" }, settings: { model: "fixture/native-model" } }
 const location = () => Location.Ref.make({ directory: AbsolutePath.make(directory) })
 const rpc = async (home: string) =>
   (await readFile(path.join(home, "rpc.jsonl"), "utf8").catch(() => ""))
@@ -224,6 +224,7 @@ async function seed(sessions: SessionExternal.Interface, scope: string, target =
       engine: "codex",
       location: target,
       payload: prompt,
+      settings: prompt.settings,
       delivery: "steer",
     }),
   )
@@ -271,10 +272,19 @@ function approval(id: string, kind: "command" | "file" | "permissions" = "comman
 const customProviders: CodexProviders.Interface = {
   list: async () => [
     {
+      id: "fixture",
+      name: "Fixture",
+      baseURL: "https://fixture.invalid/v1",
+      models: [{ id: "native-model", name: "Fixture model", efforts: ["low", "medium", "high"] }],
+    },
+    {
       id: "xd",
       name: "XD",
       baseURL: "https://example.invalid/v1",
-      models: [{ id: "native-model", modelID: "configured-model", name: "Custom", efforts: ["low", "high"] }],
+      models: [
+        { id: "native-model", modelID: "configured-model", name: "Custom", efforts: ["low", "high"] },
+        { id: "claude-opus-4-8", name: "Claude", efforts: [] },
+      ],
     },
   ],
   key: async () => "fixture-only-key",
@@ -307,7 +317,7 @@ describe("CodexHost native process boundaries", () => {
           requestID: "rules-first",
           engine: "codex",
           location: location(),
-          input: { ...prompt, settings: { model: "claude-opus-4-8" } },
+          input: { ...prompt, settings: { model: "xd/claude-opus-4-8" } },
           delivery: "steer",
         }),
       )
@@ -324,7 +334,7 @@ describe("CodexHost native process boundaries", () => {
       await run(
         host.submit(id, {
           requestID: "rules-next",
-          input: { ...prompt, settings: { model: "claude-opus-4-8" } },
+          input: { ...prompt, settings: { model: "xd/claude-opus-4-8" } },
           delivery: "steer",
         }),
       )
@@ -358,17 +368,6 @@ describe("CodexHost native process boundaries", () => {
             modelID: "configured-model",
             requiresAuth: false,
           })
-          await expect(
-            run(
-              host.create({
-                requestID: "needs-login",
-                engine: "codex",
-                location: location(),
-                input: prompt,
-                delivery: "steer",
-              }),
-            ),
-          ).rejects.toThrow("Sign in")
           const created = await run(
             host.create({
               requestID: "xd-first",
@@ -388,7 +387,7 @@ describe("CodexHost native process boundaries", () => {
           await run(
             host.submit(id, {
               requestID: "subscription-next",
-              input: { ...prompt, settings: {} },
+              input: { ...prompt, settings: { model: "fixture/native-model" } },
               delivery: "steer",
             }),
           )
@@ -400,7 +399,7 @@ describe("CodexHost native process boundaries", () => {
             () => run(host.delivery(id, "subscription-next")),
             (value) => value.state === "accepted",
           )
-          expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("native-model")
+          expect((await run(host.snapshot(id))).descriptor.settings.model).toBe("fixture/native-model")
           await complete(home)
           await until(
             () => run(sessions.get(id)),
@@ -415,7 +414,7 @@ describe("CodexHost native process boundaries", () => {
           )
           await command(home, [])
           const restored = await activatedSnapshot(host, id)
-          expect(restored.descriptor.settings.model).toBe("native-model")
+          expect(restored.descriptor.settings.model).toBe("fixture/native-model")
           expect(restored.descriptor.pendingSettings?.model).toBe("xd/native-model")
           expect((await run(sessions.get(id))).binding.nativeThreadID).toBe("native-thread")
           await run(
@@ -439,7 +438,7 @@ describe("CodexHost native process boundaries", () => {
             () => run(sessions.get(id)),
             (value) => !value.binding.executionPending,
           )
-          await run(host.settings(id, { model: "native-model" }))
+          await run(host.settings(id, { model: "fixture/native-model" }))
           await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), exit: true }))
           await until(
             () => run(host.describe([id])),
@@ -448,7 +447,7 @@ describe("CodexHost native process boundaries", () => {
           await command(home, [])
           const customRestored = await activatedSnapshot(host, id)
           expect(customRestored.descriptor.settings.model).toBe("xd/native-model")
-          expect(customRestored.descriptor.pendingSettings?.model).toBe("native-model")
+          expect(customRestored.descriptor.pendingSettings?.model).toBe("fixture/native-model")
         },
         undefined,
         undefined,
@@ -469,7 +468,7 @@ describe("CodexHost native process boundaries", () => {
           requestID: "auto-first",
           engine: "codex",
           location: location(),
-          input: { ...prompt, settings: { permission: "auto" } },
+          input: { ...prompt, settings: { model: "fixture/native-model", permission: "auto" } },
           delivery: "steer",
         }),
       )
@@ -494,14 +493,14 @@ describe("CodexHost native process boundaries", () => {
     harness(async ({ host, home, sessions, scope }) => {
       const id = await seed(sessions, scope)
       await activatedSnapshot(host, id)
-      const pending = await run(host.settings(id, { permission: "auto" }))
+      const pending = await run(host.settings(id, { model: "fixture/native-model", permission: "auto" }))
       expect(pending.settings.permission).toBe("readOnly")
       expect(pending.pendingSettings?.permission).toBe("auto")
       await configure(home, { reflectSettings: true, waitForApprovals: true, turnRequests: [approval("changed")] })
       await run(
         host.submit(id, {
           requestID: "change",
-          input: { ...prompt, settings: { permission: "auto" } },
+          input: { ...prompt, settings: { model: "fixture/native-model", permission: "auto" } },
           delivery: "steer",
         }),
       )
@@ -524,13 +523,17 @@ describe("CodexHost native process boundaries", () => {
         (snapshot) => snapshot.interactions.length === 1,
       )
       expect((await rpc(home)).some((call) => call.id === "before")).toBe(false)
-      expect((await run(host.settings(id, { permission: "auto" }))).settings.permission).toBe("auto")
+      expect(
+        (await run(host.settings(id, { model: "fixture/native-model", permission: "auto" }))).settings.permission,
+      ).toBe("auto")
       await until(
         () => rpc(home),
         (calls) => calls.some((call) => call.id === "before"),
       )
       expect((await rpc(home)).find((call) => call.id === "before")?.result).toEqual({ decision: "accept" })
-      expect((await run(host.settings(id, { permission: "default" }))).settings.permission).toBe("default")
+      expect(
+        (await run(host.settings(id, { model: "fixture/native-model", permission: "default" }))).settings.permission,
+      ).toBe("default")
       await command(home, [approval("after", "file")])
       await until(
         () => run(host.snapshot(id)),
@@ -538,7 +541,10 @@ describe("CodexHost native process boundaries", () => {
       )
       await expect(run(host.settings(id, { permission: "auto", model: "missing" }))).rejects.toThrow("unavailable")
       const waiting = await run(host.snapshot(id))
-      expect((await run(sessions.get(id))).binding.settings).toEqual({ permission: "default" })
+      expect((await run(sessions.get(id))).binding.settings).toEqual({
+        model: "fixture/native-model",
+        permission: "default",
+      })
       expect(waiting.descriptor.settings.permission).toBe("default")
       expect(waiting.interactions.find((item) => item.itemRef === "after")?.state).toBe("pending")
       expect((await rpc(home)).some((call) => call.id === "after")).toBe(false)
@@ -549,7 +555,7 @@ describe("CodexHost native process boundaries", () => {
       const id = await seed(sessions, scope)
       await configure(home, { nativeSettings: workspacePolicy() })
       await run(host.snapshot(id))
-      await run(host.settings(id, { permission: "auto" }))
+      await run(host.settings(id, { model: "fixture/native-model", permission: "auto" }))
       await command(home, [
         { ...approval("deny"), params: { ...approval("deny").params, availableDecisions: ["decline", "cancel"] } },
         {
@@ -641,7 +647,7 @@ describe("CodexHost native process boundaries", () => {
       const id = await seed(sessions, scope)
       await configure(home, { nativeSettings: workspacePolicy() })
       await run(host.snapshot(id))
-      await run(host.settings(id, { permission: "auto" }))
+      await run(host.settings(id, { model: "fixture/native-model", permission: "auto" }))
       await command(home, [
         approval("resolved"),
         { method: "serverRequest/resolved", params: { threadId: "native-thread", requestId: "resolved" } },
@@ -659,7 +665,7 @@ describe("CodexHost native process boundaries", () => {
       const id = await seed(sessions, scope)
       await configure(home, { nativeSettings: workspacePolicy() })
       await run(host.snapshot(id))
-      const before = await run(host.settings(id, { permission: "auto" }))
+      const before = await run(host.settings(id, { model: "fixture/native-model", permission: "auto" }))
       await configure(home, {
         nativeSettings: { ...workspacePolicy(), sandbox: { type: "readOnly", networkAccess: false } },
       })
@@ -862,174 +868,69 @@ describe("CodexHost native process boundaries", () => {
     }
   }, 10_000)
 
-  test("keeps an existing native login without reading provider credentials", () =>
+  test("Codex exposes only Provider models and never imports or discovers native auth", () =>
+    harness(async ({ host, home }) => {
+      const engine = (await run(host.engines()))[0]!
+      expect(engine.models.every((model) => !!model.provider)).toBe(true)
+      expect(await run(host.account())).toEqual({ authenticated: false, requiresAuth: false })
+      await expect(run(host.login())).rejects.toThrow("no separate login")
+      await expect(run(host.cancelLogin("old-login"))).rejects.toThrow("no separate login")
+      expect(await rpc(home)).toEqual([])
+    }))
+
+  test("a clean Provider catalog has no bundled models or implicit native fallback", () =>
     harness(
       async ({ host, home }) => {
-        expect((await run(host.account())).authenticated).toBe(true)
-        expect((await rpc(home)).some((call) => call.method === "account/login/start")).toBe(false)
+        expect((await run(host.engines()))[0]!.models).toEqual([])
+        await expect(
+          run(
+            host.create({
+              requestID: "no-provider",
+              engine: "codex",
+              location: location(),
+              input: prompt,
+              delivery: "steer",
+            }),
+          ),
+        ).rejects.toThrow("unavailable")
+        expect(await rpc(home)).toEqual([])
       },
       undefined,
-      {
-        get: async () => {
-          throw new Error("Provider credentials must not be read")
-        },
-        onSelection: () => () => {},
-      },
+      undefined,
+      { list: async () => [], key: async () => undefined, onChange: () => () => {} },
     ))
 
-  test("reuses provider login once and handles threadless refresh during login", async () => {
-    const reads: Array<CodexAuth.Tokens | undefined> = []
-    await harness(
-      async ({ host, home }) => {
-        await configure(home, { authenticated: false, refreshOnLogin: true })
-        const accounts = await Promise.all([run(host.account()), run(host.account())])
-        expect(accounts.every((account) => account.authenticated)).toBe(true)
-        await until(
-          () => rpc(home),
-          (calls) => calls.some((call) => call.id === "login-refresh"),
-        )
-        expect((await rpc(home)).filter((call) => call.method === "account/login/start")).toHaveLength(1)
-        expect((await rpc(home)).find((call) => call.id === "login-refresh")?.error).toBeUndefined()
-        expect(reads).toHaveLength(2)
-        expect(reads[1]?.chatgptAccountId).toBe("fixture-account")
-        await command(home, [
-          {
-            id: "wrong-account",
-            method: "account/chatgptAuthTokens/refresh",
-            params: {
-              reason: "unauthorized",
-              previousAccountId: "different-account",
-            },
-          },
-        ])
-        await until(
-          () => rpc(home),
-          (calls) => calls.some((call) => call.id === "wrong-account"),
-        )
-        expect((await rpc(home)).find((call) => call.id === "wrong-account")?.error).toBeDefined()
-        expect(reads).toHaveLength(2)
-      },
-      undefined,
-      {
-        get: async (previous) => {
-          reads.push(previous)
-          return {
-            accessToken: previous ? "fixture-refreshed" : "fixture-initial",
-            chatgptAccountId: "fixture-account",
-            chatgptPlanType: null,
-          }
-        },
-        onSelection: () => () => {},
-      },
-    )
-  })
-
-  test("selection changes invalidate an in-flight native refresh and clear only the imported login", async () => {
-    let selection = () => {}
-    let finish = (_value: CodexAuth.Tokens | undefined) => {}
-    let refreshing = false
-    const tokens = { accessToken: "fixture-initial", chatgptAccountId: "fixture-account", chatgptPlanType: null }
-    await harness(
-      async ({ host, home }) => {
-        await configure(home, { authenticated: false })
-        expect((await run(host.account())).authenticated).toBe(true)
-        await command(home, [
-          {
-            id: "late-refresh",
-            method: "account/chatgptAuthTokens/refresh",
-            params: {
-              reason: "unauthorized",
-              previousAccountId: tokens.chatgptAccountId,
-            },
-          },
-        ])
-        await until(async () => refreshing, Boolean)
-        selection()
-        finish({ ...tokens, accessToken: "fixture-late" })
-        await until(
-          () => rpc(home),
-          (calls) => calls.some((call) => call.id === "late-refresh"),
-        )
-        expect((await rpc(home)).find((call) => call.id === "late-refresh")?.error).toBeDefined()
-        await until(
-          () => rpc(home),
-          (calls) => calls.some((call) => call.method === "account/logout"),
-        )
-      },
-      undefined,
-      {
-        get: async (previous) => {
-          if (!previous) return tokens
-          refreshing = true
-          return new Promise((resolve) => {
-            finish = resolve
-          })
-        },
-        onSelection: (listener) => {
-          selection = listener
-          return () => {}
-        },
-      },
-    )
-  })
-
-  test("provider selection cannot log out an independently logged-in native account", async () => {
-    let selection = () => {}
-    await harness(
-      async ({ host, home }) => {
-        expect((await run(host.account())).authenticated).toBe(true)
-        selection()
-        expect((await run(host.account())).authenticated).toBe(true)
-        expect((await rpc(home)).some((call) => call.method === "account/logout")).toBe(false)
-      },
-      undefined,
-      {
-        get: async () => {
-          throw new Error("Must not read provider auth")
-        },
-        onSelection: (listener) => {
-          selection = listener
-          return () => {}
-        },
-      },
-    )
-  })
-
-  test("two selections during import still log out the old external credential", async () => {
-    let selection = () => {}
-    let available = true
-    await harness(
-      async ({ host, home }) => {
-        await configure(home, { authenticated: false, delayLogin: true })
-        const account = run(host.account())
-        await until(
-          () => rpc(home),
-          (calls) => calls.some((call) => call.method === "account/login/start"),
-        )
-        available = false
-        selection()
-        selection()
-        await account
-        await until(
-          () => rpc(home),
-          (calls) => calls.some((call) => call.method === "account/logout"),
-        )
-        expect((await run(host.account())).authenticated).toBe(false)
-        expect((await rpc(home)).filter((call) => call.method === "account/logout")).toHaveLength(1)
-      },
-      undefined,
-      {
-        get: async () =>
-          available
-            ? { accessToken: "fixture-initial", chatgptAccountId: "fixture-account", chatgptPlanType: null }
-            : undefined,
-        onSelection: (listener) => {
-          selection = listener
-          return () => {}
-        },
-      },
-    )
-  })
+  test("legacy native settings retain history and require Provider selection before resuming", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const created = await run(
+        sessions.create({
+          runtimeScope: scope,
+          requestID: "legacy",
+          engine: "codex",
+          location: location(),
+          payload: { ...prompt, settings: { model: "native-model" } },
+          settings: { model: "native-model" },
+          delivery: "steer",
+        }),
+      )
+      const id = created.session.id
+      await run(sessions.claimBinding({ sessionID: id, generation: "seed" }))
+      await run(sessions.bind({ sessionID: id, nativeThreadID: "native-thread", generation: "seed" }))
+      await run(sessions.withdraw({ sessionID: id, requestID: "legacy" }))
+      await configure(home, { thread: historyThread() })
+      const observed = await activatedSnapshot(host, id)
+      expect(JSON.stringify(observed.messages)).toContain("restored history")
+      expect(observed.descriptor.runtimeStatus).toBe("bindingUnavailable")
+      expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(false)
+      await run(host.settings(id, { model: "xd/native-model" }))
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => value.descriptor.runtimeStatus === "idle",
+      )
+      expect((await rpc(home)).find((call) => call.method === "thread/resume")?.params?.modelProvider).toBe(
+        "opencode_xd",
+      )
+    }))
 
   test("lease refusal leaves native binding and input unclaimed", () =>
     harness(async ({ host, sessions, home, gate }) => {
@@ -1065,6 +966,7 @@ describe("CodexHost native process boundaries", () => {
           engine: "codex",
           location: location(),
           payload: prompt,
+          settings: prompt.settings,
           delivery: "steer",
         }),
       )
@@ -1166,7 +1068,7 @@ describe("CodexHost native process boundaries", () => {
         engine: "codex" as const,
         location: location(),
         payload: prompt,
-        settings: {},
+        settings: { model: "fixture/native-model" },
         delivery: "steer" as const,
       }
       const created = await run(sessions.create(request))
@@ -1459,7 +1361,12 @@ describe("CodexHost native process boundaries", () => {
             durationMs: null,
           },
         ]
-        await configure(home, { thread: native, selectedModel: "native-model", selectedProvider: "opencode_xd" })
+        await configure(home, {
+          reflectProvider: false,
+          thread: native,
+          selectedModel: "native-model",
+          selectedProvider: "opencode_xd",
+        })
         expect((await activatedSnapshot(host, id)).descriptor.settings.model).toBe("xd/native-model")
         await run(
           host.submit(id, {
@@ -1721,40 +1628,17 @@ describe("CodexHost native process boundaries", () => {
       expect((await rpc(home)).filter((call) => call.method === "turn/start")).toHaveLength(1)
     }))
 
-  test("native login failure stays visible until the next login attempt", () =>
-    harness(async ({ host, home }) => {
-      await configure(home, { authenticated: false })
-      const login = await run(host.login())
-      await command(home, [
-        {
-          method: "account/login/completed",
-          params: { loginId: login.loginID, success: false, error: "Login callback timed out" },
-        },
-      ])
-      const failed = await until(
-        () => run(host.account()),
-        (value) => value.loginState === "failed",
-      )
-      expect(failed.authenticated).toBe(false)
-      expect(failed.loginID).toBeUndefined()
-      expect(failed.error).toBe("Login callback timed out")
-      await run(host.login())
-      const pending = await run(host.account())
-      expect(pending.loginState).toBe("pending")
-      expect(pending.error).toBeUndefined()
-    }))
-
-  test("login is coalesced and desired settings do not become applied before native confirmation", () =>
+  test("desired settings do not become applied before native confirmation", () =>
     harness(async ({ host, sessions, scope, home }) => {
-      await Promise.all([run(host.login()), run(host.login())])
-      expect((await rpc(home)).filter((call) => call.method === "account/login/start")).toHaveLength(1)
       const id = await seed(sessions, scope)
       await activatedSnapshot(host, id)
-      const descriptor = await run(host.settings(id, { effort: "high" }))
+      const descriptor = await run(host.settings(id, { model: "fixture/native-model", effort: "high" }))
       expect(descriptor.settings.effort).toBe("low")
       expect(descriptor.pendingSettings?.effort).toBe("high")
-      expect((await run(host.settings(id, { effort: "low" }))).pendingSettings).toBeUndefined()
-      expect((await run(host.settings(id, {}))).pendingSettings).toBeUndefined()
+      expect(
+        (await run(host.settings(id, { model: "fixture/native-model", effort: "low" }))).pendingSettings,
+      ).toBeUndefined()
+      expect((await run(host.settings(id, { model: "fixture/native-model" }))).pendingSettings).toBeUndefined()
     }))
 
   test("native nonblocking question stays active and a resolved request cannot be answered", () =>
@@ -2038,9 +1922,12 @@ describe("CodexHost native process boundaries", () => {
     }))
 
   test("idle signal during resume schedules a fresh read and drains already admitted input", () =>
-    harness(async ({ host, sessions, scope, home }) => {
-      await run(host.account())
+    harness(async ({ host, sessions, scope, home, database }) => {
       const id = await seed(sessions, scope)
+      await run(database.db.update(SessionTable).set({ time_archived: Date.now() }).run().pipe(Effect.orDie))
+      await run(host.snapshot(id))
+      await run(database.db.update(SessionTable).set({ time_archived: null }).run().pipe(Effect.orDie))
+      await run(sessions.setQueuePaused(id, false))
       await run(sessions.admit({ sessionID: id, requestID: "queued-before-read", payload: prompt, delivery: "queue" }))
       await configure(home, {
         resumeEvents: [
@@ -2581,6 +2468,7 @@ describe("CodexHost native process boundaries", () => {
           runtimeScope: scope,
           nativeThreadID: "native-child",
           location: location(),
+          settings: prompt.settings,
         }),
       )
       const item: v2.ThreadItem = {

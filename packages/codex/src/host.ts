@@ -46,7 +46,6 @@ import { readCodexRolloutHistory } from "./history"
 import { createCodexInteraction } from "./interaction"
 import { codexInput, prepareInput, threadSettings, turnSettings } from "./input"
 import { CodexWorktreeAccess } from "./worktree-access"
-import { CodexAuth } from "./auth"
 import { CodexProviders } from "./providers"
 import { providerCredentials } from "./provider-credentials"
 import { codexStorage } from "./storage"
@@ -170,7 +169,6 @@ const layer = Layer.effect(
     const sessions = yield* SessionExternal.Service
     const ownership = yield* SessionExternalOwnership.Service
     const worktrees = yield* CodexWorktreeAccess.Service
-    const auth = yield* CodexAuth.Service
     const providers = yield* CodexProviders.Service
     const credentials = providerCredentials(providers)
     const events = yield* EventV2.Service
@@ -196,23 +194,10 @@ const layer = Layer.effect(
       manager?: CodexRuntimeManager
       runtime?: CodexRuntime
       connecting?: Promise<CodexRuntime>
-      account?: Account
-      models?: Engine["models"]
-      loginID?: string
-      loginState?: Account["loginState"]
-      loginError?: string
-      login?: Login
-      loggingIn?: Promise<Login>
       recovery: Promise<void>
       lastGeneration: number
       closed: boolean
-      authVersion: number
-      authAttempted?: number
-      authImport?: Promise<void>
-      authReset: Promise<void>
-      externalAuth?: CodexAuth.Tokens
-      externalInstalled?: number
-    } = { closed: false, recovery: Promise.resolve(), authReset: Promise.resolve(), authVersion: 0, lastGeneration: 0 }
+    } = { closed: false, recovery: Promise.resolve(), lastGeneration: 0 }
     const run = Effect.runPromise
     const globalInstructions = () =>
       run(instructions.load({ engine: "codex" }).pipe(Effect.map(KomaInstructions.render)))
@@ -500,15 +485,6 @@ const layer = Layer.effect(
         connected.client.onExit(() => {
           if (state.runtime !== connected) return
           state.runtime = undefined
-          state.models = undefined
-          state.account = undefined
-          state.externalAuth = undefined
-          state.externalInstalled = undefined
-          state.authVersion++
-          state.login = undefined
-          state.loginID = undefined
-          state.loginState = undefined
-          state.loginError = undefined
           const recovery = (async () => {
             await run(ownership.invalidateScope(runtimeScope))
             await run(sessions.recover(runtimeScope))
@@ -549,120 +525,12 @@ const layer = Layer.effect(
     }
 
     async function account(): Promise<Account> {
-      const connected = await runtime()
-      await state.authReset
-      await reuseAuth(connected)
-      const response = await connected.client.request<"account/read", v2.GetAccountResponse>("account/read", {
-        refreshToken: false,
-      })
-      if (!current(connected)) return fail("unavailable", "Codex connection changed while reading account")
-      if (response.account !== null) {
-        state.loginError = undefined
-        state.loginState = "complete"
-      }
-      state.account = {
-        authenticated: response.account !== null,
-        requiresAuth: response.requiresOpenaiAuth,
-        label: response.account && "email" in response.account ? (response.account.email ?? undefined) : undefined,
-        plan: response.account && "planType" in response.account ? (response.account.planType ?? undefined) : undefined,
-        loginID: state.loginID,
-        loginState: state.loginID ? "pending" : state.loginState,
-        error: state.loginError,
-      }
-      return state.account
-    }
-
-    async function reuseAuth(connected: CodexRuntime) {
-      if (state.authImport) return state.authImport
-      if (state.authAttempted === connected.generation || state.loggingIn || state.loginID) return
-      state.authAttempted = connected.generation
-      const version = state.authVersion
-      state.authImport = (async () => {
-        const response = await connected.client.request<"account/read", v2.GetAccountResponse>("account/read", {
-          refreshToken: false,
-        })
-        // The native account is the user's explicit selection. Never replace it.
-        if (response.account || !response.requiresOpenaiAuth) return
-        const tokens = await auth.get()
-        if (!tokens?.accessToken || !tokens.chatgptAccountId) return
-        if (!current(connected) || version !== state.authVersion || state.loggingIn) return
-        const selected = await connected.client.request<"account/read", v2.GetAccountResponse>("account/read", {
-          refreshToken: false,
-        })
-        if (selected.account || !current(connected) || version !== state.authVersion || state.loggingIn) return
-        state.externalAuth = tokens
-        state.externalInstalled = connected.generation
-        await connected.client.request("account/login/start", { type: "chatgptAuthTokens", ...tokens })
-      })()
-        .catch(() => {
-          state.externalAuth = undefined
-          state.loginError = "Could not reuse the existing OpenAI login; native Codex login is available"
-        })
-        .finally(() => {
-          state.authImport = undefined
-        })
-      return state.authImport
-    }
-
-    const unsubscribeAuth = auth.onSelection(() => {
-      const connected = state.runtime
-      const imported = state.externalInstalled
-      const importing = state.authImport
-      state.authVersion++
-      state.authAttempted = undefined
-      state.externalAuth = undefined
-      state.account = undefined
-      state.models = undefined
-      if (!connected) return
-      if (imported === undefined) {
-        void notifyEngine().catch(() => undefined)
-        return
-      }
-      state.authReset = state.authReset
-        .then(async () => {
-          await importing
-          // A second selection must not cancel the only logout of the old token.
-          if (!current(connected) || state.externalInstalled !== connected.generation || state.loggingIn) return
-          await connected.client.request("account/logout", undefined)
-          state.externalInstalled = undefined
-        })
-        .catch(() => {
-          state.loginError = "Could not synchronize the changed OpenAI login"
-        })
-      void state.authReset.then(() => notifyEngine()).catch(() => undefined)
-    })
-    yield* Effect.addFinalizer(() => Effect.sync(unsubscribeAuth))
-
-    async function nativeModels() {
-      if (state.models) return state.models
-      const connected = await runtime()
-      const values: v2.Model[] = []
-      let cursor: string | undefined
-      do {
-        const page = await connected.client.request<"model/list", v2.ModelListResponse>("model/list", {
-          cursor,
-          includeHidden: false,
-        })
-        values.push(...page.data)
-        cursor = page.nextCursor ?? undefined
-      } while (cursor)
-      if (!current(connected)) return fail("unavailable", "Codex connection changed while reading models")
-      state.models = values
-        .filter((model) => !model.hidden)
-        .map((model) => ({
-          id: model.model,
-          name: model.displayName,
-          default: model.isDefault,
-          efforts: model.supportedReasoningEfforts.map((effort) => effort.reasoningEffort),
-          defaultEffort: model.defaultReasoningEffort,
-        }))
-      return state.models
+      return { authenticated: false, requiresAuth: false }
     }
 
     async function models() {
-      const [native, configured] = await Promise.all([nativeModels(), providers.list()])
+      const configured = await providers.list()
       return [
-        ...native,
         ...configured.flatMap((provider) =>
           provider.models.map((model) => ({
             id: CodexProviders.modelID(provider.id, model.id),
@@ -696,10 +564,7 @@ const layer = Layer.effect(
           },
         }
       }
-      const available = await nativeModels()
-      const model = available.find((model) => (settings.model ? model.id === settings.model : model.default))
-      if (!model) return fail("invalid", "The selected Codex model is unavailable")
-      return { model: model.id, modelProvider: "openai" }
+      return fail("invalid", "Select an available Provider model for this Codex task")
     }
 
     const unsubscribeProviders = providers.onChange(() => void notifyEngine().catch(() => undefined))
@@ -707,9 +572,7 @@ const layer = Layer.effect(
 
     async function validateSettings(settings: Settings) {
       const available = await models()
-      const selected =
-        available.find((model) => (settings.model ? model.id === settings.model : model.default)) ??
-        (!settings.model ? available[0] : undefined)
+      const selected = available.find((model) => model.id === settings.model)
       if (!selected) return fail("invalid", "The selected Codex model is unavailable")
       if (settings.effort && !selected.efforts.includes(settings.effort))
         return fail("invalid", "The selected reasoning effort is unavailable for this model")
@@ -717,10 +580,9 @@ const layer = Layer.effect(
     }
 
     async function requireReady(settings: Settings) {
-      const selected = await validateSettings(settings)
-      if ("requiresAuth" in selected && selected.requiresAuth === false) return
-      const info = await account()
-      if (info.requiresAuth && !info.authenticated) return fail("unavailable", "Sign in to Codex before sending a task")
+      await validateSettings(settings)
+      // Recover existing deliveries before admitting a new durable input.
+      await runtime()
     }
 
     function updateView(entry: Entry) {
@@ -918,7 +780,7 @@ const layer = Layer.effect(
                 return
               entry.status = state.runtime ? "bindingUnavailable" : "disconnected"
               entry.error = errorMessage(error)
-              entry.dirty = true
+              entry.dirty = !(error instanceof HostError && error.code === "invalid")
               await emit(entry)
             })
           },
@@ -936,9 +798,13 @@ const layer = Layer.effect(
         turns.set(input.nativeTurnID, decodeInput(input.payload).settings)
       }
       const applied = [...turns.values()].at(-1)
-      if (applied) return selectedModel(applied)
       const initial = deliveries[0] && decodeInput(deliveries[0].payload).settings
-      return initial?.model ? selectedModel(initial) : undefined
+      const previous = applied ?? initial
+      const available = await models()
+      if (previous?.model && available.some((model) => model.id === previous.model)) return selectedModel(previous)
+      // Legacy native-only settings are never inferred from the native default.
+      // A user's explicit Provider selection can resume the same historical thread.
+      return selectedModel(decodeSettings(entry.record.binding.settings))
     }
 
     async function load(entry: Entry, resume = false, observe = false, existing?: CodexRuntime) {
@@ -1532,31 +1398,7 @@ const layer = Layer.effect(
       if (notification.generation !== state.runtime?.generation) return
       const received = { ...notification, sequence: ++receiveSequence }
       const params = record(notification.params) ? notification.params : {}
-      if (notification.method.startsWith("account/")) {
-        state.account = undefined
-        state.models = undefined
-        if (notification.method === "account/updated" && params.authMode !== "chatgptAuthTokens") {
-          state.externalAuth = undefined
-          state.externalInstalled = undefined
-          state.authVersion++
-        }
-        if (
-          notification.method === "account/login/completed" &&
-          (params.loginId == null || params.loginId === state.loginID)
-        ) {
-          state.loginID = undefined
-          state.login = undefined
-          state.loginState = params.success === true ? "complete" : "failed"
-          state.loginError =
-            params.success === true
-              ? undefined
-              : typeof params.error === "string"
-                ? params.error
-                : "Native Codex login did not complete"
-        }
-        void notifyEngine().catch(() => undefined)
-        return
-      }
+      if (notification.method.startsWith("account/")) return
       const threadID =
         typeof params.threadId === "string"
           ? params.threadId
@@ -1801,22 +1643,8 @@ const layer = Layer.effect(
       if (!connected || native.generation !== connected.generation)
         return { error: { code: -32603, message: "Stale Codex connection" } }
       const params = record(native.params) ? native.params : {}
-      if (native.method === "account/chatgptAuthTokens/refresh") {
-        const selected = state.externalAuth
-        const version = state.authVersion
-        if (!selected || (params.previousAccountId != null && params.previousAccountId !== selected.chatgptAccountId))
-          return { error: { code: -32602, message: "No matching externally managed Codex account" } }
-        const tokens = await auth.get(selected).catch(() => undefined)
-        if (
-          !tokens?.accessToken ||
-          tokens.chatgptAccountId !== selected.chatgptAccountId ||
-          !current(connected) ||
-          version !== state.authVersion ||
-          state.loggingIn
-        )
-          return { error: { code: -32603, message: "OpenAI authentication is no longer available for this account" } }
-        state.externalAuth = tokens
-        return { result: tokens }
+      if (native.method.startsWith("account/")) {
+        return { error: { code: -32601, message: "Codex authentication is managed by the selected Provider" } }
       }
       if (typeof params.threadId !== "string")
         return { error: { code: -32601, message: `Unsupported native request: ${native.method}` } }
@@ -2047,7 +1875,7 @@ const layer = Layer.effect(
                   id: "codex",
                   available: false,
                   error: errorMessage(error),
-                  account: { authenticated: false, requiresAuth: true },
+                  account: { authenticated: false, requiresAuth: false },
                   models: [],
                   capabilities: disabled,
                 }),
@@ -2056,45 +1884,8 @@ const layer = Layer.effect(
         }),
       account: () => result(account),
       login: () =>
-        result(async () => {
-          if (state.login) return state.login
-          if (state.loggingIn) return state.loggingIn
-          state.loggingIn = (async () => {
-            const connected = await runtime()
-            state.authVersion++
-            await state.authImport
-            await state.authReset
-            state.externalAuth = undefined
-            state.externalInstalled = undefined
-            const login = await connected.client.request<"account/login/start", v2.LoginAccountResponse>(
-              "account/login/start",
-              { type: "chatgpt" },
-            )
-            if (!current(connected)) return fail("unavailable", "Codex connection changed during login")
-            if (login.type !== "chatgpt") return fail("nativeError", "Native login returned an unsupported flow")
-            state.loginID = login.loginId
-            state.loginState = "pending"
-            state.loginError = undefined
-            state.login = { loginID: login.loginId, url: login.authUrl }
-            await notifyEngine()
-            return state.login
-          })().finally(() => {
-            state.loggingIn = undefined
-          })
-          return state.loggingIn
-        }),
-      cancelLogin: (loginID) =>
-        result(async () => {
-          if (state.loginID !== loginID) return fail("conflict", "Login attempt is no longer active")
-          const connected = await runtime()
-          await connected.client.request("account/login/cancel", { loginId: loginID })
-          if (!current(connected)) return fail("unavailable", "Codex connection changed while canceling login")
-          state.loginID = undefined
-          state.login = undefined
-          state.loginState = undefined
-          state.loginError = undefined
-          return account()
-        }),
+        result(async () => fail("invalid", "Configure authentication in Providers; Codex has no separate login")),
+      cancelLogin: () => result(async () => fail("invalid", "Codex has no separate login")),
       describe: (sessionIDs) =>
         result(async () => {
           const values = await run(sessions.describe(sessionIDs))
@@ -2303,6 +2094,7 @@ const layer = Layer.effect(
             entry.record.binding = await run(sessions.setSettings(sessionID, json(input)))
             entry.desiredSettings = decodeSettings(entry.record.binding.settings)
             await approveAutomatically(entry)
+            if (!entry.resumed && entry.native && entry.status === "bindingUnavailable") scheduleActivation(entry)
             await emit(entry)
             return descriptor(entry)
           })
@@ -2524,7 +2316,6 @@ export const node = makeGlobalNode({
     SessionExternal.node,
     SessionExternalOwnership.node,
     CodexWorktreeAccess.node,
-    CodexAuth.node,
     CodexProviders.node,
     EventV2.node,
   ],

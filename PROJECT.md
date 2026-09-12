@@ -66,7 +66,7 @@ Koma Debug 与 Koma 使用同一工作台和共享后端；`bun run debug` 生�
 ## 新安装默认值
 
 - 默认 profile 为 `~/.koma`；已有 Lab 数据保留原位置并通过兼容链接接入。
-- Codex 与 OpenCode 的可用模型汇总到同一 Provider 模型管理目录，共享显隐偏好；原生 Codex 模型属于 Codex Provider，执行 ID 保持兼容，各引擎按支持能力筛选。
+- Codex 与 OpenCode 的可用模型汇总到同一 Provider 模型管理目录，共享显隐偏好；Codex 只负责执行，不提供独立模型目录或登录。模型、endpoint 与认证均来自已有 Provider，各引擎按协议支持能力筛选；旧任务无法确定 Provider 时保留历史并要求重选模型。
 - 后台子代理默认开启，显式关闭的设置或环境覆盖继续有效。
 - 新任务默认开启 Worktree；未保存分支选择时依次选已有的 `main`、`dev`、当前分支。分支选择与工作目录隔离分别控制。
 - 账号、密钥、历史任务、项目级权限和个人模型偏好不内置到应用包。

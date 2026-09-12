@@ -16,6 +16,7 @@ export type Provider = {
   id: string
   name: string
   baseURL: string
+  accountID?: string
   models: Model[]
 }
 
@@ -23,7 +24,7 @@ export interface Interface {
   readonly list: () => Promise<Provider[]>
   // Resolve at request time, and refuse credentials if the configured endpoint
   // changed since the native thread selected this provider.
-  readonly key: (providerID: string, baseURL: string) => Promise<string | undefined>
+  readonly key: (providerID: string, baseURL: string, accountID?: string) => Promise<string | undefined>
   readonly onChange: (listener: () => void) => () => void
 }
 

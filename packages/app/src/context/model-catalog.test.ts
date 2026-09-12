@@ -3,15 +3,8 @@ import { providerCodexModel, unifiedModelCatalog } from "./model-catalog"
 
 const native = { id: "gpt-native", name: "GPT Native", default: true, efforts: ["high"] }
 
-test("native Codex discovery becomes a provider entry without changing its execution ID", () => {
-  expect(providerCodexModel(native)).toEqual({
-    ...native,
-    provider: { id: "codex", name: "Codex" },
-    modelID: "gpt-native",
-  })
-  expect(unifiedModelCatalog([], [native])).toEqual([
-    { id: "gpt-native", name: "GPT Native", provider: { id: "codex", name: "Codex" }, engines: ["codex"] },
-  ])
+test("native Codex models never become a separate Provider", () => {
+  expect(unifiedModelCatalog([], [native])).toEqual([])
 })
 
 test("both engines share the configured provider's display name and preference key", () => {
@@ -26,9 +19,9 @@ test("both engines share the configured provider's display name and preference k
 test("identical model names from different providers remain independent", () => {
   const list = unifiedModelCatalog(
     [{ id: native.id, name: "OpenAI Model", provider: { id: "openai", name: "OpenAI" } }],
-    [native, native],
+    [{ ...native, provider: { id: "xd", name: "XD" } }],
   )
   expect(list).toHaveLength(2)
-  expect(list.map((item) => item.provider.id)).toEqual(["openai", "codex"])
+  expect(list.map((item) => item.provider.id)).toEqual(["openai", "xd"])
   expect(list[1].engines).toEqual(["codex"])
 })

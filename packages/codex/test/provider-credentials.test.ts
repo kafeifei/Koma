@@ -42,6 +42,27 @@ describe("providerCredentials", () => {
     }
   })
 
+  test("pins OAuth account headers and credential routes to the selected Provider account", async () => {
+    let selected = "account-1"
+    const credentials = providerCredentials({
+      list: async () => [],
+      onChange: () => () => {},
+      key: async (_id, _base, accountID) => (accountID === selected ? "provider-token" : undefined),
+    })
+    try {
+      const first = await credentials.config({ ...provider, accountID: selected })
+      expect(first.http_headers).toEqual({ "ChatGPT-Account-Id": "account-1" })
+      expect((await curl(first.auth)).stdout).toBe("provider-token")
+      selected = "account-2"
+      expect((await curl(first.auth)).exitCode).not.toBe(0)
+      const second = await credentials.config({ ...provider, accountID: selected })
+      expect(second.auth.args.at(-1)).not.toBe(first.auth.args.at(-1))
+      expect((await curl(second.auth)).stdout).toBe("provider-token")
+    } finally {
+      await credentials.close()
+    }
+  })
+
   test("rejects unauthorized and nonexistent HTTP routes", async () => {
     const credentials = providerCredentials(source(() => "xd-key"))
 

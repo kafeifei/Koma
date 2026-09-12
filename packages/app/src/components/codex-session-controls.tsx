@@ -1,4 +1,4 @@
-import type { JsonValue, LabEnginesOutput, LabSnapshotOutput } from "@opencode-ai/lab-client"
+import type { JsonValue, LabSnapshotOutput } from "@opencode-ai/lab-client"
 import { Button } from "@opencode-ai/ui/button"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { DockTray } from "@opencode-ai/ui/dock-surface"
@@ -67,18 +67,6 @@ export type CodexFormField = {
 }
 
 type FormValue = string | boolean | string[]
-
-export function reconcileCodexLoginID(
-  local: string | undefined,
-  account: LabEnginesOutput[number]["account"] | undefined,
-) {
-  if (!account) return local
-  if (account.loginState === "pending") return account.loginID ?? local
-  if (account.authenticated || account.loginState === "complete" || account.loginState === "failed" || account.error) {
-    return undefined
-  }
-  return local
-}
 
 export function codexFormFields(schema: unknown): CodexFormField[] | undefined {
   if (!record(schema) || schema.type !== "object" || !record(schema.properties)) return undefined
@@ -162,7 +150,6 @@ export function CodexSessionControls(props: {
   const [store, setStore] = createStore({
     busy: {} as Record<string, boolean | undefined>,
     errors: {} as Record<string, string | undefined>,
-    loginID: undefined as string | undefined,
     answers: {} as Record<string, Record<string, string[] | undefined> | undefined>,
     other: {} as Record<string, Record<string, string | undefined> | undefined>,
     forms: {} as Record<string, Record<string, FormValue | undefined> | undefined>,
@@ -173,9 +160,7 @@ export function CodexSessionControls(props: {
   const descriptor = createMemo(() => (props.sessionID ? external().data.descriptors[props.sessionID] : undefined))
   const snapshot = createMemo(() => (props.sessionID ? external().data.snapshots[props.sessionID] : undefined))
   const engine = createMemo(() => external().data.engines?.find((item) => item.id === "codex"))
-  const account = createMemo(() => engine()?.account)
   const visible = createMemo(() => props.engine === "codex" || descriptor()?.engine === "codex")
-  const loginID = createMemo(() => store.loginID ?? account()?.loginID)
 
   const fail = (key: string, error: unknown) => {
     const message = errorMessage(error)
@@ -210,28 +195,6 @@ export function CodexSessionControls(props: {
       .load(sessionID)
       .catch((error) => fail("snapshot", error))
   })
-
-  createEffect(() => {
-    const next = reconcileCodexLoginID(store.loginID, account())
-    if (next !== store.loginID) setStore("loginID", next)
-  })
-
-  const signIn = () =>
-    void run("account", undefined, async () => {
-      const login = await external().actions.login()
-      setStore("loginID", login.loginID)
-      if (!webURL(login.url)) throw new Error(login.url)
-      platform.openExternal(login.url)
-    })
-
-  const cancelSignIn = () => {
-    const current = loginID()
-    if (!current) return
-    void run("account", undefined, async () => {
-      await external().actions.cancelLogin(current)
-      setStore("loginID", undefined)
-    })
-  }
 
   const interactionReply = (
     interaction: Interaction,
@@ -276,15 +239,10 @@ export function CodexSessionControls(props: {
     return current?.status === "available" ? current.value : undefined
   })
   const controlError = createMemo(
-    () => engine()?.error || account()?.error || descriptor()?.error || external().data.errors[props.sessionID ?? ""],
+    () => engine()?.error || descriptor()?.error || external().data.errors[props.sessionID ?? ""],
   )
   const queuePaused = createMemo(() => descriptor()?.queuePaused === true)
-  const accountRequired = createMemo(
-    () => account() !== undefined && account()?.authenticated !== true && account()?.requiresAuth !== false,
-  )
-  const recoveryError = createMemo(
-    () => controlError() || store.errors.snapshot || store.errors.account || store.errors.recovery,
-  )
+  const recoveryError = createMemo(() => controlError() || store.errors.snapshot || store.errors.recovery)
   const planTodos = createMemo(() =>
     (plan()?.steps ?? []).map((step) => ({
       content: step.step,
@@ -295,11 +253,7 @@ export function CodexSessionControls(props: {
   const actionable = createMemo(
     () =>
       visible() &&
-      (accountRequired() ||
-        !!recoveryError() ||
-        interactions().length > 0 ||
-        deliveries().length > 0 ||
-        planTodos().length > 0),
+      (!!recoveryError() || interactions().length > 0 || deliveries().length > 0 || planTodos().length > 0),
   )
 
   const retry = () =>
@@ -652,45 +606,13 @@ export function CodexSessionControls(props: {
   return (
     <Show when={actionable()}>
       <div data-component="codex-session-docks" class="flex flex-col gap-2">
-        <Show when={accountRequired() || !!recoveryError()}>
-          <DockTray data-component="codex-account-dock" attach="top">
-            <div class="flex min-h-12 flex-wrap items-center gap-2 px-3 py-2">
-              <div class="min-w-0 flex-1">
-                <Show
-                  when={recoveryError()}
-                  fallback={<span class="text-13-medium text-text-base">{language.t("codex.account.signIn")}</span>}
-                >
-                  {(error) => <span class="whitespace-pre-wrap text-12-regular text-text-critical">{error()}</span>}
-                </Show>
-              </div>
-              <Show when={!!recoveryError()}>
-                <Button data-action="retry" size="small" disabled={store.busy.recovery} onClick={retry}>
-                  {language.t("session.inspector.retry")}
-                </Button>
-              </Show>
-              <Show
-                when={!!loginID()}
-                fallback={
-                  <Show when={accountRequired()}>
-                    <Button
-                      data-action="sign-in"
-                      size="small"
-                      variant="primary"
-                      disabled={store.busy.account || engine()?.available === false}
-                      onClick={signIn}
-                    >
-                      {engine()?.available === false
-                        ? language.t("codex.account.unavailable")
-                        : language.t("codex.account.signIn")}
-                    </Button>
-                  </Show>
-                }
-              >
-                <span class="text-12-regular text-text-weak">{language.t("codex.account.pending")}</span>
-                <Button data-action="cancel-sign-in" size="small" disabled={store.busy.account} onClick={cancelSignIn}>
-                  {language.t("codex.account.cancelSignIn")}
-                </Button>
-              </Show>
+        <Show when={!!recoveryError()}>
+          <DockTray data-component="codex-recovery-dock" attach="top">
+            <div class="flex min-h-12 items-center gap-2 px-3 py-2">
+              <span class="text-12-regular text-text-critical">{recoveryError()}</span>
+              <Button data-action="retry" size="small" disabled={store.busy.recovery} onClick={retry}>
+                {language.t("session.inspector.retry")}
+              </Button>
             </div>
           </DockTray>
         </Show>

@@ -5,6 +5,7 @@ import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Effect, Layer } from "effect"
 import { Auth } from "../../src/auth"
+import { OpenAIAuth } from "../../src/auth/openai"
 import { GlobalBus } from "../../src/bus/global"
 import { Config } from "../../src/config/config"
 import { CodexProvider } from "../../src/provider/codex"
@@ -23,6 +24,12 @@ function fixture() {
     authListeners: new Set(),
   }
   const layer = LayerNode.compile(CodexProvider.node, [
+    [
+      OpenAIAuth.node,
+      Layer.succeed(OpenAIAuth.Service, {
+        get: async () => (state.auth.openai?.type === "oauth" ? state.auth.openai : undefined),
+      }),
+    ],
     [
       Config.node,
       Layer.mock(Config.Service, {
@@ -249,5 +256,65 @@ changes.it.live("notifies for auth selection and global config disposal until un
     changes.state.authListeners.forEach((listener) => listener("xd"))
     GlobalBus.emit("event", { directory: "global", payload: { type: "global.disposed", properties: {} } })
     expect(calls).toBe(2)
+  }),
+)
+
+const connected = fixture()
+connected.it.live("uses connected catalog Providers without requiring custom configuration", () =>
+  Effect.gen(function* () {
+    connected.state.config = {}
+    connected.state.catalog = {
+      openai: {
+        id: "openai",
+        name: "OpenAI",
+        env: [],
+        npm: "@ai-sdk/openai",
+        api: "https://api.openai.com/v1",
+        models: Object.fromEntries(
+          ["gpt-5.5", "gpt-5.5-pro", "gpt-5.4-mini"].map((id) => [
+            id,
+            {
+              id,
+              name: id,
+              release_date: "2026-01-01",
+              attachment: true,
+              reasoning: true,
+              temperature: false,
+              tool_call: true,
+              limit: { context: 200_000, output: 32_000 },
+            },
+          ]),
+        ),
+      },
+    }
+    connected.state.auth = { openai: new Auth.Api({ type: "api", key: "provider-api-key" }) }
+    const service = yield* CodexProviders.Service
+    expect((yield* Effect.promise(() => service.list()))[0]?.models).toHaveLength(3)
+    expect(yield* Effect.promise(() => service.key("openai", "https://api.openai.com/v1"))).toBe("provider-api-key")
+    connected.state.auth.openai = new Auth.Oauth({
+      type: "oauth",
+      access: "provider-access",
+      refresh: "refresh",
+      expires: Date.now() + 3600000,
+      accountId: "account-1",
+    })
+    const providers = yield* Effect.promise(() => service.list())
+    expect(providers[0]?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-5.4-mini"])
+    expect(providers[0]?.models[0]?.contextWindow).toBe(400_000)
+    expect(providers[0]?.baseURL).toBe("https://chatgpt.com/backend-api/codex")
+    expect(providers[0]?.accountID).toBe("account-1")
+    expect(JSON.stringify(providers)).not.toContain("provider-access")
+    expect(yield* Effect.promise(() => service.key("openai", providers[0]!.baseURL, "account-1"))).toBe(
+      "provider-access",
+    )
+    connected.state.auth.openai = new Auth.Oauth({
+      type: "oauth",
+      access: "other-access",
+      refresh: "other-refresh",
+      expires: Date.now() + 3600000,
+      accountId: "account-2",
+    })
+    expect(yield* Effect.promise(() => service.key("openai", providers[0]!.baseURL, "account-1"))).toBeUndefined()
+    expect(yield* Effect.promise(() => service.key("openai", "https://untrusted.example", "account-2"))).toBeUndefined()
   }),
 )
