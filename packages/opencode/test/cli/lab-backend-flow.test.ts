@@ -134,7 +134,7 @@ test("backend survives CLI exit, gates real writes and preserves files through w
   try {
     const connection = await until("published backend connection", async () => {
       if (backend.exitCode !== null) throw new Error(`Backend exited with ${backend.exitCode}`)
-      const file = Bun.file(path.join(input.root, "bin/.lab-backend/backend.json"))
+      const file = Bun.file(path.join(input.root, "bin/.koma-backend/backend.json"))
       if (!(await file.exists())) return
       const value = (await file.json()) as { pid: number; url?: string; username: string; password: string }
       if (value.url) return { ...value, url: value.url }

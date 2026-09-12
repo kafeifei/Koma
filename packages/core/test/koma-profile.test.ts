@@ -62,3 +62,16 @@ test("legacy backend state remains authoritative after the rename", async () => 
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("a new explicit home has the same identity before and after creation through an ancestor alias", () => {
+  const parent = mkdtempSync(join(tmpdir(), "koma-new-home-"))
+  try {
+    const requested = join(parent, "nested", "profile")
+    const before = KomaProfile.resolveHome({ KOMA_HOME: requested })
+    mkdirSync(requested, { recursive: true })
+    expect(KomaProfile.resolveHome({ KOMA_HOME: requested })).toBe(before)
+    expect(before).toBe(realpathSync(requested))
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
+})

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, realpathSync, symlinkSync } from "node:fs"
 import { homedir } from "node:os"
-import { isAbsolute, join, normalize } from "node:path"
+import { basename, dirname, isAbsolute, join, normalize } from "node:path"
 import { StoragePaths } from "./storage-paths"
 
 /** Keep old task paths and process locks authoritative while exposing the Koma home. */
@@ -8,7 +8,7 @@ export function resolveHome(environment: NodeJS.ProcessEnv = process.env, home =
   const explicit = environment.KOMA_HOME ?? environment.OPENCODE_HOME
   if (explicit !== undefined) {
     if (!isAbsolute(explicit)) throw new Error("KOMA_HOME must be an absolute path")
-    return existsSync(explicit) ? realpathSync(explicit) : normalize(explicit)
+    return canonicalHome(explicit)
   }
   const current = join(home, ".koma")
   const legacy = join(home, ".opencode")
@@ -40,3 +40,9 @@ export function isDefault(root: string, home = homedir()) {
 }
 
 export * as KomaProfile from "./koma-profile"
+
+function canonicalHome(value: string): string {
+  const normalized = normalize(value)
+  if (existsSync(normalized)) return realpathSync(normalized)
+  return join(canonicalHome(dirname(normalized)), basename(normalized))
+}
