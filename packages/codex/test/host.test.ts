@@ -18,6 +18,7 @@ import { SessionExternal } from "@opencode-ai/core/session/external/index"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { CodexHost } from "../src/host"
+import { writerHandoff } from "../src/writer-handoff"
 import { CodexWorktreeAccess } from "../src/worktree-access"
 import { CodexAuth } from "../src/auth"
 import { CodexProviders } from "../src/providers"
@@ -3084,5 +3085,114 @@ describe("CodexHost native process boundaries", () => {
       await expect(run(sessions.get(id))).rejects.toThrow("Session not found")
       expect((await rpc(home)).filter((call) => call.method === "thread/delete")).toHaveLength(1)
       expect((await rpc(home)).some((call) => call.method === "thread/resume")).toBe(false)
+    }))
+})
+
+describe("native writer takeover", () => {
+  test("writer conflict exposes takeover without stopping an owner on refresh", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, {
+        thread: historyThread(),
+        resumeError: { code: -32000, message: "thread native-thread already has an active writer" },
+      })
+      const snapshot = await activatedSnapshot(host, id)
+      expect(snapshot.descriptor.canTakeover).toBe(true)
+      expect(JSON.stringify(snapshot.messages)).toContain("restored history")
+      expect((await rpc(home)).some((call) => call.method === "turn/interrupt")).toBe(false)
+      await expect(run(host.takeover(id))).rejects.toThrow("Update that backend")
+    }))
+
+  test("explicit takeover releases the peer before resuming the same thread, without resending inputs", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      await configure(home, {
+        thread: historyThread(),
+        resumeError: { code: -32000, message: "thread native-thread already has an active writer" },
+      })
+      await run(sessions.setExecutionPending(id, true))
+      await activatedSnapshot(host, id)
+      let releases = 0
+      const peer = await writerHandoff({
+        home,
+        owns: (threadID) => threadID === "native-thread",
+        release: async () => {
+          releases++
+          await run(sessions.setExecutionPending(id, false))
+          await configure(home, { resumeError: undefined })
+        },
+      })
+      try {
+        const snapshot = await run(host.takeover(id))
+        expect(releases).toBe(1)
+        expect(snapshot.descriptor.canTakeover).toBe(false)
+        expect(snapshot.descriptor.runtimeStatus).toBe("idle")
+        expect(JSON.stringify(snapshot.messages)).toContain("restored history")
+        expect((await rpc(home)).some((call) => call.method === "turn/start")).toBe(false)
+      } finally {
+        await peer.close()
+      }
+    }))
+
+  test("owner interrupts an active task, waits for its command, and does not reclaim it on snapshot", () =>
+    harness(async ({ host, sessions, scope, home }) => {
+      const id = await seed(sessions, scope)
+      const item: v2.ThreadItem = {
+        type: "commandExecution",
+        id: "command",
+        pluginId: null,
+        scriptPath: null,
+        command: "sleep 3",
+        cwd: directory,
+        processId: "native-process",
+        source: "agent",
+        status: "inProgress",
+        commandActions: [],
+        aggregatedOutput: null,
+        exitCode: null,
+        durationMs: null,
+      }
+      const turn: v2.Turn = {
+        id: "running",
+        items: [item],
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        durationMs: null,
+      }
+      const native = { ...historyThread(), status: { type: "active", activeFlags: [] }, turns: [turn] }
+      await configure(home, { thread: native })
+      await activatedSnapshot(host, id)
+      await run(host.submit(id, { requestID: "keep-paused", input: prompt, delivery: "queue" }))
+      const peer = await writerHandoff({ home, owns: () => false, release: async () => {} })
+      try {
+        const before = (await rpc(home)).filter((call) => call.method === "thread/archive").length
+        const release = peer.release("native-thread")
+        await until(
+          () => rpc(home),
+          (calls) => calls.some((call) => call.method === "turn/interrupt"),
+        )
+        const stopped = { ...turn, status: "interrupted" as const, completedAt: 2 }
+        await configure(home, { thread: { ...native, status: { type: "idle" }, turns: [stopped] } })
+        await command(home, [{ method: "turn/completed", params: { threadId: "native-thread", turn: stopped } }])
+        await Bun.sleep(200)
+        expect((await rpc(home)).filter((call) => call.method === "thread/archive")).toHaveLength(before)
+        const completed = { ...item, status: "completed", exitCode: 0 } as v2.ThreadItem
+        await configure(home, {
+          thread: { ...native, status: { type: "idle" }, turns: [{ ...stopped, items: [completed] }] },
+        })
+        await command(home, [
+          { method: "item/completed", params: { threadId: "native-thread", turnId: "running", item: completed } },
+        ])
+        expect(await release).toBe(true)
+        const count = (await rpc(home)).filter((call) => call.method === "thread/resume").length
+        for (let n = 0; n < 3; n++) expect((await run(host.snapshot(id))).descriptor.canTakeover).toBe(true)
+        expect((await rpc(home)).filter((call) => call.method === "thread/resume")).toHaveLength(count)
+        expect((await run(host.delivery(id, "keep-paused"))).state).toBe("paused")
+      } finally {
+        await peer.close()
+      }
     }))
 })

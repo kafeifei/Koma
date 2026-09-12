@@ -613,6 +613,18 @@ export function CodexSessionControls(props: {
               <Button data-action="retry" size="small" disabled={store.busy.recovery} onClick={retry}>
                 {language.t("session.inspector.retry")}
               </Button>
+              <Show when={descriptor()?.canTakeover && props.sessionID}>
+                <Button
+                  data-action="takeover"
+                  size="small"
+                  disabled={store.busy.recovery}
+                  onClick={() =>
+                    void run("recovery", props.sessionID, () => external().actions.takeover(props.sessionID!))
+                  }
+                >
+                  {language.t("codex.task.takeover")}
+                </Button>
+              </Show>
             </div>
           </DockTray>
         </Show>

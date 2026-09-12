@@ -372,6 +372,7 @@ export const dict = {
   "prompt.toast.codexUnavailable.title": "Codex cannot accept input",
   "prompt.toast.codexUnavailable.description": "The native session is unavailable or does not accept prompts.",
 
+  "codex.task.takeover": "Stop and take over",
   "codex.engine.label": "Execution engine",
   "codex.controls.title": "Codex controls",
   "codex.runtime.resolving": "Resolving",

@@ -548,6 +548,28 @@ describe("external session controller", () => {
     expect(submissions).toBe(0)
   })
 
+  test("explicit takeover installs the returned snapshot without resubmitting input", async () => {
+    let takeovers = 0
+    let submissions = 0
+    const taken = { ...snapshot(3), descriptor: { ...descriptor(3), canTakeover: false, queuePaused: true } }
+    const { controller } = setup({
+      snapshot: async () => ({ ...snapshot(1), descriptor: { ...descriptor(1), canTakeover: true } }),
+      takeover: async () => {
+        takeovers++
+        return taken
+      },
+      submit: async () => {
+        submissions++
+        return { descriptor: descriptor(4), delivery: delivery() }
+      },
+    })
+    await controller.load("ses_codex", { force: true })
+    await controller.actions.takeover("ses_codex")
+    expect(takeovers).toBe(1)
+    expect(submissions).toBe(0)
+    expect(controller.data.descriptors.ses_codex).toMatchObject({ canTakeover: false, queuePaused: true, revision: 3 })
+  })
+
   test("falls back to ordinary sessions only after a legacy 404 probe", async () => {
     const { controller } = setup({
       describe: async () => {

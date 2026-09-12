@@ -32,6 +32,7 @@ export const LabHandler = HttpApiBuilder.group(Api, "server.lab", (handlers) =>
       .handle("lab.submit", (ctx) => request(host.submit(ctx.params.sessionID, ctx.payload)))
       .handle("lab.delivery", (ctx) => request(host.delivery(ctx.params.sessionID, ctx.params.requestID)))
       .handle("lab.queue", (ctx) => request(host.queue(ctx.params.sessionID, ctx.payload)))
+      .handle("lab.takeover", (ctx) => request(host.takeover(ctx.params.sessionID)))
       .handle("lab.interrupt", (ctx) => request(host.interrupt(ctx.params.sessionID)))
       .handle("lab.reply", (ctx) => request(host.reply(ctx.params.sessionID, ctx.params.interactionID, ctx.payload)))
       .handle("lab.settings", (ctx) => request(host.settings(ctx.params.sessionID, ctx.payload)))

@@ -813,21 +813,26 @@ const Endpoint19_9 = (raw: RawClient["server.lab"]) => (input: Endpoint19_9Input
     payload: { action: input["action"], requestID: input["requestID"], revision: input["revision"] },
   }).pipe(Effect.mapError(mapClientError))
 
-type Endpoint19_10Request = Parameters<RawClient["server.lab"]["lab.interrupt"]>[0]
+type Endpoint19_10Request = Parameters<RawClient["server.lab"]["lab.takeover"]>[0]
 type Endpoint19_10Input = { readonly sessionID: Endpoint19_10Request["params"]["sessionID"] }
 const Endpoint19_10 = (raw: RawClient["server.lab"]) => (input: Endpoint19_10Input) =>
+  raw["lab.takeover"]({ params: { sessionID: input["sessionID"] } }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint19_11Request = Parameters<RawClient["server.lab"]["lab.interrupt"]>[0]
+type Endpoint19_11Input = { readonly sessionID: Endpoint19_11Request["params"]["sessionID"] }
+const Endpoint19_11 = (raw: RawClient["server.lab"]) => (input: Endpoint19_11Input) =>
   raw["lab.interrupt"]({ params: { sessionID: input["sessionID"] } }).pipe(Effect.mapError(mapClientError))
 
-type Endpoint19_11Request = Parameters<RawClient["server.lab"]["lab.reply"]>[0]
-type Endpoint19_11Input = {
-  readonly sessionID: Endpoint19_11Request["params"]["sessionID"]
-  readonly interactionID: Endpoint19_11Request["params"]["interactionID"]
-  readonly revision: Endpoint19_11Request["payload"]["revision"]
-  readonly choiceID?: Endpoint19_11Request["payload"]["choiceID"]
-  readonly answers?: Endpoint19_11Request["payload"]["answers"]
-  readonly content?: Endpoint19_11Request["payload"]["content"]
+type Endpoint19_12Request = Parameters<RawClient["server.lab"]["lab.reply"]>[0]
+type Endpoint19_12Input = {
+  readonly sessionID: Endpoint19_12Request["params"]["sessionID"]
+  readonly interactionID: Endpoint19_12Request["params"]["interactionID"]
+  readonly revision: Endpoint19_12Request["payload"]["revision"]
+  readonly choiceID?: Endpoint19_12Request["payload"]["choiceID"]
+  readonly answers?: Endpoint19_12Request["payload"]["answers"]
+  readonly content?: Endpoint19_12Request["payload"]["content"]
 }
-const Endpoint19_11 = (raw: RawClient["server.lab"]) => (input: Endpoint19_11Input) =>
+const Endpoint19_12 = (raw: RawClient["server.lab"]) => (input: Endpoint19_12Input) =>
   raw["lab.reply"]({
     params: { sessionID: input["sessionID"], interactionID: input["interactionID"] },
     payload: {
@@ -838,14 +843,14 @@ const Endpoint19_11 = (raw: RawClient["server.lab"]) => (input: Endpoint19_11Inp
     },
   }).pipe(Effect.mapError(mapClientError))
 
-type Endpoint19_12Request = Parameters<RawClient["server.lab"]["lab.settings"]>[0]
-type Endpoint19_12Input = {
-  readonly sessionID: Endpoint19_12Request["params"]["sessionID"]
-  readonly model?: Endpoint19_12Request["payload"]["model"]
-  readonly effort?: Endpoint19_12Request["payload"]["effort"]
-  readonly permission?: Endpoint19_12Request["payload"]["permission"]
+type Endpoint19_13Request = Parameters<RawClient["server.lab"]["lab.settings"]>[0]
+type Endpoint19_13Input = {
+  readonly sessionID: Endpoint19_13Request["params"]["sessionID"]
+  readonly model?: Endpoint19_13Request["payload"]["model"]
+  readonly effort?: Endpoint19_13Request["payload"]["effort"]
+  readonly permission?: Endpoint19_13Request["payload"]["permission"]
 }
-const Endpoint19_12 = (raw: RawClient["server.lab"]) => (input: Endpoint19_12Input) =>
+const Endpoint19_13 = (raw: RawClient["server.lab"]) => (input: Endpoint19_13Input) =>
   raw["lab.settings"]({
     params: { sessionID: input["sessionID"] },
     payload: { model: input["model"], effort: input["effort"], permission: input["permission"] },
@@ -862,9 +867,10 @@ const adaptGroup19 = (raw: RawClient["server.lab"]) => ({
   submit: Endpoint19_7(raw),
   delivery: Endpoint19_8(raw),
   queue: Endpoint19_9(raw),
-  interrupt: Endpoint19_10(raw),
-  reply: Endpoint19_11(raw),
-  settings: Endpoint19_12(raw),
+  takeover: Endpoint19_10(raw),
+  interrupt: Endpoint19_11(raw),
+  reply: Endpoint19_12(raw),
+  settings: Endpoint19_13(raw),
 })
 
 const adaptClient = (raw: RawClient) => ({

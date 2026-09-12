@@ -91,6 +91,13 @@ export const makeLabGroup = <I extends HttpApiMiddleware.AnyId, S>(location: Con
       }).middleware(location),
     )
     .add(
+      HttpApiEndpoint.post("lab.takeover", "/lab/sessions/:sessionID/takeover", {
+        params: session,
+        success: SessionExternal.Snapshot,
+        error: LabError,
+      }).middleware(location),
+    )
+    .add(
       HttpApiEndpoint.post("lab.interrupt", "/lab/sessions/:sessionID/interrupt", {
         params: session,
         success: SessionExternal.Descriptor,
