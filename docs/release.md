@@ -22,6 +22,8 @@ bun run release:mac
 
 产物分别位于各包的 `dist-release/`，命名为 `Koma-Electron-<version>-mac-arm64.zip` 和 `Koma-Tauri-<version>-mac-arm64.zip`。只分发 ZIP，不生成 DMG。构建不发布、不安装、不操作已有应用进程。
 
+Koma 的 Electron 包只携带共享 Koma CLI，不再附带未使用的上游 v2 CLI。发行包不包含源码映射，映射仍保留在构建输出中供调试和 Sentry 使用；Debug 包保留映射。两个发行 ZIP 均使用最高 Deflate 压缩级别，不改变应用运行内容。
+
 ## 验证与发布
 
 - 对候选 App 执行 `codesign --verify --deep --strict`、`xcrun stapler validate` 和 `spctl --assess --type execute`。

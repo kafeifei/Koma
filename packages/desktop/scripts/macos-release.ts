@@ -42,7 +42,7 @@ export async function notarizeAndArchive(app: string, output: string, filename: 
     await run(["xcrun", "stapler", "staple", app])
     await run(["xcrun", "stapler", "validate", app])
     await run(["spctl", "--assess", "--type", "execute", "--verbose=2", app])
-    await run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, archive])
+    await run(["ditto", "-c", "-k", "--zlibCompressionLevel", "9", "--sequesterRsrc", "--keepParent", app, archive])
   } finally {
     await rm(submission, { force: true })
   }

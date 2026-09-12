@@ -36,6 +36,7 @@ if (release && !process.env.APPLE_KEYCHAIN_PROFILE && !process.env.APPLE_API_KEY
 
 const getBase = (appId: string): Configuration => ({
   artifactName: "Koma-Electron-${version}-${os}-${arch}.${ext}",
+  compression: release ? "maximum" : "normal",
   directories: {
     output: release ? "dist-release" : channel === "lab" ? "dist-debug" : "dist",
     buildResources: "resources",
@@ -48,10 +49,18 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", "!resources/koma*"],
+  files: [
+    "out/**/*",
+    "resources/**/*",
+    "!resources/opencode-cli*",
+    "!resources/koma*",
+    // Keep maps in the build output for debugging/Sentry, outside downloadable releases.
+    ...(release ? ["!out/**/*.map", "!node_modules/**/*.map"] : []),
+  ],
   extraResources: [
     ...(channel === "lab" ? [{ from: "resources/", to: "", filter: ["koma", "koma.exe"] }] : []),
-    ...(channel === "dev" || channel === "lab"
+    // Koma uses its own CLI. Only the upstream development channel uses the legacy v2 CLI.
+    ...(channel === "dev"
       ? [
           {
             from: "resources/",

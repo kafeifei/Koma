@@ -68,6 +68,10 @@ test("Koma release packages the Lab runtime with hardened signing and notarizati
     expect(config.directories?.output).toBe("dist-release")
     expect(config.mac?.target).toEqual(["zip"])
     expect(config.artifactName).toBe("Koma-Electron-${version}-${os}-${arch}.${ext}")
+    expect(config.compression).toBe("maximum")
+    expect(config.files).toContain("!out/**/*.map")
+    expect(config.files).toContain("!node_modules/**/*.map")
+    expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["opencode-cli*"] })
     expect(config.mac?.forceCodeSigning).toBe(true)
     expect(config.mac?.hardenedRuntime).toBe(true)
     expect(config.mac?.timestamp).toBeUndefined()
@@ -82,7 +86,7 @@ test("Koma release packages the Lab runtime with hardened signing and notarizati
   }
 })
 
-for (const channel of ["dev", "lab"] as const) {
+for (const channel of ["dev"] as const) {
   test(`bundles the CLI outside the ${channel} app archive`, async () => {
     const previous = process.env.OPENCODE_CHANNEL
     process.env.OPENCODE_CHANNEL = channel
@@ -99,6 +103,19 @@ for (const channel of ["dev", "lab"] as const) {
     })
   })
 }
+
+test("Koma packages only its shared CLI without the unused upstream v2 executable", async () => {
+  const previous = process.env.OPENCODE_CHANNEL
+  process.env.OPENCODE_CHANNEL = "lab"
+  try {
+    const { default: config } = await import("./electron-builder.config.ts?koma=single-cli")
+    expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["koma", "koma.exe"] })
+    expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["opencode-cli*"] })
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CHANNEL
+    else process.env.OPENCODE_CHANNEL = previous
+  }
+})
 
 for (const channel of ["beta", "prod"] as const) {
   test(`does not bundle the CLI in ${channel} builds`, async () => {
