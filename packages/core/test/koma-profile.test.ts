@@ -1,14 +1,5 @@
 import { expect, test } from "bun:test"
-import {
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-  lstatSync,
-  symlinkSync,
-} from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { KomaProfile } from "../src/koma-profile"
@@ -85,25 +76,33 @@ test("a new explicit home has the same identity before and after creation throug
   }
 })
 
-test("release ignores conflicting developer profiles and never creates a compatibility alias", () => {
-  const home = realpathSync(mkdtempSync(join(tmpdir(), "koma-release-profile-")))
-  const release = { KOMA_DISTRIBUTION: "release" }
+test.each(["debug", "release"])("%s uses the same default, overrides and legacy compatibility", (distribution) => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "koma-shared-profile-")))
+  const environment = { KOMA_DISTRIBUTION: distribution }
   try {
-    mkdirSync(join(home, ".opencode"))
-    // Even unreadable legacy metadata must not affect release startup.
-    writeFileSync(join(home, ".opencode/storage.json"), "old invalid metadata")
-    const expected = KomaProfile.releaseHome(release, home)
-    expect(KomaProfile.resolveHome(release, home)).toBe(expected)
-    expect(existsSync(join(home, ".koma"))).toBe(false)
-    symlinkSync(join(home, ".opencode"), join(home, ".koma"))
-    expect(KomaProfile.resolveHome(release, home)).toBe(expected)
-    mkdirSync(expected, { recursive: true })
-    expect(KomaProfile.resolveHome(release, home)).toBe(expected)
-    expect(KomaProfile.isDefault(expected, home, release)).toBe(true)
-    expect(KomaProfile.isDefault(join(home, ".opencode"), home, release)).toBe(false)
-    expect(KomaProfile.resolveHome({ ...release, KOMA_HOME: join(home, "test") }, home)).toBe(join(home, "test"))
-    expect(KomaProfile.commandName(release)).toBe("koma")
-    expect(KomaProfile.commandName({})).toBe("koma-debug")
+    const current = join(home, ".koma")
+    const legacy = join(home, ".opencode")
+    expect(KomaProfile.resolveHome(environment, home)).toBe(current)
+    expect(existsSync(current)).toBe(false)
+    expect(KomaProfile.isDefault(current, home)).toBe(true)
+    mkdirSync(legacy)
+    const manifest = JSON.stringify({
+      version: 2,
+      backendProtocol: 1,
+      source: null,
+      status: "complete",
+      database: "opencode.db",
+    })
+    writeFileSync(join(legacy, "storage.json"), manifest)
+    expect(KomaProfile.resolveHome(environment, home)).toBe(legacy)
+    expect(lstatSync(current).isSymbolicLink()).toBe(true)
+    expect(KomaProfile.resolveHome(environment, home)).toBe(legacy)
+    expect(KomaProfile.isDefault(legacy, home)).toBe(true)
+    expect(KomaProfile.resolveHome({ ...environment, KOMA_HOME: current }, home)).toBe(legacy)
+    const custom = join(home, "custom")
+    expect(KomaProfile.resolveHome({ ...environment, OPENCODE_HOME: custom }, home)).toBe(custom)
+    expect(KomaProfile.resolveHome({ ...environment, OPENCODE_HOME: legacy, KOMA_HOME: custom }, home)).toBe(custom)
+    expect(KomaProfile.commandName(environment)).toBe(distribution === "release" ? "koma" : "koma-debug")
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

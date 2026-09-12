@@ -4,7 +4,7 @@ macOS Apple Silicon 的 Tauri 宿主，复用 App、Session UI 和 Koma CLI。El
 
 ## 数据与进程
 
-- 数据目录由 Koma CLI 解析：`KOMA_HOME` 优先，其次兼容 `OPENCODE_HOME`；macOS 发行默认 `~/Library/Application Support/Koma/profile`。只有 Debug 默认使用 `~/.koma` 并保留已有 Lab 的兼容链接与物理目录。发行与 Debug 的 CLI 构建缓存、默认数据和凭据分离。
+- 数据目录由 Koma CLI 解析：`KOMA_HOME` 优先，其次兼容 `OPENCODE_HOME`；发行版与 Debug 默认均为 `~/.koma`，保留已有 Lab 的兼容链接与物理目录。发行与 Debug 的 CLI 构建缓存及凭据服务身份保持各自规则；数据共用，路径解析不做物理迁移。
 - Electron 使用既有实例登记，Tauri 使用 `KOMA_BACKEND_INSTANCE=tauri`，登记、凭据与日志位于数据目录的 `bin/.koma-instances/tauri/`。
 - 两边打包完全相同的 `packages/desktop/resources/koma` 产物；构建脚本校验源码身份及 SHA-256。Tauri 不再另行生成 opencode-lab 后端。
 - 关闭窗口保留自身后端。完整退出经确认只停止自身后端，不停止另一个客户端的后端。

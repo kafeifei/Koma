@@ -12,30 +12,13 @@ export function commandName(environment: NodeJS.ProcessEnv = process.env) {
   return isRelease(environment) ? "koma" : "koma-debug"
 }
 
-export function releaseHome(
-  environment: NodeJS.ProcessEnv = process.env,
-  home = homedir(),
-  platform = process.platform,
-) {
-  const base =
-    platform === "darwin"
-      ? join(home, "Library", "Application Support", "Koma")
-      : platform === "win32"
-        ? join(environment.APPDATA || join(home, "AppData", "Roaming"), "Koma")
-        : join(environment.XDG_DATA_HOME || join(home, ".local", "share"), "koma")
-  // Electron may create its own app-data directory before selecting userData.
-  if (!isAbsolute(base)) throw new Error("Koma application data directory must be an absolute path")
-  return canonicalHome(join(base, "profile"))
-}
-
-/** Release never discovers or aliases a developer profile. */
+/** All distributions share Koma data; existing physical paths and locks stay authoritative. */
 export function resolveHome(environment: NodeJS.ProcessEnv = process.env, home = homedir()) {
   const explicit = environment.KOMA_HOME ?? environment.OPENCODE_HOME
   if (explicit !== undefined) {
     if (!isAbsolute(explicit)) throw new Error("KOMA_HOME must be an absolute path")
     return canonicalHome(explicit)
   }
-  if (isRelease(environment)) return releaseHome(environment, home)
   const current = join(home, ".koma")
   const legacy = join(home, ".opencode")
   // An official OpenCode directory is not a Koma profile. Only the Lab manifest opts in.
@@ -59,22 +42,14 @@ export function resolveHome(environment: NodeJS.ProcessEnv = process.env, home =
   return realpathSync(legacy)
 }
 
-export function isDefault(root: string, home = homedir(), environment: NodeJS.ProcessEnv = process.env) {
-  if (isRelease(environment)) return root === releaseHome(environment, home)
+export function isDefault(root: string, home = homedir()) {
   return [join(home, ".koma"), join(home, ".opencode")].some(
     (path) => (existsSync(path) ? realpathSync(path) : path) === root,
   )
 }
 
-export function legacyRoot(root: string, previousDesktop: string, environment: NodeJS.ProcessEnv = process.env) {
-  return !isRelease(environment) && isDefault(root, homedir(), environment) ? previousDesktop : `${root}.legacy`
-}
-
-/** Must run under the storage initialization lock, before any migration. */
-export function assertReleaseHome(root: string, legacy: string) {
-  if (lstatSync(legacy, { throwIfNoEntry: false }) || StoragePaths.metadata(root)?.source) {
-    throw new Error("Koma release cannot automatically import a developer profile; choose a separate KOMA_HOME")
-  }
+export function legacyRoot(root: string, previousDesktop: string) {
+  return isDefault(root) ? previousDesktop : `${root}.legacy`
 }
 
 export * as KomaProfile from "./koma-profile"

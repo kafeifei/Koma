@@ -1,7 +1,6 @@
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
 import { KomaEnvironment } from "@opencode-ai/core/koma-environment"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
-import { KomaProfile } from "@opencode-ai/core/koma-profile"
 import { join } from "node:path"
 
 export function komaBackendEnvironment(root: string) {
@@ -29,7 +28,6 @@ export function prepareKomaEnvironment(environment: NodeJS.ProcessEnv, root: str
 export async function prepareKomaDesktopHome(input: {
   root: string
   legacyRoot: string
-  release?: boolean
   setUserData: (path: string) => void
   acquireLock: () => boolean
 }) {
@@ -37,16 +35,8 @@ export async function prepareKomaDesktopHome(input: {
   const paths = { root, legacyRoot: input.legacyRoot }
   const lease = await StorageMigration.lock(root)
   try {
-    if (input.release) KomaProfile.assertReleaseHome(root, input.legacyRoot)
     const metadata = StoragePaths.metadata(root)
     if (metadata?.status === "complete") {
-      input.setUserData(StoragePaths.resolve(root).desktop)
-      return input.acquireLock()
-    }
-    if (input.release) {
-      // Initialize only the fresh release profile under the shared storage lock.
-      // Acquiring Electron's lock first would create a fake legacy profile.
-      StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: () => true })
       input.setUserData(StoragePaths.resolve(root).desktop)
       return input.acquireLock()
     }
