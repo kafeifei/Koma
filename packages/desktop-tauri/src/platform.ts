@@ -2,6 +2,7 @@ import { readFile } from "@tauri-apps/plugin-fs"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
 import type { Platform } from "@opencode-ai/app"
+import { desktopDebugTools } from "@opencode-ai/app/build-info"
 import { invoke } from "@tauri-apps/api/core"
 import { readImage } from "@tauri-apps/plugin-clipboard-manager"
 import { getCurrentWindow } from "@tauri-apps/api/window"
@@ -22,7 +23,7 @@ export const platform: Platform = {
   os: "macos",
   version: import.meta.env.OPENCODE_BUILD.version,
   buildInfo: import.meta.env.OPENCODE_BUILD,
-  debugTools: true,
+  debugTools: desktopDebugTools(import.meta.env.OPENCODE_BUILD),
   checkAppExists: (appName) => invoke("check_app_exists", { appName }),
   exportDebugLogs: async () => {
     const path = await invoke<string>("export_debug_logs")

@@ -24,6 +24,8 @@ bun run release:mac
 
 Koma 的 Electron 包只携带共享 Koma CLI，不再附带未使用的上游 v2 CLI。发行包不包含源码映射，映射仍保留在构建输出中供调试和 Sentry 使用；Debug 包保留映射。两个发行 ZIP 均使用最高 Deflate 压缩级别，不改变应用运行内容。
 
+两个宿主共用发行版调试开关策略。Koma 固定使用当前工作台布局，已有配置中的旧布局偏好自动归一，不显示上游新旧界面迁移开关和过期提示。
+
 ## 验证与发布
 
 - 对候选 App 执行 `codesign --verify --deep --strict`、`xcrun stapler validate` 和 `spctl --assess --type execute`。

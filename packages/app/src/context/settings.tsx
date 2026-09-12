@@ -253,7 +253,11 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       defaultSettings.general.showCustomAgents,
     )
     const sunset = oldInterfaceSunset
-    const [oldInterfaceRetired, setOldInterfaceRetired] = createSignal(sunset ? Date.now() >= sunset.getTime() : false)
+    // Koma ships one workspace layout, independent of the upstream migration window.
+    const fixedLayout = platform.buildInfo?.channel === "lab"
+    const [oldInterfaceRetired, setOldInterfaceRetired] = createSignal(
+      fixedLayout || (sunset ? Date.now() >= sunset.getTime() : false),
+    )
     const layoutTransitionClassified = createMemo(() => typeof store.general?.layoutTransitionEligible === "boolean")
     const layoutTransitionEligible = withFallback(() => store.general?.layoutTransitionEligible, false)
     const newInterfaceNoticeDismissed = withFallback(() => store.general?.newInterfaceNoticeDismissed, false)
@@ -263,7 +267,12 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         : false,
     )
     const layoutTransition = createMemo(() =>
-      layoutTransitionState(!!sunset, layoutTransitionEligible(), oldInterfaceRetired(), newInterfaceNoticeDismissed()),
+      layoutTransitionState(
+        !fixedLayout && !!sunset,
+        layoutTransitionEligible(),
+        oldInterfaceRetired(),
+        newInterfaceNoticeDismissed(),
+      ),
     )
     const newLayoutDesigns = createMemo(() => {
       if (layoutUpgrade()) return true

@@ -1,4 +1,5 @@
 import { createDesktopStorage } from "@opencode-ai/app/desktop/storage"
+import { desktopDebugTools } from "@opencode-ai/app/build-info"
 import { installDesktopPreferences } from "@opencode-ai/app/desktop/preferences"
 // @refresh reload
 
@@ -118,8 +119,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     os,
     version: import.meta.env.OPENCODE_BUILD.version,
     buildInfo: import.meta.env.OPENCODE_BUILD,
-    debugTools:
-      !import.meta.env.OPENCODE_BUILD.release && ["dev", "lab"].includes(import.meta.env.OPENCODE_BUILD.channel),
+    debugTools: desktopDebugTools(import.meta.env.OPENCODE_BUILD),
     webEntry: window.api.webEntry,
     remoteAccess: window.api.remoteAccess,
     backendExperiments: import.meta.env.OPENCODE_BUILD.channel === "lab" ? window.api.backendExperiments : undefined,
