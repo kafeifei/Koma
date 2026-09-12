@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+bun "$(dirname "$0")/upstream-only.ts"
+
 BUMP_TYPE=${1:-patch}
 
 gh workflow run publish.yml -f bump="$BUMP_TYPE"

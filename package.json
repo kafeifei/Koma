@@ -26,7 +26,8 @@
     "test": "echo 'do not run tests from root' && exit 1",
     "dev:koma": "bun run --cwd packages/opencode src/koma.ts",
     "debug": "bun run --cwd packages/desktop debug",
-    "build:koma": "bun run --cwd packages/desktop build:debug"
+    "build:koma": "bun run --cwd packages/desktop build:debug",
+    "sync:upstream": "python3 script/sync-upstream.py"
   },
   "workspaces": {
     "packages": [
