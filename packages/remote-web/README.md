@@ -2,6 +2,8 @@
 
 网站负责 GitHub 登录、设备目录和跳转；工作台流量直接进入所属设备的 Microsoft Dev Tunnel，任务仍由该设备的 Lab 后端持有。网站不持有 Session，也不通过 Vercel 转发工作台流量。
 
+公开入口为 `https://koma-remote.vercel.app/`，部署在现有 Vercel 项目 `opencode-lab-remote`。生产环境的 `REMOTE_WEB_ORIGIN` 必须与新域名一致；旧域名跳转到此入口。GitHub Pages 仅支持静态托管，不能承载本站的登录、会话和设备 API。
+
 ## 认证边界
 
 - GitHub 授权范围为 `read:user`、`read:org`；网站会话与 tunnel 的浏览器授权相互独立，访问隧道需要同一 GitHub 账号。
