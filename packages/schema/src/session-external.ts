@@ -236,6 +236,24 @@ export const Snapshot = Schema.Struct({
 }).annotate({ identifier: "SessionExternal.Snapshot" })
 export interface Snapshot extends Schema.Schema.Type<typeof Snapshot> {}
 
+// Replacements for changed snapshot fields. Messages and partOrder are upserts;
+// new messages append unless messageOrder explicitly replaces the order.
+const SnapshotUpdate = Schema.Struct({
+  baseRevision: Schema.Int,
+  messageOrder: Snapshot.fields.messageOrder.pipe(optional),
+  partOrder: Snapshot.fields.partOrder.pipe(optional),
+  interactions: Snapshot.fields.interactions.pipe(optional),
+  deliveries: Snapshot.fields.deliveries.pipe(optional),
+  usage: Snapshot.fields.usage.pipe(optional),
+  contextWindow: Snapshot.fields.contextWindow.pipe(optional),
+  contextTokens: availability(Schema.Finite).pipe(optional),
+  cost: Snapshot.fields.cost.pipe(optional),
+  turnDiffs: Snapshot.fields.turnDiffs.pipe(optional),
+  sessionDiff: Snapshot.fields.sessionDiff.pipe(optional),
+  plan: availability(Plan).pipe(optional),
+  children: Snapshot.fields.children.pipe(optional),
+})
+
 export const Account = Schema.Struct({
   authenticated: Schema.Boolean,
   requiresAuth: Schema.Boolean,
@@ -283,10 +301,17 @@ export const Changed = Event.define({
     revision: Schema.Int,
     descriptor: Descriptor.pipe(optional),
     messages: Schema.Array(Message).pipe(optional),
+    update: SnapshotUpdate.pipe(optional),
     append: Schema.Struct({
       messageID: Schema.String,
       partID: Schema.String,
       type: Schema.Literals(["text", "reasoning"]),
+      delta: Schema.String,
+    }).pipe(optional),
+    toolAppend: Schema.Struct({
+      messageID: Schema.String,
+      partID: Schema.String,
+      offset: Schema.Int,
       delta: Schema.String,
     }).pipe(optional),
     refresh: Schema.Boolean.pipe(optional),

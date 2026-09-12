@@ -50,6 +50,7 @@ import { CodexWorktreeAccess } from "./worktree-access"
 import { CodexProviders } from "./providers"
 import { providerCredentials } from "./provider-credentials"
 import { codexStorage } from "./storage"
+import { snapshotUpdate, toolOutputAppend } from "./snapshot-update"
 
 export class HostError extends Schema.TaggedErrorClass<HostError>()("CodexHost.Error", {
   code: Schema.Literals(["unavailable", "conflict", "notFound", "invalid", "nativeError"]),
@@ -162,6 +163,7 @@ type Entry = {
   diffs: Record<string, { status: "available"; value: string }>
   itemTimes: Record<string, { created?: number; completed?: number; ran?: number }>
   usage?: v2.ThreadTokenUsage
+  published?: Snapshot
 }
 
 const layer = Layer.effect(
@@ -262,6 +264,28 @@ const layer = Layer.effect(
 
     async function emit(entry: Entry, patch: Partial<Schema.Schema.Type<typeof Changed.data>> = {}) {
       entry.revision++
+      if (patch.refresh && !patch.toolAppend) {
+        const next = await snapshot(entry)
+        const previous = entry.published
+        if (previous && previous.descriptor.epoch === next.descriptor.epoch) {
+          // Keep refresh for older clients. Updated clients apply the versioned
+          // changes directly instead of downloading the complete history again.
+          patch = { ...patch, ...snapshotUpdate(previous, next) }
+        }
+        entry.published = next
+      } else if (entry.published) {
+        entry.published = { ...entry.published, descriptor: descriptor(entry) }
+        const appendID = patch.append?.messageID ?? patch.toolAppend?.messageID
+        const changed =
+          patch.messages ?? (appendID ? entry.view.messages.filter((message) => message.id === appendID) : [])
+        if (changed.length) {
+          const updates = new Map(changed.map((message) => [message.id, message]))
+          entry.published = {
+            ...entry.published,
+            messages: entry.published.messages.map((message) => updates.get(message.id) ?? message),
+          }
+        }
+      }
       await run(
         events.publish(
           Changed,
@@ -1513,7 +1537,8 @@ const layer = Layer.effect(
         const previous = entry.view.messages[index]
         entry.view.messages[index] = message
         const append = textAppend([previous], [message])
-        await emit(entry, append ? { append } : { messages: [message] })
+        const toolAppend = !append ? toolOutputAppend(previous, message) : undefined
+        await emit(entry, append ? { append } : toolAppend ? { toolAppend, refresh: true } : { messages: [message] })
         return
       }
       if (notification.method === "serverRequest/resolved") {
@@ -2589,15 +2614,22 @@ function textAppend(
   if (changed.length !== 1 || changed[0].type !== "assistant") return
   const message = changed[0]
   const old = before.find((item) => item.id === message.id)
-  if (old?.type !== "assistant" || old.content.length !== 1 || message.content.length !== 1) return
-  const left = old.content[0],
-    right = message.content[0]
+  if (old?.type !== "assistant" || old.content.length !== message.content.length) return
+  const changedParts = message.content.flatMap((part, index) =>
+    JSON.stringify(part) === JSON.stringify(old.content[index]) ? [] : [index],
+  )
+  if (changedParts.length !== 1) return
+  const index = changedParts[0]
+  const left = old.content[index],
+    right = message.content[index]
   if (
     (left.type !== "text" && left.type !== "reasoning") ||
     right.type !== left.type ||
+    right.id !== left.id ||
     !right.text.startsWith(left.text)
   )
     return
+  if (JSON.stringify({ ...left, text: "" }) !== JSON.stringify({ ...right, text: "" })) return
   return { messageID: message.id, partID: right.id, type: right.type, delta: right.text.slice(left.text.length) }
 }
 

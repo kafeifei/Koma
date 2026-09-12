@@ -381,6 +381,11 @@ export default function Page() {
   const location = useLocation()
   const navigate = useNavigate()
   const { params, sessionKey, workspaceKey, tabs, view } = useSessionLayout()
+  createEffect(() => {
+    const external = serverSync().external
+    const sessionID = params.id
+    if (sessionID) onCleanup(external.watch(sessionID))
+  })
   const serverContext = createMemo(() => global.ensureServerCtx(serverSDK().server))
   const [lifecycleCapabilities] = createResource(
     () => serverContext().sdk.api,

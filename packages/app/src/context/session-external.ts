@@ -4,6 +4,7 @@ import {
   type LabEnginesOutput,
   type LabSnapshotOutput,
   type OpenCodeEvent,
+  type JsonValue,
 } from "@opencode-ai/lab-client"
 import { batch } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
@@ -51,6 +52,9 @@ export function createSessionExternalContext(input: {
   const snapshots = new Map<string, Promise<LabSnapshotOutput>>()
   const refreshAfterSnapshot = new Set<string>()
   const retiredEpochs = new Map<string, Set<string>>()
+  const watching = new Map<string, number>()
+  const stale = new Set<string>()
+  const contentVersions = new Map<string, { epoch: string; revision: number }>()
 
   const unsupported = (error: unknown) => {
     if (!isStatus(error, 404)) return false
@@ -112,12 +116,14 @@ export function createSessionExternalContext(input: {
       setData("errors", snapshot.descriptor.sessionID, undefined)
       input.target().snapshot(snapshot, projection)
     })
+    contentVersions.set(snapshot.descriptor.sessionID, snapshot.descriptor)
+    stale.delete(snapshot.descriptor.sessionID)
     return true
   }
 
   const loadSnapshot = (sessionID: string, options?: { force?: boolean; retryStale?: boolean }) => {
     const cached = data.snapshots[sessionID]
-    if (cached && !options?.force) return Promise.resolve(cached)
+    if (cached && !stale.has(sessionID) && !options?.force) return Promise.resolve(cached)
     const pending = snapshots.get(sessionID)
     if (pending) {
       if (options?.force) refreshAfterSnapshot.add(sessionID)
@@ -273,16 +279,122 @@ export function createSessionExternalContext(input: {
       void refreshEngines().catch(() => undefined)
       return
     }
-    const current = data.descriptors[event.data.sessionID]
-    const decision = compareExternalVersion(current, event.data)
+    const sessionID = event.data.sessionID
+    if (retiredEpochs.get(sessionID)?.has(event.data.epoch)) return
+    const current = data.descriptors[sessionID]
+    const decision = compareExternalVersion(contentVersions.get(sessionID), event.data)
     if (decision === "duplicate") return
-    if (decision === "gap" || decision === "epoch" || event.data.refresh) {
+    if (!watching.has(sessionID)) {
       if (event.data.descriptor) commitDescriptor(event.data.descriptor)
-      void loadSnapshot(event.data.sessionID, { force: true }).catch(() => undefined)
+      stale.add(sessionID)
+      return
+    }
+    const refresh = () => {
+      if (event.data.descriptor) commitDescriptor(event.data.descriptor)
+      else if (current) {
+        commitDescriptor({ ...current, epoch: event.data.epoch, revision: event.data.revision })
+      }
+      stale.add(sessionID)
+      // The in-flight snapshot may already include this event. Its version check
+      // will request another read only if the response actually falls behind.
+      if (!snapshots.has(sessionID)) void loadSnapshot(sessionID).catch(() => undefined)
+    }
+    const cached = data.snapshots[sessionID]
+    const version = contentVersions.get(sessionID)
+    if (event.data.toolAppend && cached && decision === "next" && !stale.has(sessionID)) {
+      const append = event.data.toolAppend
+      const message = cached.messages.find((item) => item.id === append.messageID)
+      const part = message?.type === "assistant" ? message.content.find((item) => item.id === append.partID) : undefined
+      if (message?.type === "assistant" && part?.type === "tool" && part.state.status === "running") {
+        const content = part.state.content
+        const oldText = !content.length
+          ? ""
+          : content.length === 1 && content[0].type === "text"
+            ? content[0].text
+            : undefined
+        if (oldText !== undefined && oldText.length === append.offset) {
+          const text = oldText + append.delta
+          const nextPart = {
+            ...part,
+            state: {
+              ...part.state,
+              content: [{ type: "text" as const, text }],
+              structured: { ...part.state.structured, output: text },
+            },
+          }
+          const nextMessage = {
+            ...message,
+            content: message.content.map((item) => (item.id === part.id ? nextPart : item)),
+          }
+          const codex = jsonRecord(message.metadata?.codex)
+          const raw = jsonRecord(codex?.raw)
+          if (codex && raw?.type === "commandExecution") {
+            nextMessage.metadata = { ...message.metadata, codex: { ...codex, raw: { ...raw, aggregatedOutput: text } } }
+          }
+          const next = {
+            ...cached,
+            descriptor: event.data.descriptor ?? {
+              ...cached.descriptor,
+              epoch: event.data.epoch,
+              revision: event.data.revision,
+            },
+            messages: cached.messages.map((item) => (item.id === message.id ? nextMessage : item)),
+          }
+          if (!commitSnapshot(next)) refresh()
+          return
+        }
+      }
+      refresh()
+      return
+    }
+    if (
+      event.data.update &&
+      cached &&
+      version?.epoch === event.data.epoch &&
+      version.revision === event.data.update.baseRevision &&
+      !stale.has(sessionID)
+    ) {
+      const { baseRevision: _, ...fields } = event.data.update
+      const messages = new Map<string, ExternalWireMessage>(cached.messages.map((message) => [message.id, message]))
+      for (const message of event.data.messages ?? []) messages.set(message.id, message)
+      const messageOrder = fields.messageOrder ?? [
+        ...cached.messageOrder,
+        ...(event.data.messages ?? []).flatMap((message) =>
+          cached.messageOrder.includes(message.id) ? [] : [message.id],
+        ),
+      ]
+      const parts = { ...cached.partOrder, ...fields.partOrder }
+      const next = {
+        ...cached,
+        ...fields,
+        messageOrder,
+        partOrder: Object.fromEntries(messageOrder.flatMap((id) => (parts[id] ? [[id, parts[id]]] : []))),
+        descriptor: event.data.descriptor ?? {
+          ...cached.descriptor,
+          epoch: event.data.epoch,
+          revision: event.data.revision,
+        },
+        messages: messageOrder.flatMap((id) => {
+          const message = messages.get(id)
+          return message ? [message] : []
+        }),
+      }
+      if (!commitSnapshot(next as LabSnapshotOutput)) refresh()
+      return
+    }
+    if (
+      decision === "gap" ||
+      decision === "epoch" ||
+      stale.has(sessionID) ||
+      event.data.refresh ||
+      event.data.update ||
+      event.data.toolAppend
+    ) {
+      refresh()
       return
     }
     if (!current && !event.data.descriptor) {
-      void loadSnapshot(event.data.sessionID, { force: true }).catch(() => undefined)
+      refresh()
       return
     }
     const descriptor =
@@ -294,7 +406,8 @@ export function createSessionExternalContext(input: {
       })
     if (descriptor) commitDescriptor(descriptor)
     applyMessages(event)
-    if (!applyAppend(event)) void loadSnapshot(event.data.sessionID, { force: true }).catch(() => undefined)
+    if (!applyAppend(event)) refresh()
+    else contentVersions.set(sessionID, event.data)
   }
 
   const accepted = (receipt: Awaited<ReturnType<typeof input.api.create>>, fence: RequestFence) => {
@@ -331,6 +444,15 @@ export function createSessionExternalContext(input: {
 
   return {
     data,
+    watch(sessionID: string) {
+      watching.set(sessionID, (watching.get(sessionID) ?? 0) + 1)
+      if (stale.has(sessionID) && data.snapshots[sessionID]) void loadSnapshot(sessionID).catch(() => undefined)
+      return () => {
+        const count = watching.get(sessionID) ?? 0
+        if (count > 1) watching.set(sessionID, count - 1)
+        else watching.delete(sessionID)
+      }
+    },
     observe(sessions: readonly { id: string; engine?: "opencode" | "codex" }[]) {
       sessions.forEach((session) => {
         if (session.engine) hints.set(session.id, session.engine)
@@ -354,6 +476,10 @@ export function createSessionExternalContext(input: {
     refreshEngines,
     reconnect() {
       if (data.support === "unsupported") setData("support", "unknown")
+      for (const sessionID of Object.keys(data.snapshots)) stale.add(sessionID)
+      for (const sessionID of watching.keys()) {
+        if (data.snapshots[sessionID]) void loadSnapshot(sessionID).catch(() => undefined)
+      }
     },
     apply,
     actions: {
@@ -413,6 +539,10 @@ function isStatus(error: unknown, status: number) {
   if ("status" in error && error.status === status) return true
   if (!("cause" in error) || !error.cause || typeof error.cause !== "object") return false
   return "status" in error.cause && error.cause.status === status
+}
+
+function jsonRecord(value: JsonValue | undefined) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, JsonValue>
 }
 
 function errorMessage(error: unknown) {

@@ -5,6 +5,8 @@ import path from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { Effect, Layer } from "effect"
+import { EventV2 } from "@opencode-ai/core/event"
+import { SessionExternal as ExternalSchema } from "@opencode-ai/schema/session-external"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
@@ -115,6 +117,7 @@ async function harness<A>(
     home: string
     scope: string
     gate: { refuse: boolean; acquired: number; released: number; prepared: number; finalized: number }
+    changes: Array<typeof ExternalSchema.Changed.data.Type>
   }) => Promise<A>,
   homeOverride?: string,
   auth?: CodexAuth.Interface,
@@ -126,43 +129,65 @@ async function harness<A>(
   process.env.OPENCODE_CODEX_HOME = home
   await writeFile(path.join(home, "fixture.json"), JSON.stringify({ thread: thread(), reflectProvider: true }))
   const gate = { refuse: false, acquired: 0, released: 0, prepared: 0, finalized: 0 }
-  const layer = AppNodeBuilder.build(LayerNode.group([CodexHost.node, SessionExternal.node, Database.node]), [
-    ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
-    ...(providers ? [[CodexProviders.node, Layer.succeed(CodexProviders.Service, providers)] as const] : []),
-    [Database.node, Database.layerFromPath(databasePath)],
-    [Global.node, Global.layerWith({ home, state: home })],
+  const layer = AppNodeBuilder.build(
+    LayerNode.group([CodexHost.node, SessionExternal.node, Database.node, EventV2.node]),
     [
-      ProjectV2.node,
-      Layer.mock(ProjectV2.Service, { resolve: (directory) => Effect.succeed({ id: ProjectV2.ID.global, directory }) }),
+      ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
+      ...(providers ? [[CodexProviders.node, Layer.succeed(CodexProviders.Service, providers)] as const] : []),
+      [Database.node, Database.layerFromPath(databasePath)],
+      [Global.node, Global.layerWith({ home, state: home })],
+      [
+        ProjectV2.node,
+        Layer.mock(ProjectV2.Service, {
+          resolve: (directory) => Effect.succeed({ id: ProjectV2.ID.global, directory }),
+        }),
+      ],
+      [
+        CodexWorktreeAccess.node,
+        Layer.succeed(CodexWorktreeAccess.Service, {
+          claim: () => Effect.succeed(false),
+          acquire: () =>
+            Effect.suspend(() =>
+              gate.refuse
+                ? Effect.fail(new Error("Archive gate refused"))
+                : Effect.sync(() => {
+                    gate.acquired++
+                  }),
+            ),
+          release: () =>
+            Effect.sync(() => {
+              gate.released++
+            }),
+          prepareDelete: () => Effect.sync(() => ({ managed: ++gate.prepared > 0 })),
+          finalizeDelete: () => Effect.sync(() => void gate.finalized++),
+        }),
+      ],
     ],
-    [
-      CodexWorktreeAccess.node,
-      Layer.succeed(CodexWorktreeAccess.Service, {
-        claim: () => Effect.succeed(false),
-        acquire: () =>
-          Effect.suspend(() =>
-            gate.refuse
-              ? Effect.fail(new Error("Archive gate refused"))
-              : Effect.sync(() => {
-                  gate.acquired++
-                }),
-          ),
-        release: () =>
-          Effect.sync(() => {
-            gate.released++
-          }),
-        prepareDelete: () => Effect.sync(() => ({ managed: ++gate.prepared > 0 })),
-        finalizeDelete: () => Effect.sync(() => void gate.finalized++),
-      }),
-    ],
-  ])
+  )
   return Effect.runPromise(
     Effect.gen(function* () {
       const host = yield* CodexHost.Service
       const sessions = yield* SessionExternal.Service
       const database = yield* Database.Service
+      const events = yield* EventV2.Service
+      const changes: Array<typeof ExternalSchema.Changed.data.Type> = []
+      const unsubscribe = yield* events.listen((event) =>
+        Effect.sync(() => {
+          if (event.type === "session.external.changed")
+            changes.push(event.data as typeof ExternalSchema.Changed.data.Type)
+        }),
+      )
+      yield* Effect.addFinalizer(() => unsubscribe)
       return yield* Effect.promise(() =>
-        fn({ host, sessions, database, home, scope: `codex:${createHash("sha256").update(home).digest("hex")}`, gate }),
+        fn({
+          host,
+          sessions,
+          database,
+          home,
+          scope: `codex:${createHash("sha256").update(home).digest("hex")}`,
+          gate,
+          changes,
+        }),
       )
     }).pipe(Effect.provide(layer), Effect.scoped),
   )
@@ -303,6 +328,85 @@ async function complete(home: string) {
 }
 
 describe("CodexHost native process boundaries", () => {
+  test("native command output emits an append independent of the accumulated output size", () =>
+    harness(async ({ host, sessions, scope, home, changes }) => {
+      const id = await seed(sessions, scope)
+      await activatedSnapshot(host, id)
+      await run(host.submit(id, { requestID: "streaming-output", input: prompt, delivery: "steer" }))
+      await until(
+        () => run(host.delivery(id, "streaming-output")),
+        (receipt) => receipt.state === "accepted",
+      )
+      const output = "build log ".repeat(10_000)
+      const item: v2.ThreadItem = {
+        type: "commandExecution",
+        id: "stream-command",
+        pluginId: null,
+        scriptPath: null,
+        command: "build",
+        cwd: directory,
+        processId: "process",
+        source: "agent",
+        status: "inProgress",
+        commandActions: [],
+        aggregatedOutput: output,
+        exitCode: null,
+        durationMs: null,
+      }
+      await command(home, [{ method: "item/started", params: { threadId: "native-thread", turnId: "turn-1", item } }])
+      await until(
+        () => run(host.snapshot(id)),
+        (value) => JSON.stringify(value.messages).includes("stream-command"),
+      )
+      const start = changes.length
+      await command(home, [
+        {
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId: "native-thread",
+            turnId: "turn-1",
+            itemId: "stream-command",
+            delta: "new output\n",
+          },
+        },
+      ])
+      const events = await until(
+        async () => changes.slice(start),
+        (values) => values.some((value) => !!value.toolAppend),
+      )
+      const event = events.find((value) => value.toolAppend)!
+      expect(event.toolAppend).toMatchObject({ delta: "new output\n", offset: output.length })
+      expect(event.messages).toBeUndefined()
+      expect(JSON.stringify(event).length).toBeLessThan(2_000)
+      expect(JSON.stringify((await run(host.snapshot(id))).messages)).toContain("new output\\n")
+    }))
+
+  test("native metadata notifications send bounded updates instead of repeating history", () =>
+    harness(async ({ host, sessions, scope, home, changes }) => {
+      await configure(home, { thread: historyThread("old history ".repeat(30_000)) })
+      const id = await seed(sessions, scope)
+      const initial = await activatedSnapshot(host, id)
+      const start = changes.length
+      await command(home, [
+        {
+          method: "thread/name/updated",
+          params: {
+            threadId: "native-thread",
+            threadName: "new title",
+          },
+        },
+      ])
+      await until(
+        async () => changes.slice(start),
+        (events) => events.some((event) => !!event.update),
+      )
+      const events = changes.slice(start)
+      expect(events.every((event) => !event.messages?.length)).toBe(true)
+      expect(events.every((event) => JSON.stringify(event).length < 2_000)).toBe(true)
+      expect(events[0].update?.baseRevision).toBe(initial.descriptor.revision)
+      expect((await run(host.snapshot(id))).messages).toEqual(initial.messages)
+    }))
+
   test("starting a host preserves a live sibling's pending input and thread creation", () =>
     harness(async ({ host, sessions, scope, home }) => {
       const prior = process.env.OPENCODE_HOME

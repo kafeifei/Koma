@@ -37,7 +37,7 @@ const snapshot = (revision: number, epoch = "runtime-a"): LabSnapshotOutput => (
   children: [],
 })
 
-function setup(overrides: Partial<Record<string, (...args: never[]) => unknown>> = {}) {
+function setup(overrides: Partial<Record<string, (...args: never[]) => unknown>> = {}, watch = true) {
   const calls = { snapshots: 0, projections: 0, appends: 0, descriptors: 0 }
   const target: SessionExternalCacheTarget = {
     descriptor() {
@@ -74,6 +74,7 @@ function setup(overrides: Partial<Record<string, (...args: never[]) => unknown>>
     api: api as unknown as Parameters<typeof createSessionExternalContext>[0]["api"],
     target: () => target,
   })
+  if (watch) controller.watch("ses_codex")
   return { controller, calls }
 }
 
@@ -89,6 +90,271 @@ function delivery() {
 }
 
 describe("external session controller", () => {
+  test("home receives status without downloading an unopened task's history", async () => {
+    let requests = 0
+    const { controller } = setup(
+      {
+        snapshot: async () => {
+          requests++
+          return snapshot(40)
+        },
+      },
+      false,
+    )
+    for (let revision = 1; revision <= 40; revision++) {
+      controller.apply({
+        type: "session.external.changed",
+        data: {
+          sessionID: "ses_codex",
+          epoch: "runtime-a",
+          revision,
+          descriptor: descriptor(revision),
+          refresh: true,
+        },
+      })
+    }
+    await Promise.resolve()
+    expect(requests).toBe(0)
+    expect(controller.data.descriptors.ses_codex?.revision).toBe(40)
+    controller.watch("ses_codex")
+    await controller.load("ses_codex")
+    expect(requests).toBe(1)
+    expect(controller.data.snapshots.ses_codex?.descriptor.revision).toBe(40)
+  })
+
+  test("a snapshot covering refresh events received in flight is downloaded only once", async () => {
+    const response = Promise.withResolvers<LabSnapshotOutput>()
+    let requests = 0
+    const { controller } = setup({
+      snapshot: async () => {
+        requests++
+        return response.promise
+      },
+    })
+    const loading = controller.load("ses_codex")
+    await Promise.resolve()
+    for (let revision = 1; revision <= 6; revision++) {
+      controller.apply({
+        type: "session.external.changed",
+        data: {
+          sessionID: "ses_codex",
+          epoch: "runtime-a",
+          revision,
+          descriptor: descriptor(revision),
+          refresh: true,
+        },
+      })
+    }
+    response.resolve(snapshot(6))
+    await loading
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    expect(requests).toBe(1)
+    expect(controller.data.snapshots.ses_codex?.descriptor.revision).toBe(6)
+  })
+
+  test("applies versioned snapshot updates without downloading unchanged history", async () => {
+    let requests = 0
+    const baseline = {
+      ...snapshot(1),
+      messages: [
+        { ...snapshot(1).messages[0], text: "large history ".repeat(20_000) } as LabSnapshotOutput["messages"][number],
+      ],
+    }
+    const { controller } = setup({
+      snapshot: async () => {
+        requests++
+        return baseline
+      },
+    })
+    await controller.load("ses_codex")
+    controller.apply({
+      type: "session.external.changed",
+      data: {
+        sessionID: "ses_codex",
+        epoch: "runtime-a",
+        revision: 2,
+        descriptor: descriptor(2),
+        refresh: true,
+        update: {
+          baseRevision: 1,
+          usage: {
+            status: "available",
+            value: {
+              input: 100,
+              output: 10,
+              reasoning: 5,
+              cache: { read: 0, write: 0 },
+            },
+          },
+        },
+      },
+    })
+    expect(requests).toBe(1)
+    expect(controller.data.snapshots.ses_codex?.messages).toEqual(baseline.messages)
+    expect(controller.data.snapshots.ses_codex?.usage.status).toBe("available")
+    controller.apply({
+      type: "session.external.changed",
+      data: {
+        sessionID: "ses_codex",
+        epoch: "runtime-a",
+        revision: 3,
+        descriptor: descriptor(3),
+        refresh: true,
+        update: { baseRevision: 2, messageOrder: [], partOrder: {} },
+      },
+    })
+    expect(controller.data.snapshots.ses_codex?.messages).toEqual([])
+    expect(requests).toBe(1)
+  })
+
+  test("closing a task stops history refreshes and reopening reconciles missed changes", async () => {
+    let requests = 0
+    const { controller } = setup({ snapshot: async () => snapshot(++requests) }, false)
+    const close = controller.watch("ses_codex")
+    await controller.load("ses_codex")
+    close()
+    controller.apply({
+      type: "session.external.changed",
+      data: {
+        sessionID: "ses_codex",
+        epoch: "runtime-a",
+        revision: 2,
+        descriptor: descriptor(2),
+        refresh: true,
+      },
+    })
+    await Promise.resolve()
+    expect(requests).toBe(1)
+    controller.watch("ses_codex")
+    await controller.load("ses_codex")
+    expect(requests).toBe(2)
+    expect(controller.data.snapshots.ses_codex?.descriptor.revision).toBe(2)
+  })
+
+  test("message and part upserts retain the timeline without a full index", async () => {
+    let requests = 0
+    const { controller } = setup({
+      snapshot: async () => {
+        requests++
+        return snapshot(1)
+      },
+    })
+    await controller.load("ses_codex")
+    const message = { ...snapshot(1).messages[0], id: "msg_new", text: "next" } as LabSnapshotOutput["messages"][number]
+    controller.apply({
+      type: "session.external.changed",
+      data: {
+        sessionID: "ses_codex",
+        epoch: "runtime-a",
+        revision: 2,
+        descriptor: descriptor(2),
+        refresh: true,
+        messages: [message],
+        update: { baseRevision: 1, partOrder: { msg_new: ["msg_new:text"] } },
+      },
+    })
+    expect(requests).toBe(1)
+    expect(controller.data.snapshots.ses_codex?.messages).toEqual([...snapshot(1).messages, message])
+    expect(controller.data.snapshots.ses_codex?.messageOrder).toEqual(["msg_user", "msg_new"])
+    expect(controller.data.snapshots.ses_codex?.partOrder).toEqual({
+      msg_user: ["msg_user:text"],
+      msg_new: ["msg_new:text"],
+    })
+  })
+
+  test("reconnect fetches the watched task once and leaves background histories alone", async () => {
+    let requests = 0
+    const { controller } = setup({ snapshot: async () => snapshot(++requests) }, false)
+    await controller.load("ses_codex")
+    controller.reconnect()
+    await Promise.resolve()
+    expect(requests).toBe(1)
+    const close = controller.watch("ses_codex")
+    await controller.load("ses_codex")
+    expect(requests).toBe(2)
+    controller.reconnect()
+    await controller.load("ses_codex")
+    expect(requests).toBe(3)
+    close()
+  })
+
+  test("an unusable tool append rejects an older fallback snapshot before recovering", async () => {
+    let requests = 0
+    const { controller } = setup({ snapshot: async () => snapshot(++requests < 3 ? 1 : 2) })
+    await controller.load("ses_codex")
+    controller.apply({
+      type: "session.external.changed",
+      data: {
+        sessionID: "ses_codex",
+        epoch: "runtime-a",
+        revision: 2,
+        descriptor: descriptor(2),
+        refresh: true,
+        toolAppend: { messageID: "tool", partID: "output", offset: 100, delta: "next" },
+      },
+    })
+    for (let i = 0; i < 16; i++) await Promise.resolve()
+    expect(requests).toBe(3)
+    expect(controller.data.snapshots.ses_codex?.descriptor.revision).toBe(2)
+  })
+
+  test("tool output appends preserve the full result without an HTTP history request", async () => {
+    const output = "previous output ".repeat(10_000)
+    const baseline: LabSnapshotOutput = {
+      ...snapshot(1),
+      messages: [
+        {
+          id: "tool",
+          type: "assistant",
+          orderKey: "1",
+          time: {},
+          content: [
+            {
+              id: "output",
+              type: "tool",
+              name: "exec",
+              time: {},
+              state: {
+                status: "running",
+                input: {},
+                content: [{ type: "text", text: output }],
+                structured: { output },
+              },
+            },
+          ],
+        },
+      ],
+      messageOrder: ["tool"],
+      partOrder: { tool: ["output"] },
+    }
+    let requests = 0
+    const { controller } = setup({
+      snapshot: async () => {
+        requests++
+        return baseline
+      },
+    })
+    await controller.load("ses_codex")
+    controller.apply({
+      type: "session.external.changed",
+      data: {
+        sessionID: "ses_codex",
+        epoch: "runtime-a",
+        revision: 2,
+        descriptor: descriptor(2),
+        refresh: true,
+        toolAppend: { messageID: "tool", partID: "output", offset: output.length, delta: "finished\n" },
+      },
+    })
+    expect(requests).toBe(1)
+    const message = controller.data.snapshots.ses_codex?.messages[0]
+    if (message?.type !== "assistant" || message.content[0].type !== "tool") throw new Error("fixture")
+    expect(message.content[0].state).toMatchObject({
+      content: [{ type: "text", text: output + "finished\n" }],
+      structured: { output: output + "finished\n" },
+    })
+  })
+
   test("applies contiguous changes and refreshes revision gaps", async () => {
     const { controller, calls } = setup()
     controller.apply({
