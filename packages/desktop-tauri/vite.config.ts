@@ -18,7 +18,7 @@ export default defineConfig({
       version: pkg.version,
       sequence: process.env.OPENCODE_LAB_BUILD_SEQUENCE ? Number(process.env.OPENCODE_LAB_BUILD_SEQUENCE) : undefined,
       channel: "lab",
-      release: false,
+      release: process.env.KOMA_RELEASE === "1",
       commit: git(["rev-parse", "HEAD"]),
       dirty: !!git(["status", "--porcelain"]),
       builtAt,

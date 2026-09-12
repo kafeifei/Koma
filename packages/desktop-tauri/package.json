@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun scripts/run.ts dev",
     "build": "bun scripts/run.ts build",
+    "release:mac": "KOMA_RELEASE=1 bun scripts/run.ts release",
     "dev:ui": "vite",
     "build:ui": "vite build",
     "fixture": "bun scripts/fixture.ts",

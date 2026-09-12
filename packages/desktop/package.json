@@ -26,7 +26,7 @@
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native",
     "release:mac": "KOMA_RELEASE=1 bun ./scripts/build-koma.ts --package",
-    "package:release": "OPENCODE_CHANNEL=lab electron-builder --mac dmg zip --publish never --config electron-builder.config.ts",
+    "package:release": "OPENCODE_CHANNEL=lab electron-builder --mac zip --publish never --config electron-builder.config.ts",
     "build:debug": "bun ./scripts/build-koma.ts",
     "debug": "bun ./scripts/build-koma.ts --package",
     "build:koma-cli": "bun ./scripts/build-koma-cli.ts",

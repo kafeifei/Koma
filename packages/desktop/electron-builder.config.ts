@@ -35,7 +35,7 @@ if (release && !process.env.APPLE_KEYCHAIN_PROFILE && !process.env.APPLE_API_KEY
 }
 
 const getBase = (appId: string): Configuration => ({
-  artifactName: "Koma-${version}-${os}-${arch}.${ext}",
+  artifactName: "Koma-Electron-${version}-${os}-${arch}.${ext}",
   directories: {
     output: release ? "dist-release" : channel === "lab" ? "dist-debug" : "dist",
     buildResources: "resources",
@@ -140,7 +140,7 @@ function getConfig(): Configuration {
         },
         mac: {
           ...base.mac,
-          target: release ? ["dmg", "zip"] : ["dir"],
+          target: release ? ["zip"] : ["dir"],
           // A certificate keeps Keychain access stable across Lab updates; ad-hoc signatures do not.
           forceCodeSigning: true,
           // Local Lab builds are not notarized and can be signed offline.

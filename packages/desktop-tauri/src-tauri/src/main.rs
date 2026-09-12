@@ -407,6 +407,7 @@ fn geometry() -> WindowGeometry {
 }
 fn create_window(app: &tauri::AppHandle, label: String) -> Result<(), String> {
     let mut config = app.config().app.windows[0].clone();
+    config.title = app.package_info().name.clone();
     let shared = geometry();
     config.label = label;
     config.width = shared.width;
@@ -639,7 +640,7 @@ fn main() {
                     submenu.append(&MenuItem::with_id(
                         app,
                         "quit-test",
-                        "Quit Koma Tauri Debug",
+                        format!("Quit {}", app.package_info().name),
                         true,
                         Some("CmdOrCtrl+Q"),
                     )?)?;
