@@ -1,3 +1,4 @@
+import { useStartupTask } from "@/desktop/startup"
 import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { getExternalTurnDiff } from "@/components/session/session-external-diffs"
 import { getFilename } from "@opencode-ai/core/util/path"
@@ -210,6 +211,7 @@ export function SessionRouteErrorBoundary(
 }
 
 function SessionErrorFallback(props: { error: unknown; sessionID?: string; serverKey?: ServerConnection.Key }) {
+  useStartupTask("page", () => ({ ready: true }), true)
   const language = useLanguage()
   const server = useServer()
   const tabs = useTabs()
@@ -609,6 +611,14 @@ export default function Page() {
   const messages = timeline.messages
   const messagesReady = timeline.ready
   const sessionSync = timeline.resource
+  useStartupTask(
+    "session",
+    () => ({
+      ready: messagesReady() && prompt.ready() && local.session.ready(),
+      error: sessionSync.error,
+    }),
+    true,
+  )
   const userMessages = timeline.userMessages
   const visibleUserMessages = timeline.visibleUserMessages
 

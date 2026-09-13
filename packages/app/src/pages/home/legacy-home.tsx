@@ -1,3 +1,4 @@
+import { useStartupTask } from "@/desktop/startup"
 import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useGlobal } from "@/context/global"
@@ -21,6 +22,7 @@ export function LegacyHome() {
   const global = useGlobal()
   const server = useServer()
   const language = useLanguage()
+  useStartupTask("page", () => ({ ready: sync().startup.ready, error: sync().startup.error }), true)
   const homedir = createMemo(() => sync().data.path.home)
   const serverUnreachable = createMemo(() => global.servers.health[server.key]?.healthy === false)
   const recent = createMemo(() => {

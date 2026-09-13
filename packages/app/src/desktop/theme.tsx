@@ -3,10 +3,13 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { usePlatform } from "../context/platform"
 
 /** Share the selected theme while each host draws its own native frame. */
-export function DesktopTheme() {
+export function DesktopTheme(props: { onReady?: () => void } = {}) {
   const platform = usePlatform()
   const theme = useTheme()
-  if (platform.platform !== "desktop" || !platform.storage) return null
+  if (platform.platform !== "desktop" || !platform.storage) {
+    props.onReady?.()
+    return null
+  }
   const storage = platform.storage("opencode.global.dat")
   const key = "desktop.theme"
   let ready = false
@@ -43,6 +46,9 @@ export function DesktopTheme() {
       ready = true
     })
     .catch(console.error)
+    .finally(() => {
+      if (!disposed) props.onReady?.()
+    })
   createEffect(
     on([theme.themeId, theme.colorScheme], () => {
       if (!ready || disposed) return

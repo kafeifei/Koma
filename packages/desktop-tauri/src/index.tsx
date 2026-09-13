@@ -1,6 +1,7 @@
 // @refresh reload
 import { render } from "solid-js/web"
-import { onCleanup } from "solid-js"
+import { createSignal, onCleanup } from "solid-js"
+import { StartupScreen } from "@opencode-ai/app/desktop/startup-screen"
 import type { BaseRouterProps } from "@solidjs/router"
 import { DesktopMemoryRouter } from "@opencode-ai/app/desktop/router"
 import { invoke } from "@tauri-apps/api/core"
@@ -31,7 +32,11 @@ type Connection = {
   runtimeID?: string
 }
 const root = document.getElementById("root")!
-root.textContent = "正在启动 Koma 后端…"
+const [startupError, setStartupError] = createSignal<string>()
+const stopSplash = render(() => <StartupScreen error={startupError()} timeoutMs={60_000} />, root)
+const stopStartupDrag = watchTitlebarDragRegions()
+let splashActive = true
+let stopApp: (() => void) | undefined
 
 const initialized = invoke<Connection>("initialize")
 const host = installDesktopHost(initialized)
@@ -97,8 +102,11 @@ async function start() {
     http: { url: connection.url, username: connection.username, password: connection.password },
   }
   const defaultServer = (await platform.getDefaultServer?.()) ?? ServerConnection.key(server)
+  stopSplash()
+  splashActive = false
+  stopStartupDrag()
   root.textContent = ""
-  render(() => {
+  stopApp = render(() => {
     onCleanup(sharedStorage.dispose)
     onCleanup(services.dispose)
     onCleanup(stopPreferences)
@@ -125,6 +133,10 @@ async function start() {
 }
 
 void start().catch((error) => {
-  root.textContent = `Koma 后端启动失败：${String(error)}。日志位于 Koma 数据目录的 bin/.koma-instances/tauri/service.log。`
+  setStartupError(String(error))
+  if (!splashActive) {
+    stopApp?.()
+    render(() => <StartupScreen error={startupError()} />, root)
+  }
   console.error(error)
 })

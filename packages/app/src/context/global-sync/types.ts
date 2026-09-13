@@ -32,6 +32,8 @@ export type ProjectMeta = {
 
 export type State = {
   status: "loading" | "partial" | "complete"
+  // Composer prerequisites, independent of slow MCP/reference/session-list refreshes.
+  startup?: { ready: boolean; error?: string }
   agent: Agent[]
   command: CommandInfo[]
   reference: ReferenceInfo[]

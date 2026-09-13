@@ -1,0 +1,117 @@
+[data-component="startup-screen"] {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  background: var(--background-base, #fafafa);
+  color: var(--text-strong, #262626);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+[data-slot="startup-titlebar"] {
+  height: 44px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+[data-slot="startup-content"] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 24px 64px;
+  overflow: auto;
+}
+[data-slot="startup-mark"] {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: var(--surface-raised-base, #ececec);
+  box-shadow: inset 0 0 0 1px rgb(128 128 128 / 12%);
+  font-size: 28px;
+  font-weight: 600;
+}
+[data-slot="startup-name"] {
+  font-size: 16px;
+  font-weight: 600;
+}
+[data-slot="startup-status"] {
+  color: var(--text-weak, #777);
+  text-align: center;
+  line-height: 1.6;
+}
+[data-slot="startup-spinner"] {
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border: 1.5px solid rgb(128 128 128 / 20%);
+  border-top-color: var(--text-weak, #777);
+  border-radius: 50%;
+  animation: koma-startup-spin 900ms linear infinite;
+}
+[data-slot="startup-actions"] {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+[data-slot="startup-actions"] button {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid rgb(128 128 128 / 22%);
+  background: var(--surface-raised-base, #ececec);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+[data-slot="startup-actions"] button:focus-visible {
+  outline: 2px solid var(--text-weak, #777);
+  outline-offset: 3px;
+}
+[data-slot="startup-details"] {
+  color: var(--text-weak, #777);
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+}
+[data-slot="startup-details"] summary {
+  cursor: pointer;
+}
+[data-slot="startup-details"] pre {
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 140px;
+  overflow: auto;
+  user-select: text;
+  font:
+    12px/1.6 ui-monospace,
+    monospace;
+  margin-top: 12px;
+}
+@keyframes koma-startup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="startup-spinner"] {
+    animation: none;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  [data-component="startup-screen"] {
+    background: var(--background-base, #202020);
+    color: var(--text-strong, #eee);
+  }
+  [data-slot="startup-mark"],
+  [data-slot="startup-actions"] button {
+    background: var(--surface-raised-base, #303030);
+  }
+}

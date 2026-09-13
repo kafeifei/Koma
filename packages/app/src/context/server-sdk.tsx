@@ -4,7 +4,7 @@ import type { Event } from "@opencode-ai/sdk/v2/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { type Accessor, batch, createMemo, createResource, onCleanup, onMount } from "solid-js"
+import { type Accessor, batch, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
 import { authTokenFromCredentials, createApiForServer, createSdkForServer, type ServerApi } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
@@ -206,6 +206,7 @@ type ServerSDKBase = {
   lab: LabApi
   resolveDirectory: (directory: string) => Promise<string>
   event: {
+    ready: Accessor<boolean>
     on: ServerEventEmitter["on"]
     listen: ServerEventEmitter["listen"]
     start: () => Promise<void> | undefined
@@ -219,7 +220,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   const platform = usePlatform()
   const abort = new AbortController()
 
-  const eventFetch = (() => {
+  const [eventReady, setEventReady] = createSignal(false)
+  const selectedEventFetch = (() => {
     if (!platform.fetch || !server) return
     try {
       const url = new URL(server.http.url)
@@ -230,6 +232,11 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     }
   })()
 
+  const eventFetch = (async (input, init) => {
+    const response = await (selectedEventFetch ?? fetch)(input, init)
+    if (response.ok && response.headers.get("content-type")?.includes("text/event-stream")) setEventReady(true)
+    return response
+  }) as typeof fetch
   const eventApi = createApiForServer({ server: server.http, fetch: eventFetch })
   const headers = server.http.password
     ? {
@@ -336,11 +343,12 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             streamErrorLogged = true
             console.error("[global-sdk] event stream failed", {
               url: server.http.url,
-              fetch: eventFetch ? "platform" : "webview",
+              fetch: selectedEventFetch ? "platform" : "webview",
               error,
             })
           }
         } finally {
+          setEventReady(false)
           abort.signal.removeEventListener("abort", onAbort)
           attempt = undefined
         }
@@ -404,6 +412,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     currentApi,
     lab,
     event: {
+      ready: eventReady,
       on: emitter.on.bind(emitter),
       listen: emitter.listen.bind(emitter),
       start,

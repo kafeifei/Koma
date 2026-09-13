@@ -23,7 +23,8 @@
     "./desktop/window": "./src/desktop/window.json",
     "./desktop/router": "./src/desktop/router.tsx",
     "./desktop/services": "./src/desktop/services.ts",
-    "./desktop/preferences": "./src/desktop/preferences.ts"
+    "./desktop/preferences": "./src/desktop/preferences.ts",
+    "./desktop/startup-screen": "./src/desktop/startup-screen.tsx"
   },
   "scripts": {
     "typecheck": "tsgo -b",

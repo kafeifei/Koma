@@ -137,6 +137,7 @@ export function createHomeSessionsController(home: HomeController) {
       records,
       groups,
       loading: sessionLoad.loading,
+      error: sessionLoad.error,
       searchRecords: allRecords,
     },
     session: {

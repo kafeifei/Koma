@@ -90,6 +90,24 @@ function delivery() {
 }
 
 describe("external session controller", () => {
+  test("nested model catalogs share an engine request and can refresh after it settles", async () => {
+    let reads = 0
+    const pending = Promise.withResolvers<[]>()
+    const { controller } = setup({
+      engines: () => {
+        reads++
+        return pending.promise
+      },
+    })
+    const first = controller.refreshEngines()
+    const second = controller.refreshEngines()
+    expect(reads).toBe(1)
+    pending.resolve([])
+    await Promise.all([first, second])
+    await controller.refreshEngines()
+    expect(reads).toBe(2)
+  })
+
   test("home receives status without downloading an unopened task's history", async () => {
     let requests = 0
     const { controller } = setup(

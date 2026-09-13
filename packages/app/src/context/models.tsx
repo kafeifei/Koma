@@ -1,11 +1,10 @@
+import { useStartupTask } from "@/desktop/startup"
 import {
   type Accessor,
   type ParentProps,
   createContext,
   createMemo,
   createResource,
-  createEffect,
-  on,
   useContext,
 } from "solid-js"
 import { createStore, produce } from "solid-js/store"
@@ -56,19 +55,16 @@ const { use: useModels, provider: ModelCatalogProvider } = createSimpleContext({
   init: (props: { directory?: Accessor<string | undefined> } = {}) => {
     const providers = useProviders(() => props.directory?.())
     const serverSync = useServerSync()
-    createEffect(
-      on(
-        () => serverSync().external,
-        (external) => {
-          if (!external.data.engines) void external.refreshEngines().catch(() => undefined)
-        },
-      ),
+    const [engines] = createResource(
+      () => serverSync().external,
+      (external) => external.data.engines ?? external.refreshEngines(),
     )
     const codexModels = () => serverSync().external.data.engines?.find((engine) => engine.id === "codex")?.models ?? []
 
     const preferences = useContext(PreferencesContext)
     if (!preferences) throw new Error("Model preferences context is unavailable")
     const [store, setStore, _, ready] = preferences
+    useStartupTask("models", () => ({ ready: ready() && !engines.loading, error: engines.error }))
 
     const available = createMemo(() =>
       providers.connected().flatMap((p) =>

@@ -187,19 +187,26 @@ export function createSessionExternalContext(input: {
     return true
   }
 
-  const refreshEngines = async () => {
-    if (data.support === "unsupported") return []
-    try {
-      const engines = await input.api.engines()
-      batch(() => {
-        setData("support", "available")
-        setData("engines", reconcile(engines))
-      })
-      return engines
-    } catch (error) {
-      if (unsupported(error)) return []
-      throw error
-    }
+  let enginesPending: Promise<Awaited<ReturnType<typeof input.api.engines>>> | undefined
+  const refreshEngines = () => {
+    if (enginesPending) return enginesPending
+    enginesPending = (async () => {
+      if (data.support === "unsupported") return []
+      try {
+        const engines = await input.api.engines()
+        batch(() => {
+          setData("support", "available")
+          setData("engines", reconcile(engines))
+        })
+        return engines
+      } catch (error) {
+        if (unsupported(error)) return []
+        throw error
+      }
+    })().finally(() => {
+      enginesPending = undefined
+    })
+    return enginesPending
   }
 
   const applyMessages = (event: Extract<ExternalEvent, { type: "session.external.changed" }>) => {

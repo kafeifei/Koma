@@ -31,7 +31,7 @@ import { resetZoom, setPinchZoomEnabled, webviewZoom, zoomIn, zoomOut } from "./
 import { windowFullscreen } from "./window-fullscreen"
 import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
-import { Splash } from "@opencode-ai/ui/logo"
+import { StartupScreen } from "@opencode-ai/app/desktop/startup-screen"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -277,11 +277,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
 listenForDeepLinks()
 
 function LoadingSplash() {
-  return (
-    <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
-      <Splash class="w-16 h-20 opacity-50 animate-pulse" />
-    </div>
-  )
+  return <StartupScreen timeoutMs={60_000} />
 }
 
 function DesktopRoot(props: { windowState: DesktopWindowState }) {

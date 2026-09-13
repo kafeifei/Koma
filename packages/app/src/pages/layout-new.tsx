@@ -1,4 +1,5 @@
 import { createEffect, Show, Suspense, type ParentProps } from "solid-js"
+import { useStartupTask } from "@/desktop/startup"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { createElementSize } from "@solid-primitives/resize-observer"
@@ -21,10 +22,11 @@ export default function NewLayout(props: ParentProps) {
   let body: HTMLDivElement | undefined
   const bodySize = createElementSize(() => body)
   const [state, setState] = createStore({ debugTools: false, mobileSidebar: false })
-  const [sidebar, setSidebar] = persisted(
+  const [sidebar, setSidebar, , sidebarReady] = persisted(
     Persist.window("workspace.sidebar"),
     createStore({ opened: true, width: WORKSPACE_PANEL_MIN_WIDTH }),
   )
+  useStartupTask("workspace", () => ({ ready: sidebarReady() }))
   const maxWidth = () =>
     Math.max(
       WORKSPACE_PANEL_MIN_WIDTH,

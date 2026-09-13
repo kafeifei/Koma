@@ -68,6 +68,7 @@ import { createServerSession, type ServerSession } from "./server-session"
 
 type GlobalStore = {
   ready: boolean
+  startup?: { ready: boolean; error?: string }
   error?: InitError
   path: Path
   project: Project[]
@@ -336,7 +337,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const bootstrap = useQuery(() => ({
     queryKey: [serverSDK.scope, "bootstrap"],
     queryFn: async () => {
-      await bootstrapGlobal({
+      const errors = await bootstrapGlobal({
         serverSDK: serverSDK.client,
         serverAPI: serverSDK.api,
         protocol: serverSDK.protocol,
@@ -346,6 +347,10 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
         setGlobalStore: setBootStore,
         queryClient,
+      })
+      setGlobalStore("startup", {
+        ready: errors.length === 0,
+        error: errors.length ? formatServerError(errors[0], language.t) : undefined,
       })
       bootedAt = Date.now()
       return bootedAt
@@ -741,6 +746,12 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   return {
     data: globalStore,
     set,
+    get startup() {
+      return {
+        ready: globalStore.startup?.ready === true && !activeSessionsQuery.isPending && serverSDK.event.ready(),
+        error: globalStore.startup?.error ?? activeSessionsQuery.error,
+      }
+    },
     get ready() {
       return globalStore.ready
     },

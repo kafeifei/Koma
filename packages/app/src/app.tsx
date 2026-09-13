@@ -1,4 +1,6 @@
 import "@/index.css"
+import { StartupAppearance, StartupProvider, useStartupTask } from "./desktop/startup"
+import { StartupScreen } from "./desktop/startup-screen"
 import { DesktopTheme } from "./desktop/theme"
 import * as Sentry from "@sentry/solid"
 import { I18nProvider } from "@opencode-ai/ui/context"
@@ -47,7 +49,7 @@ import { ServerSyncProvider, useServerSync } from "@/context/server-sync"
 import { GlobalProvider, useGlobal } from "@/context/global"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
-import { LayoutProvider } from "@/context/layout"
+import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
@@ -374,10 +376,23 @@ type ServerScopedShellProps = ParentProps<{
   serverScoped?: JSX.Element
 }>
 
+function WorkspaceStartup() {
+  const settings = useSettings()
+  const tabs = useTabs()
+  const layout = useLayout()
+  const sync = useServerSync()
+  useStartupTask("workspace", () => ({
+    ready: settings.ready() && tabs.ready() && tabs.recentReady() && layout.ready() && sync().startup.ready,
+    error: sync().startup.error,
+  }))
+  return null
+}
+
 function ServerScopedProviders(props: ServerScopedShellProps) {
   return (
     <LayoutProvider>
       {props.serverScoped}
+      <WorkspaceStartup />
       <ModelsProvider directory={props.directory}>{props.children}</ModelsProvider>
     </LayoutProvider>
   )
@@ -420,40 +435,45 @@ export function AppBaseProviders(
   }>,
 ) {
   const platform = usePlatform()
+  const [appearanceReady, setAppearanceReady] = createSignal(false)
   return (
-    <MetaProvider>
-      <Font />
-      <ThemeProvider
-        onThemeApplied={(_, mode, scheme) => {
-          void platform.setTitlebar?.({ mode, scheme })
-        }}
-      >
-        <DesktopTheme />
-        <LanguageProvider locale={props.locale} onNativeTranslations={props.onNativeTranslations}>
-          <UiI18nBridge>
-            <ErrorBoundary
-              fallback={(error) => {
-                Sentry.captureException(error)
-                return <ErrorPage error={error} />
-              }}
-            >
-              <QueryProvider>
-                <WslServersProvider>
-                  <DialogProvider>
-                    <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
-                  </DialogProvider>
-                </WslServersProvider>
-              </QueryProvider>
-            </ErrorBoundary>
-          </UiI18nBridge>
-        </LanguageProvider>
-      </ThemeProvider>
-    </MetaProvider>
+    <StartupAppearance.Provider value={appearanceReady}>
+      <MetaProvider>
+        <Font />
+        <ThemeProvider
+          onThemeApplied={(_, mode, scheme) => {
+            void platform.setTitlebar?.({ mode, scheme })
+          }}
+        >
+          <DesktopTheme onReady={() => setAppearanceReady(true)} />
+          <LanguageProvider locale={props.locale} onNativeTranslations={props.onNativeTranslations}>
+            <UiI18nBridge>
+              <ErrorBoundary
+                fallback={(error) => {
+                  Sentry.captureException(error)
+                  return <ErrorPage error={error} />
+                }}
+              >
+                <QueryProvider>
+                  <WslServersProvider>
+                    <DialogProvider>
+                      <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
+                    </DialogProvider>
+                  </WslServersProvider>
+                </QueryProvider>
+              </ErrorBoundary>
+            </UiI18nBridge>
+          </LanguageProvider>
+        </ThemeProvider>
+      </MetaProvider>
+    </StartupAppearance.Provider>
   )
 }
 
 function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean; startup?: Promise<void> }>) {
   const server = useServer()
+  const platform = usePlatform()
+  const language = useLanguage()
   const checkServerHealth = useCheckServerHealth()
 
   const [checkMode, setCheckMode] = createSignal<"blocking" | "background">("blocking")
@@ -492,6 +512,13 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean; start
     () => startupHealthCheck.latest === true && ["unresolved", "pending"].includes(startup.state),
   )
   const loading = createMemo(() => checking() || startupChecking())
+  useStartupTask("backend", () => ({
+    ready: !loading() && startupHealthCheck.latest === true,
+    error:
+      startupHealthCheck.latest === false
+        ? language.t("app.server.unreachable", { server: server.name || server.key })
+        : undefined,
+  }))
 
   return (
     <>
@@ -514,10 +541,8 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean; start
           {props.children}
         </Show>
       </Show>
-      <Show when={loading()}>
-        <div class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background-base">
-          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
-        </div>
+      <Show when={loading() && platform.platform !== "desktop"}>
+        <StartupScreen stage={checking() ? "backend" : "workspace"} />
       </Show>
     </>
   )
@@ -603,38 +628,40 @@ export function AppInterface(props: {
   )
 
   return (
-    <ServerProvider
-      defaultServer={props.defaultServer}
-      canonicalLocalServer={props.canonicalLocalServer}
-      servers={props.servers}
-    >
-      <GlobalProvider>
-        <SettingsProvider>
-          <ConnectionGate disableHealthCheck={props.disableHealthCheck} startup={props.startup}>
-            <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
-              <Dynamic
-                component={props.router ?? Router}
-                root={(routerProps) => (
-                  <TabsProvider>
-                    <PermissionProvider>
-                      <NotificationProvider>
-                        <ServerShell>
-                          <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                            <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
-                          </Show>
-                        </ServerShell>
-                      </NotificationProvider>
-                    </PermissionProvider>
-                  </TabsProvider>
-                )}
-              >
-                <Routes serverScoped={props.serverScoped} />
-              </Dynamic>
-            </Show>
-          </ConnectionGate>
-        </SettingsProvider>
-      </GlobalProvider>
-    </ServerProvider>
+    <StartupProvider>
+      <ServerProvider
+        defaultServer={props.defaultServer}
+        canonicalLocalServer={props.canonicalLocalServer}
+        servers={props.servers}
+      >
+        <GlobalProvider>
+          <SettingsProvider>
+            <ConnectionGate disableHealthCheck={props.disableHealthCheck} startup={props.startup}>
+              <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
+                <Dynamic
+                  component={props.router ?? Router}
+                  root={(routerProps) => (
+                    <TabsProvider>
+                      <PermissionProvider>
+                        <NotificationProvider>
+                          <ServerShell>
+                            <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
+                              <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
+                            </Show>
+                          </ServerShell>
+                        </NotificationProvider>
+                      </PermissionProvider>
+                    </TabsProvider>
+                  )}
+                >
+                  <Routes serverScoped={props.serverScoped} />
+                </Dynamic>
+              </Show>
+            </ConnectionGate>
+          </SettingsProvider>
+        </GlobalProvider>
+      </ServerProvider>
+    </StartupProvider>
   )
 }
 

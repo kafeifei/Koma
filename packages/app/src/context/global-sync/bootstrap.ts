@@ -163,13 +163,7 @@ export async function bootstrapGlobal(input: {
         .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
         .then((data) => input.setGlobalStore("project", data)),
   ]
-  await runAll(slow)
-  // showErrors({
-  //   errors: errors(),
-  //   title: input.requestFailedTitle,
-  //   translate: input.translate,
-  //   formatMoreCount: input.formatMoreCount,
-  // })
+  return errors(await runAll(slow))
 }
 
 function groupBySession<T extends { id: string; sessionID: string }>(input: T[]) {
@@ -367,23 +361,32 @@ export async function bootstrapDirectory(input: {
     input.setStore("config", reconcile(input.global.config, { merge: false }))
   }
   if (loading) input.setStore("status", "partial")
+  input.setStore("startup", { ready: false })
 
   const revKey = ScopedKey.from(input.scope, input.directory)
   const rev = (providerRev.get(revKey) ?? 0) + 1
   providerRev.set(revKey, rev)
   ;(async () => {
+    const required: Promise<unknown>[] = []
+    const essential = (task: () => Promise<unknown>) => () => {
+      const promise = Promise.resolve().then(task)
+      required.push(promise)
+      return promise
+    }
     const slow = [
       () => Promise.resolve(input.loadSessions(input.directory)),
-      () =>
+      essential(() =>
         input.queryClient
           .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
           .then((data) => input.setStore("agent", data)),
-      () =>
+      ),
+      essential(() =>
         retry(async () => {
           if ((await input.protocol) !== "v1") return
           return input.sdk.config.get().then((x) => input.setStore("config", reconcile(x.data!, { merge: false })))
         }),
-      () =>
+      ),
+      essential(() =>
         retry(() =>
           (async () => {
             if ((await input.protocol) !== "v1") return
@@ -410,20 +413,23 @@ export async function bootstrapDirectory(input: {
             )
           })(),
         ),
+      ),
       !seededProject &&
-        (() =>
+        essential(() =>
           retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
             input.setStore("project", project.id),
-          )),
+          ),
+        ),
       !seededPath &&
-        (() =>
+        essential(() =>
           input.queryClient
             .ensureQueryData(loadPathQuery(input.scope, input.directory, input.sdk, input.protocol))
             .then((data) => {
               const next = projectID(data.directory ?? input.directory, input.global.project)
               if (next) input.setStore("project", next)
-            })),
-      () =>
+            }),
+        ),
+      essential(() =>
         retry(async () => {
           if ((await input.protocol) !== "v1") return
           return input.sdk.vcs.get().then((result) => {
@@ -432,6 +438,7 @@ export async function bootstrapDirectory(input: {
             if (next) input.vcsCache.setStore("value", next)
           })
         }),
+      ),
       input.mcp &&
         (() =>
           loadCommands(input.directory, input.api.command, input.sdk, input.protocol).then((commands) =>
@@ -441,7 +448,7 @@ export async function bootstrapDirectory(input: {
         input.queryClient.fetchQuery(
           loadReferencesQuery(input.scope, input.directory, input.api.reference, input.sdk, input.protocol),
         ),
-      () =>
+      essential(() =>
         retry(() =>
           (async () => {
             if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
@@ -477,7 +484,8 @@ export async function bootstrapDirectory(input: {
             )
           }),
         ),
-      () =>
+      ),
+      essential(() =>
         retry(() =>
           (async () => {
             if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
@@ -513,6 +521,7 @@ export async function bootstrapDirectory(input: {
             )
           }),
         ),
+      ),
       () => Promise.resolve(input.loadSessions(input.directory)),
       input.mcp &&
         (() =>
@@ -524,21 +533,23 @@ export async function bootstrapDirectory(input: {
           input.queryClient.fetchQuery(
             loadMcpResourcesQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
           )),
-      () =>
-        input.queryClient
-          .fetchQuery(loadProvidersQuery(input.scope, input.directory, input.api, input.sdk, input.protocol))
-          .catch((err) => {
-            const project = getFilename(input.directory)
-            showToast({
-              variant: "error",
-              title: input.translate("toast.project.reloadFailed.title", { project }),
-              description: formatServerError(err, input.translate),
-            })
-          }),
+      essential(() =>
+        input.queryClient.fetchQuery(
+          loadProvidersQuery(input.scope, input.directory, input.api, input.sdk, input.protocol),
+        ),
+      ),
     ].filter(Boolean) as (() => Promise<any>)[]
 
     await waitForPaint()
-    const slowErrs = errors(await runAll(slow))
+    const all = runAll(slow)
+    const requiredErrors = errors(await Promise.allSettled(required))
+    if (providerRev.get(revKey) === rev) {
+      input.setStore("startup", {
+        ready: requiredErrors.length === 0,
+        error: requiredErrors.length ? formatServerError(requiredErrors[0], input.translate) : undefined,
+      })
+    }
+    const slowErrs = errors(await all)
     if (slowErrs.length > 0) {
       console.error("Failed to finish bootstrap instance", slowErrs[0])
       const project = getFilename(input.directory)

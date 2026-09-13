@@ -1,3 +1,4 @@
+import { useStartupTask } from "@/desktop/startup"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { createHomeController } from "./home/home-controller"
 import { createHomeScrollController } from "./home/home-scroll-controller"
@@ -10,6 +11,15 @@ export function NewHome() {
   const sessions = createHomeSessionsController(home)
   const search = createHomeSessionSearchController(home, sessions)
   const scroll = createHomeScrollController(sessions.data.groups)
+  useStartupTask("session", () => ({ ready: !sessions.data.loading(), error: sessions.data.error() }), true)
+  useStartupTask("workspace", () => {
+    const ctx = home.server.focusedContext()
+    const project = home.project.newSession()
+    if (!ctx || !ctx.sync.startup.ready) return { ready: false, error: ctx?.sync.startup.error }
+    if (!project) return { ready: true }
+    const startup = ctx.sync.child(project.worktree)[0].startup
+    return { ready: startup?.ready === true, error: startup?.error }
+  })
   return (
     <div
       class={`

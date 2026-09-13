@@ -1,3 +1,4 @@
+import { useStartupPending, useStartupTask } from "@/desktop/startup"
 import { createPromptProjectController } from "@/components/prompt-project-selector"
 import { useTitlebarRightMount } from "@/components/titlebar"
 import { useSettings } from "@/context/settings"
@@ -9,6 +10,7 @@ import { useNewSessionCommands } from "./new-session/use-new-session-commands"
 
 /** The draft-only V2 session page. Submitting promotes the draft into a real session. */
 export default function NewSessionPage() {
+  const startupPending = useStartupPending()
   const settings = useSettings()
   const rightMount = useTitlebarRightMount()
   const workspace = createNewSessionWorkspaceController()
@@ -19,6 +21,14 @@ export default function NewSessionPage() {
     ready: workspace.selection.ready,
     resetWorktree: workspace.selection.reset,
   })
+  useStartupTask(
+    "page",
+    () => ({
+      ready: draft.prompt.ready() && workspace.selection.ready(),
+      error: workspace.selection.failed() ? new Error("Failed to load workspace branches") : undefined,
+    }),
+    true,
+  )
   const project = createPromptProjectController({
     controls: draft.project.controls,
     onDone: draft.input.restoreFocus,
@@ -31,7 +41,7 @@ export default function NewSessionPage() {
     },
   })
   createEffect(() => {
-    if (!draft.prompt.ready()) return
+    if (startupPending() || !draft.prompt.ready()) return
     // Cursor edits must not retrigger autofocus and collapse the IME preedit selection.
     untrack(() => draft.input.restoreFocus())
   })

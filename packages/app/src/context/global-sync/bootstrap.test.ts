@@ -76,6 +76,53 @@ function directoryState() {
 }
 
 describe("bootstrapDirectory", () => {
+  test("startup waits for agents and models while slow references remain in the background", async () => {
+    const [store, setStore] = directoryState()
+    const location = { directory: "/project", project: { id: "project", directory: "/project" } }
+    const agents = Promise.withResolvers<{ location: typeof location; data: [] }>()
+    const models = Promise.withResolvers<{ location: typeof location; data: [] }>()
+    const references = Promise.withResolvers<{ location: typeof location; data: [] }>()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await bootstrapDirectory({
+      directory: "/project",
+      scope: ServerScope.local,
+      mcp: false,
+      global: {
+        config: {},
+        path: { state: "", config: "", worktree: "/project", directory: "/project", home: "/home" },
+        project: [{ id: "project", worktree: "/project" } as Project],
+        provider,
+      },
+      sdk: {} as OpencodeClient,
+      api: {
+        ...api,
+        agent: { list: () => agents.promise },
+        model: { ...api.model, list: () => models.promise },
+        reference: { list: () => references.promise },
+      },
+      store,
+      setStore,
+      vcsCache: { setStore() {} } as unknown as VcsCache,
+      loadSessions() {},
+      translate: (key) => key,
+      queryClient: client,
+      protocol: Promise.resolve("v2"),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(store.startup?.ready).toBe(false)
+    agents.resolve({ location, data: [] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.startup?.ready).toBe(false)
+    models.resolve({ location, data: [] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.startup?.ready).toBe(true)
+    expect(store.status).toBe("partial")
+    references.resolve({ location, data: [] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.status).toBe("complete")
+    client.clear()
+  })
+
   test("uses legacy MCP endpoints while refreshing a v1 directory", async () => {
     const legacyConfigReads: string[] = []
     const mcpReads: string[] = []
