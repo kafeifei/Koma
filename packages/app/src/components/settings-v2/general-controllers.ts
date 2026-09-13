@@ -25,6 +25,17 @@ import { createSoundPreviewController, type ShellOption } from "./general-contro
 export { createShellOptions, createSoundPreviewController } from "./general-controller-behavior"
 export type { ShellOption, ShellSelectOption } from "./general-controller-behavior"
 
+export const fontOptions = [
+  "System Sans",
+  "System Mono",
+  "JetBrainsMono Nerd Font Mono",
+  "SF Mono",
+  "Menlo",
+  "Monaco",
+  "Consolas",
+  "Fira Code",
+] as const
+
 export function createPermissionScopeController(sessionID: Accessor<string | undefined>) {
   const permission = usePermission()
   const serverSdk = useServerSDK()
@@ -111,6 +122,11 @@ export function createAppearanceSettingsController() {
         family: terminalFontFamily(settings.appearance.terminalFont()),
         placeholder: terminalDefault,
       })),
+      options: (current: string, defaultFont: string) =>
+        [...new Set([defaultFont, current, ...fontOptions].filter((font) => font.length > 0))].map((font) => ({
+          id: font,
+          name: font,
+        })),
       setUI: (value: string) => settings.appearance.setUIFont(value),
       setCode: (value: string) => settings.appearance.setFont(value),
       setTerminal: (value: string) => settings.appearance.setTerminalFont(value),

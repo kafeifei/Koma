@@ -3,7 +3,6 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { SelectV2 } from "@opencode-ai/ui/v2/select-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
-import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
@@ -183,22 +182,23 @@ const FontSetting: Component<{
 }> = (props) => {
   const language = useLanguage()
   const config = () => fontSettings[props.kind]
+  const current = () => props.fonts[config().font]()
+  const options = () => props.fonts.options(current().value, current().placeholder)
   return (
     <SettingsRowV2 title={language.t(config().title)} description={language.t(config().description)}>
       <div class="w-full sm:w-[220px]">
-        <TextInputV2
+        <SelectV2
           data-action={config().action}
-          type="text"
-          appearance="base"
-          value={props.fonts[config().font]().value}
-          onInput={(event) => props.fonts[config().input](event.currentTarget.value)}
-          placeholder={props.fonts[config().font]().placeholder}
-          spellcheck={false}
-          autocorrect="off"
-          autocomplete="off"
-          autocapitalize="off"
-          aria-label={language.t(config().title)}
-          style={{ "font-family": props.fonts[config().font]().family }}
+          appearance="inline"
+          options={options()}
+          current={options().find((option) => option.id === (current().value || current().placeholder)) ?? options()[0]}
+          placement="bottom-end"
+          gutter={6}
+          value={(option) => option.id}
+          label={(option) => option.name}
+          onSelect={(option) =>
+            option && props.fonts[config().input](option.id === current().placeholder ? "" : option.id)
+          }
         />
       </div>
     </SettingsRowV2>
