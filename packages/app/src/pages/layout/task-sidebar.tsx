@@ -18,12 +18,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { getRelativeTime } from "@/utils/time"
 import { displayName } from "./helpers"
 import { useSessionTabAvatarState } from "./project-avatar-state"
-import {
-  filterClosedSessionDirectories,
-  taskProjectGroups,
-  taskSessionProjectDirectory,
-  visibleTaskSessions,
-} from "./task-sidebar-data"
+import { taskProjectGroups, taskSessionProjectDirectory, visibleTaskSessions } from "./task-sidebar-data"
 import { TaskSidebarMenu } from "./task-sidebar-menu"
 import { createTaskSearch } from "./task-search"
 import { pathKey } from "@/utils/path-key"
@@ -34,6 +29,8 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogWorktreeManager } from "@/components/dialog-worktree-manager"
 import "./task-sidebar.css"
 import { ServerConnectionError } from "@/components/server/server-connection-error"
+import { recentGroup } from "@/utils/session-project"
+import { createMenuDismissController } from "@/utils/menu-dismiss-controller"
 
 export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: () => void }>) {
   const global = useGlobal()
@@ -67,10 +64,6 @@ export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: ()
           data-action="workspace-new-task"
           data-slot="workspace-action"
           onClick={() => {
-            if (!global.servers.list().some((conn) => global.ensureServerCtx(conn).projects.list().length)) {
-              chooseProject()
-              return
-            }
             command.trigger("tab.new")
             props.onNavigate()
           }}
@@ -201,39 +194,11 @@ function TaskServer(props: {
     if (route.type !== "session" || route.server !== key()) return
     return context().sync.session.lineage.peek(route.sessionId)?.root.id ?? route.sessionId
   })
-  const projects = createMemo(() => {
-    const opened = context().projects.list()
-    if (!props.archived && !props.query.trim()) return opened
-    const directories = filterClosedSessionDirectories(
-      (props.archived ? sessions.archived() : sessions.sessions()).map((session) =>
-        taskSessionProjectDirectory(session, context().sync.data.project),
-      ),
-      context()
-        .projects.recentlyClosed()
-        .map((project) => project.worktree),
-      context().sync.data.project,
-    )
-    return [
-      ...opened,
-      ...[...new Set(directories)]
-        .filter(
-          (directory) =>
-            !opened.some(
-              (project) =>
-                pathKey(project.worktree) === pathKey(directory) ||
-                project.sandboxes?.some((sandbox) => pathKey(sandbox) === pathKey(directory)),
-            ),
-        )
-        .map((directory) => ({
-          ...context().sync.data.project.find((project) => project.worktree === directory),
-          worktree: directory,
-          expanded: true,
-        })),
-    ]
-  })
+  const projects = createMemo(() => [recentGroup(language.t("workspace.recent")), ...context().projects.list()])
   const groups = createMemo(() =>
     taskProjectGroups(projects(), props.archived ? sessions.archived() : sessions.sessions(), props.query, {
       archived: props.archived,
+      assignments: context().projects.assignments(),
       pinned: context().tasks.pinned(),
       matches: [...snippets().keys()],
       knownProjects: context().sync.data.project,
@@ -331,7 +296,7 @@ function TaskServer(props: {
         <div data-slot="workspace-empty">
           {props.query.trim()
             ? language.t("home.sessions.search.noResults", { query: props.query })
-            : language.t(props.archived ? "workspace.archive.empty" : "sidebar.empty.description")}
+            : language.t(props.archived ? "workspace.archive.empty" : "home.sessions.empty")}
         </div>
       </Show>
     </section>
@@ -353,12 +318,13 @@ function TaskProject(props: {
 }) {
   const language = useLanguage()
   const dialog = useDialog()
-  const navigate = useNavigate()
+  let menuContent: HTMLDivElement | undefined
+  const dismiss = createMenuDismissController(() => menuContent)
   const [state, setState] = createStore({ collapsed: false, limit: 8 })
   const open = () => props.searching || !state.collapsed
   const visible = createMemo(() => visibleTaskSessions(props.sessions, state.limit, props.activeID))
   const remove = () => {
-    if (props.activeProject) navigate("/")
+    if (props.project.internal) return
     props.context.projects.close(props.project.worktree)
   }
   return (
@@ -369,7 +335,7 @@ function TaskProject(props: {
           data-slot="workspace-action"
           aria-expanded={open()}
           onClick={() => setState("collapsed", !state.collapsed)}
-          title={props.project.worktree}
+          title={props.project.internal ? props.project.name : props.project.worktree}
         >
           <Icon name="chevron-down" class={open() ? "" : "-rotate-90"} />
           <Icon name="folder" />
@@ -385,40 +351,51 @@ function TaskProject(props: {
             <Icon name="plus" />
           </button>
         </Show>
-        <DropdownMenu placement="bottom-end" gutter={4}>
-          <DropdownMenu.Trigger
-            as="button"
-            type="button"
-            data-action="project-remove"
-            aria-label={language.t("workspace.removeProject")}
-            title={language.t("workspace.removeProject")}
+        <Show when={!props.project.internal}>
+          <DropdownMenu
+            placement="bottom-end"
+            gutter={4}
+            onOpenChange={(open) => {
+              if (open) dismiss.allowTriggerRestore()
+            }}
           >
-            …
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content>
-              <Show when={props.project.vcs === "git"}>
-                <DropdownMenu.Item
-                  onSelect={() =>
-                    dialog.show(() => (
-                      <DialogWorktreeManager
-                        root={props.project.worktree}
-                        server={props.server}
-                        context={props.context}
-                        onNavigate={props.onNavigate}
-                      />
-                    ))
-                  }
-                >
-                  <DropdownMenu.ItemLabel>{language.t("worktree.manager.title")}</DropdownMenu.ItemLabel>
+            <DropdownMenu.Trigger
+              as="button"
+              type="button"
+              data-action="project-remove"
+              aria-label={language.t("workspace.removeProject")}
+              title={language.t("workspace.removeProject")}
+            >
+              …
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content ref={menuContent} onCloseAutoFocus={dismiss.onCloseAutoFocus}>
+                <Show when={props.project.vcs === "git"}>
+                  <DropdownMenu.Item
+                    onSelect={() => {
+                      dismiss.preventTriggerRestore()
+                      dismiss.afterClose(() =>
+                        dialog.show(() => (
+                          <DialogWorktreeManager
+                            root={props.project.worktree}
+                            server={props.server}
+                            context={props.context}
+                            onNavigate={props.onNavigate}
+                          />
+                        )),
+                      )
+                    }}
+                  >
+                    <DropdownMenu.ItemLabel>{language.t("worktree.manager.title")}</DropdownMenu.ItemLabel>
+                  </DropdownMenu.Item>
+                </Show>
+                <DropdownMenu.Item onSelect={remove}>
+                  <DropdownMenu.ItemLabel>{language.t("workspace.removeProject")}</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
-              </Show>
-              <DropdownMenu.Item onSelect={remove}>
-                <DropdownMenu.ItemLabel>{language.t("workspace.removeProject")}</DropdownMenu.ItemLabel>
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu>
+        </Show>
       </div>
       <div hidden={!open()}>
         <For each={visible().map((session) => session.id)}>
@@ -432,7 +409,7 @@ function TaskProject(props: {
               <TaskSession
                 session={session()}
                 context={props.context}
-                projectDirectory={props.project.worktree}
+                projectDirectory={taskSessionProjectDirectory(session(), props.context.sync.data.project)}
                 server={props.server}
                 active={id === props.activeID}
                 archived={props.archived}
@@ -559,7 +536,6 @@ function TaskSession(props: {
         onClick={(event) => {
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
           event.preventDefault()
-          props.context.projects.open(props.projectDirectory)
           props.context.projects.touch(props.projectDirectory)
           if (typeof props.session.time.archived === "number") props.context.sync.session.remember(props.session)
           const next = tabs.addSessionTab(tab())

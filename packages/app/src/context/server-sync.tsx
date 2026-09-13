@@ -9,7 +9,7 @@ import type {
 import { showToast } from "@/utils/toast"
 import { Worktree } from "@/utils/worktree"
 import { getFilename } from "@opencode-ai/core/util/path"
-import { type Accessor, batch, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"
+import { type Accessor, batch, createMemo, createSignal, getOwner, onCleanup, onMount, untrack } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { InitError } from "../pages/error"
@@ -322,13 +322,17 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     if (eventTimer !== undefined) clearTimeout(eventTimer)
   })
 
+  const [projectsReady, setProjectsReady] = createSignal(false)
   const setProjects = (next: Project[] | ((draft: Project[]) => Project[])) => {
     setGlobalStore("project", next)
   }
 
   const setBootStore = ((...input: unknown[]) => {
     if (input[0] === "project" && Array.isArray(input[1])) {
-      setProjects(input[1] as Project[])
+      batch(() => {
+        setProjects(input[1] as Project[])
+        setProjectsReady(true)
+      })
       return input[1]
     }
     return (setGlobalStore as (...args: unknown[]) => unknown)(...input)
@@ -721,6 +725,15 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   })
 
   const projectApi = {
+    ready: projectsReady,
+    async ensure() {
+      if (projectsReady()) return
+      const projects = await queryClient.fetchQuery(queryOptionsApi.projects())
+      batch(() => {
+        setProjects(projects)
+        setProjectsReady(true)
+      })
+    },
     loadSessions,
     meta(directory: string, patch: ProjectMeta) {
       children.projectMeta(directory, patch)

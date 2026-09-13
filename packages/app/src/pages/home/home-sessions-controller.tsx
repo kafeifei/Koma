@@ -58,6 +58,7 @@ export function createHomeSessionsController(home: HomeController) {
       projectDirectories,
       projects: home.project.list,
       projectByID,
+      assignments: () => home.server.focusedContext()?.projects.assignments() ?? {},
       knownProjects: () => home.server.focusedSync().data.project,
     }),
   )
@@ -118,7 +119,6 @@ export function createHomeSessionsController(home: HomeController) {
               const sessionID = entry.sessionID
               const server = entry.server
               const directory = entry.project?.worktree ?? entry.directory
-              ctx.projects.open(directory)
               ctx.projects.touch(directory)
               void startTransition(() => {
                 const tab = tabs.addSessionTab({ server, sessionId: sessionID })
@@ -163,7 +163,6 @@ export function createHomeSessionsController(home: HomeController) {
         const directory = project?.worktree ?? session.directory
         const ctx = home.server.focusedContext()
         if (!ctx) return
-        ctx.projects.open(directory)
         if (options?.background) {
           tabs.addSessionTab({ server: ServerConnection.key(conn), sessionId: session.id })
           return

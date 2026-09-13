@@ -31,6 +31,9 @@ export function migrateTabs(value: unknown, fallback: ServerConnection.Key): Tab
           draftID: tab.draftID,
           directory: tab.directory,
           worktree: tab.worktree,
+          ...(tab.projectless === true
+            ? { projectless: true, ...(typeof tab.workspaceKey === "string" ? { workspaceKey: tab.workspaceKey } : {}) }
+            : {}),
           ...(mode ? { permissionMode: mode } : {}),
         },
       ]

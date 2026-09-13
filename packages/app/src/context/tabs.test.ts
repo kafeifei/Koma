@@ -13,6 +13,17 @@ function sessionTab(sessionId: string): SessionTab {
 }
 
 describe("tab migration", () => {
+  test("retains projectless targeting and its reserved retry directory across restart", () => {
+    const draft = {
+      type: "draft" as const,
+      draftID: "composer:kept",
+      server,
+      directory: "/state/projectless",
+      projectless: true,
+      workspaceKey: "11111111-1111-4111-8111-111111111111",
+    }
+    expect(migrateTabs([draft], server)).toEqual([{ ...draft, worktree: undefined }])
+  })
   test("drops null and malformed persisted tabs", () => {
     expect(
       migrateTabs([null, sessionTab("a"), { type: "session", server }, { type: "unknown", server }, "invalid"], server),

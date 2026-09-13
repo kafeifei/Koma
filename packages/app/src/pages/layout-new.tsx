@@ -14,6 +14,7 @@ import { TaskSidebar } from "./layout/task-sidebar"
 import { debugToolsEnabled } from "@/utils/debug-tools"
 import { WORKSPACE_PANEL_MIN_WIDTH } from "./layout/layout-width"
 import { REVIEW_PANE_WIDTH_MIN, SESSION_PANEL_WIDTH_MIN } from "./session/session-panel-width"
+import { InitialTaskRoute } from "./layout/initial-task-route"
 
 export default function NewLayout(props: ParentProps) {
   const platform = usePlatform()
@@ -59,6 +60,7 @@ export default function NewLayout(props: ParentProps) {
         "--workspace-sidebar-width": `${sidebarWidth()}px`,
       }}
     >
+      <InitialTaskRoute />
       <Titlebar
         update={update}
         workspace={{ opened: opened(), docked: !mobile() && opened(), toggle }}
@@ -98,7 +100,15 @@ export default function NewLayout(props: ParentProps) {
           inert={mobile() && opened()}
           class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict"
         >
-          <Suspense>{props.children}</Suspense>
+          <Suspense
+            fallback={
+              <div class="m-auto text-v2-text-text-muted" role="status">
+                {language.t("common.loading")}
+              </div>
+            }
+          >
+            {props.children}
+          </Suspense>
         </main>
       </div>
       {debugToolsEnabled(platform) && state.debugTools && <DebugBar inline />}

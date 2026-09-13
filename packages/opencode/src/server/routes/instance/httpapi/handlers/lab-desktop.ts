@@ -12,12 +12,23 @@ import { createKomaDesktopStore } from "@opencode-ai/core/koma-desktop-store"
 import { InvalidRequestError } from "../errors"
 import { LabDesktopApi } from "../groups/lab-desktop"
 import { createComputerUse } from "@opencode-ai/core/koma-computer-use"
+import { projectlessWorkspace } from "@opencode-ai/core/koma-projectless"
 
 export const labDesktopHandlers = HttpApiBuilder.group(LabDesktopApi, "lab-desktop", (handlers) => {
   const store = Global.Path.root ? createKomaDesktopStore(StoragePaths.resolve(Global.Path.root).desktop) : undefined
   let drafts: ReturnType<typeof createKomaDraftStore> | undefined
   const computerUse = Global.Path.root ? createComputerUse({ root: Global.Path.root }) : undefined
   return handlers
+    .handle("projectlessWorkspace", ({ payload }) =>
+      Effect.tryPromise({
+        try: () => {
+          if (!process.env.KOMA_HOME || !Global.Path.root)
+            throw new Error("Workspace preparation requires a Koma profile")
+          return projectlessWorkspace(StoragePaths.resolve(Global.Path.root).state, payload.key)
+        },
+        catch: (error) => new InvalidRequestError({ message: error instanceof Error ? error.message : String(error) }),
+      }),
+    )
     .handle("computerUse", ({ payload }) =>
       Effect.tryPromise({
         try: () => {

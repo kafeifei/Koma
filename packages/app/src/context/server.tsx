@@ -1,6 +1,6 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { type Accessor, batch, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js"
-import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
+import { createStore, produce, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { ServerScope } from "@/utils/server-scope"
@@ -13,6 +13,7 @@ type ServerProjectState = {
   projects: Record<string, StoredProject[]>
   lastProject: Record<string, string>
   recentlyClosed: Record<string, string[]>
+  sessionProjects?: Record<string, Record<string, string | null>>
 }
 const HEALTH_POLL_INTERVAL_MS = 10_000
 // The store retains more history than is displayed. Consumers filter recently closed entries
@@ -51,7 +52,10 @@ export function migrateCanonicalLocalServerState(value: unknown, canonicalLocalS
   const lastProject = isRecord(value.lastProject) ? value.lastProject : undefined
   const previousProjects = projects?.[canonicalLocalServer]
   const previousLastProject = lastProject?.[canonicalLocalServer]
-  if (!Array.isArray(previousProjects) && typeof previousLastProject !== "string") return value
+  const sessionProjects = isRecord(value.sessionProjects) ? value.sessionProjects : undefined
+  const previousAssignments = sessionProjects?.[canonicalLocalServer]
+  if (!Array.isArray(previousProjects) && typeof previousLastProject !== "string" && !isRecord(previousAssignments))
+    return value
 
   const next = { ...value }
   if (projects && Array.isArray(previousProjects)) {
@@ -75,6 +79,12 @@ export function migrateCanonicalLocalServerState(value: unknown, canonicalLocalS
     delete nextLastProject[canonicalLocalServer]
     next.lastProject = nextLastProject
   }
+  if (sessionProjects && isRecord(previousAssignments)) {
+    const local = isRecord(sessionProjects.local) ? sessionProjects.local : {}
+    const migrated: Record<string, unknown> = { ...sessionProjects, local: { ...previousAssignments, ...local } }
+    delete migrated[canonicalLocalServer]
+    next.sessionProjects = migrated
+  }
   return next
 }
 
@@ -96,6 +106,27 @@ export function createServerProjects<T extends ServerProjectState>(input: {
   }
   return {
     list: current,
+    assignments: () => input.store.sessionProjects?.[input.scope()] ?? {},
+    assign(id: string, project: string | null) {
+      setStore(
+        produce((state) => {
+          const scopes = (state.sessionProjects ??= {})
+          ;(scopes[input.scope()] ??= {})[id] = project
+        }),
+      )
+    },
+    remember(changes: Record<string, string | null>) {
+      if (!Object.keys(changes).length) return
+      setStore(
+        produce((state) => {
+          const assignments = (state.sessionProjects ??= {})
+          const current = (assignments[input.scope()] ??= {})
+          for (const [id, project] of Object.entries(changes)) {
+            if (current[id] === undefined) current[id] = project
+          }
+        }),
+      )
+    },
     recentlyClosed: currentClosed,
     remove,
     open(directory: string) {
@@ -115,13 +146,21 @@ export function createServerProjects<T extends ServerProjectState>(input: {
     // User-initiated close: removes the project and records it in recently closed.
     // Internal, non-user removals (e.g. sandbox/worktree normalization) should use remove().
     close(directory: string) {
-      remove(directory)
+      const scope = input.scope()
       const key = pathKey(directory)
-      const closed = [directory, ...currentClosed().filter((worktree) => pathKey(worktree) !== key)].slice(
-        0,
-        RECENTLY_CLOSED_HISTORY_LIMIT,
+      setStore(
+        produce((state) => {
+          state.projects[scope] = (state.projects[scope] ?? []).filter((project) => pathKey(project.worktree) !== key)
+          state.recentlyClosed[scope] = [
+            directory,
+            ...(state.recentlyClosed[scope] ?? []).filter((path) => pathKey(path) !== key),
+          ].slice(0, RECENTLY_CLOSED_HISTORY_LIMIT)
+          for (const [id, project] of Object.entries(state.sessionProjects?.[scope] ?? {})) {
+            if (project !== null && pathKey(project) === key) state.sessionProjects![scope][id] = null
+          }
+          if (state.lastProject[scope] && pathKey(state.lastProject[scope]) === key) delete state.lastProject[scope]
+        }),
       )
-      setStore("recentlyClosed", input.scope(), closed)
     },
     expand(directory: string) {
       const key = pathKey(directory)
@@ -164,6 +203,13 @@ export function createServerProjects<T extends ServerProjectState>(input: {
       }, [])
       const last = input.store.lastProject[scope]
       const nextLast = last ? resolve(last) : undefined
+      const assignments = input.store.sessionProjects?.[scope] ?? {}
+      const resolvedAssignments = Object.fromEntries(
+        Object.entries(assignments).map(([id, project]) => [id, project === null ? null : resolve(project)]),
+      )
+      const assignmentsChanged = Object.entries(resolvedAssignments).some(
+        ([id, project]) => project !== assignments[id],
+      )
       const projectsChanged =
         list.length !== current().length ||
         list.some(
@@ -174,11 +220,12 @@ export function createServerProjects<T extends ServerProjectState>(input: {
         closed.length !== currentClosed().length ||
         closed.some((directory, index) => directory !== currentClosed()[index])
 
-      if (!projectsChanged && !closedChanged && nextLast === last) return
+      if (!projectsChanged && !closedChanged && !assignmentsChanged && nextLast === last) return
       batch(() => {
         if (projectsChanged) setStore("projects", scope, list)
         if (closedChanged) setStore("recentlyClosed", scope, closed)
         if (nextLast && nextLast !== last) setStore("lastProject", scope, nextLast)
+        if (assignmentsChanged) setStore("sessionProjects", scope, resolvedAssignments)
       })
     },
   }
@@ -355,6 +402,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
         recentlyClosed: {} as Record<string, string[]>,
+        sessionProjects: {} as Record<string, Record<string, string | null>>,
       }),
     )
 

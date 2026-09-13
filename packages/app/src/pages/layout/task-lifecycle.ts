@@ -47,7 +47,6 @@ export async function mutateTask(input: {
   void input.context.queryClient.invalidateQueries({ queryKey: ["task-search", input.context.sdk.scope] })
 
   if (input.operation !== "delete") input.tabs.rememberSessionInfo(target, info)
-  if (input.operation === "restore") input.context.projects.open(input.projectDirectory)
   if (input.operation === "restore") return info
 
   const [, setChild] = input.context.sync.child(session.directory, { bootstrap: false })

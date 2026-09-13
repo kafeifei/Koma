@@ -83,6 +83,7 @@ const openExistingWorktree = async (page: Page) => {
   const dialog = page.getByRole("dialog")
   await dialog.locator('[data-slot="worktree-manager-entry"]').filter({ hasText: "feature" }).click()
   await dialog.getByRole("button", { name: "Open directory", exact: true }).click()
+  await expect(dialog).toHaveCount(0)
   await expectComposer(page, feature)
 }
 
@@ -111,6 +112,9 @@ test.beforeEach(async ({ page }) => {
     provider: fixture.provider,
     pageMessages: () => ({ items: [] }),
   })
+  await page.route("**/lab/desktop/projectless-workspace", (route) =>
+    route.fulfill({ json: { directory: "C:/Koma/projectless" } }),
+  )
   await page.route("**/api/project", (route) =>
     route.fulfill({
       json: [
@@ -938,7 +942,8 @@ test("hydration removes legacy UUID inputs but retains session text and singleto
   await sidebar(page).locator('[data-session-id="ses-retained"]').click()
   await expect(editor(page)).toHaveText("Persisted formal input")
   await page.goto(`/new-session?draftId=${legacy}`)
-  await expect(page).toHaveURL(new URL("/", page.url()).href)
+  await expect(page).toHaveURL(new RegExp(`/new-session\\?draftId=${encodeURIComponent(id)}$`))
+  await expect(editor(page)).toHaveText("Persisted singleton input")
   await openProject(page, directory)
   await expect(editor(page)).toHaveText("Persisted singleton input")
   await expect(page.locator('[data-component="prompt-input-v2"] img')).toHaveCount(1)

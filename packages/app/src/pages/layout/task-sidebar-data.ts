@@ -1,13 +1,15 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { LocalProject } from "@/context/layout"
 import { pathKey } from "@/utils/path-key"
-import { compareSessionTime, displayName, projectForSession } from "./helpers"
+import { RECENT, sessionProject, type SessionProjects } from "@/utils/session-project"
+import { compareSessionTime, displayName } from "./helpers"
 
 export function taskProjectGroups(
   projects: LocalProject[],
   sessions: Session[],
   query = "",
   options: {
+    assignments?: SessionProjects
     archived?: boolean
     pinned?: string[]
     matches?: string[]
@@ -16,7 +18,6 @@ export function taskProjectGroups(
 ) {
   const search = query.trim().toLowerCase()
   const groups = projects.map((project) => ({ project, sessions: [] as Session[] }))
-  const byID = new Map(projects.flatMap((project) => (project.id ? [[project.id, project] as const] : [])))
   const roots = [...new Map(sessions.map((session) => [session.id, session])).values()]
     .filter((session) => !session.parentID && (typeof session.time.archived === "number") === !!options.archived)
     .sort(
@@ -26,11 +27,9 @@ export function taskProjectGroups(
     )
 
   for (const session of roots) {
-    const directory = pathKey(session.directory)
     const project =
-      projects.find(
-        (item) => pathKey(item.worktree) === directory || item.sandboxes?.some((path) => pathKey(path) === directory),
-      ) ?? projectForSession(session, projects, byID, options.knownProjects)
+      sessionProject(session, projects, options.knownProjects, options.assignments) ??
+      projects.find((project) => project.worktree === RECENT)
     const group = groups.find((item) => item.project === project)
     if (!group) continue
     if (
@@ -42,9 +41,10 @@ export function taskProjectGroups(
     group.sessions.push(session)
   }
 
+  const visible = groups.filter((group) => group.project.worktree !== RECENT || group.sessions.length > 0)
   return search
-    ? groups.filter((group) => group.sessions.length > 0 || displayName(group.project).toLowerCase().includes(search))
-    : groups
+    ? visible.filter((group) => group.sessions.length > 0 || displayName(group.project).toLowerCase().includes(search))
+    : visible
 }
 
 // Archived checkouts can disappear from Project.sandboxes; the durable project ID still identifies their root.

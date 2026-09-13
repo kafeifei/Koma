@@ -45,7 +45,9 @@ export function createNewSessionWorkspaceController() {
     return untrack(() => persisted(target, createStore({ selected: {} as Record<string, string> })))
   })
   const visible = createMemo(() => workspaceBarEnabled && sync().project?.vcs === "git")
-  const projectRoot = createMemo(() => sync().project?.worktree ?? sdk().directory)
+  const projectRoot = createMemo(() =>
+    sync().project?.id === "global" ? sdk().directory : (sync().project?.worktree ?? sdk().directory),
+  )
   const projectKey = createMemo(() => pathKey(projectRoot()))
   const [result, optionsControl] = createResource(
     () => (visible() ? sdk() : undefined),

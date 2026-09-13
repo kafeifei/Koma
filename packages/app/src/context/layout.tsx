@@ -88,7 +88,12 @@ type TabHandoff = {
   at: number
 }
 
-export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean; projectIDs?: string[] }
+export type LocalProject = Partial<Project> & {
+  worktree: string
+  expanded: boolean
+  projectIDs?: string[]
+  internal?: "recent"
+}
 export type HomeProjectSelection = { server: ServerConnection.Key; directory?: string }
 
 export type ReviewDiffStyle = "unified" | "split"

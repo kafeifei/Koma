@@ -43,7 +43,7 @@ export default defineConfig({
     },
     {
       name: "webkit",
-      testMatch: "**/desktop-layout.spec.ts",
+      testMatch: ["**/desktop-layout.spec.ts", "**/projectless-session.spec.ts"],
       use: { ...devices["Desktop Safari"] },
     },
   ],

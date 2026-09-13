@@ -59,6 +59,7 @@ import { ServerConnection, ServerProvider, serverName, useServer } from "@/conte
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
 import { isRetainedInput } from "@/context/input-retention"
+import { sessionProject } from "@/utils/session-project"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
 import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
@@ -105,7 +106,7 @@ const SessionRoute = () => {
   })
 
   return (
-    <Show when={!settings.general.newLayoutDesigns()}>
+    <Show when={!settings.general.newLayoutDesigns()} fallback={<DraftLoading />}>
       <SessionRouteErrorBoundary sessionID={params.id}>
         <SessionPage />
       </SessionRouteErrorBoundary>
@@ -188,29 +189,62 @@ function LegacyServerLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) 
   )
 }
 
-function DraftRoute() {
-  const [search] = useSearchParams<{ draftId?: string }>()
-  const settings = useSettings()
-  const tabs = useTabs()
+function DraftLoading() {
+  const language = useLanguage()
   return (
-    <Show when={tabs.ready()}>
+    <div class="m-auto p-6" role="status">
+      {language.t("common.loading")}
+    </div>
+  )
+}
+
+function DraftRoute() {
+  const tabs = useTabs()
+  const [search] = useSearchParams<{ draftId?: string; serverKey?: string }>()
+  return (
+    <Show when={tabs.ready()} fallback={<DraftLoading />}>
       <Show
         when={tabs.store.find(
           (tab): tab is DraftTab =>
             tab.type === "draft" && isRetainedInput(tab.draftID) && tab.draftID === search.draftId,
         )}
         keyed
-        fallback={<Navigate href="/" />}
+        fallback={<NewDraftRedirect />}
       >
-        {(draft) => (
-          <Show
-            when={settings.general.newLayoutDesigns()}
-            fallback={<Navigate href={`/${base64Encode(draft.directory)}/session`} />}
-          >
-            <ResolvedDraftRoute draft={draft} />
-          </Show>
-        )}
+        {(draft) => <ResolvedDraftRoute draft={draft} />}
       </Show>
+    </Show>
+  )
+}
+
+function NewDraftRedirect(props: { server?: ServerConnection.Key } = {}) {
+  const tabs = useTabs()
+  const server = useServer()
+  const language = useLanguage()
+  const [search] = useSearchParams<{ serverKey?: string }>()
+  const [failed, setFailed] = createSignal(false)
+  let requested = false
+  const retry = async () => {
+    setFailed(false)
+    const draft = await tabs
+      .newDraft({ server: props.server ?? (search.serverKey as ServerConnection.Key | undefined) ?? server.key })
+      .catch(() => undefined)
+    if (!draft) setFailed(true)
+  }
+  useStartupTask("page", () => ({ ready: failed() }), true)
+  createEffect(() => {
+    if (requested || !server.ready() || !tabs.ready()) return
+    requested = true
+    void retry()
+  })
+  return (
+    <Show when={failed()} fallback={<DraftLoading />}>
+      <div class="m-auto p-6 flex flex-col items-center gap-3" role="alert">
+        <span>{language.t("common.requestFailed")}</span>
+        <button type="button" onClick={() => void retry()}>
+          {language.t("workspace.retry")}
+        </button>
+      </div>
     </Show>
   )
 }
@@ -218,25 +252,45 @@ function DraftRoute() {
 function ResolvedDraftRoute(props: { draft: DraftTab }) {
   const global = useGlobal()
   const conn = createMemo(() => global.servers.list().find((item) => ServerConnection.key(item) === props.draft.server))
+  const context = createMemo(() => (conn() ? global.ensureServerCtx(conn()!) : undefined))
   const directory = () => props.draft.directory
   const serverKey = () => props.draft.server
+  const valid = () =>
+    !!directory() &&
+    (props.draft.projectless ||
+      !!sessionProject(
+        { id: "", directory: directory(), projectID: "global" },
+        context()?.projects.list() ?? [],
+        context()?.sync.data.project,
+      ))
 
-  // Only the input identity owns the page lifetime. Its server/directory are reactive
-  // destinations, so retargeting must not recreate the composer or its local state.
+  // The input keeps its identity while its destination changes. A removed
+  // project falls back to the same retained composer with a projectless target.
   return (
-    <ServerSDKProvider server={conn}>
-      <ServerSyncProvider server={conn}>
-        <ModelsProvider directory={directory}>
-          <SDKProvider directory={directory}>
-            <DirectoryDataProvider directory={directory} server={serverKey}>
-              <DraftProviders>
-                <NewSession />
-              </DraftProviders>
-            </DirectoryDataProvider>
-          </SDKProvider>
-        </ModelsProvider>
-      </ServerSyncProvider>
-    </ServerSDKProvider>
+    <Show when={conn()} fallback={<NewDraftRedirect server={serverKey()} />}>
+      <Show
+        when={context()?.sync.project.ready()}
+        fallback={
+          context()?.sync.startup.error ? <ErrorPage error={context()!.sync.startup.error} /> : <DraftLoading />
+        }
+      >
+        <Show when={valid()} fallback={<NewDraftRedirect server={serverKey()} />}>
+          <ServerSDKProvider server={conn}>
+            <ServerSyncProvider server={conn}>
+              <ModelsProvider directory={directory}>
+                <SDKProvider directory={directory}>
+                  <DirectoryDataProvider directory={directory} server={serverKey}>
+                    <DraftProviders>
+                      <NewSession />
+                    </DraftProviders>
+                  </DirectoryDataProvider>
+                </SDKProvider>
+              </ModelsProvider>
+            </ServerSyncProvider>
+          </ServerSDKProvider>
+        </Show>
+      </Show>
+    </Show>
   )
 }
 

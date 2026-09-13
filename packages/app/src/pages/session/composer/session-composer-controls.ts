@@ -18,6 +18,8 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { useProviders } from "@/hooks/use-providers"
 import { pathKey } from "@/utils/path-key"
+import { RECENT, recentGroup } from "@/utils/session-project"
+import { useLanguage } from "@/context/language"
 
 export function createPromptInputController(input: {
   sessionKey: Accessor<string>
@@ -79,31 +81,31 @@ export function createPromptProjectControls() {
   const pickDirectory = useDirectoryPicker()
   const [search] = useSearchParams<{ draftId?: string }>()
   const projectServer = () => serverSDK().server
-  const projectServerCtx = createMemo(() => global.ensureServerCtx(projectServer()))
+  const language = useLanguage()
+  const availableProjects = (conn: ServerConnection.Any) => {
+    const ctx = global.ensureServerCtx(conn)
+    return search.draftId ? [recentGroup(language.t("workspace.recent")), ...ctx.projects.list()] : ctx.projects.list()
+  }
   const projects = createMemo(() => {
     if (server.list.length <= 1) {
-      return search.draftId ? projectServerCtx().projects.list() : layout.projects.list()
+      return search.draftId ? availableProjects(projectServer()) : layout.projects.list()
     }
     return server.list.flatMap((conn) => {
       const item = { key: ServerConnection.key(conn), name: serverName(conn) }
-      return global
-        .ensureServerCtx(conn)
-        .projects.list()
-        .map((project) => ({ ...project, server: item }))
+      return availableProjects(conn).map((project) => ({ ...project, server: item }))
     })
   })
-  const selectProject = (worktree: string, serverKey?: string) => {
+  const selectProject = async (worktree: string, serverKey?: string) => {
     const conn = serverKey ? server.list.find((conn) => ServerConnection.key(conn) === serverKey) : projectServer()
     if (search.draftId) {
       if (!conn) return
       const target = global.ensureServerCtx(conn)
-      target.projects.open(worktree)
-      target.projects.touch(worktree)
-      tabs.updateDraft(search.draftId, {
+      if (worktree !== RECENT && !(await target.projects.open(worktree))) return
+      const draft = await tabs.newDraft({
         server: ServerConnection.key(conn),
-        directory: pathKey(worktree),
-        worktree: undefined,
+        directory: worktree === RECENT ? undefined : pathKey(worktree),
       })
+      if (draft && worktree !== RECENT) target.projects.touch(worktree)
       return
     }
 
@@ -137,7 +139,7 @@ export function createPromptProjectControls() {
 
   return createMemo<PromptProjectControls>(() => ({
     available: projects(),
-    directory: sdk().directory,
+    directory: search.draftId && tabs.draft(search.draftId).projectless ? RECENT : sdk().directory,
     server: server.list.length > 1 ? ServerConnection.key(projectServer()) : undefined,
     select: selectProject,
     add: addProject,

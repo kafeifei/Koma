@@ -1,4 +1,4 @@
-import type { Accessor } from "solid-js"
+import { createEffect, type Accessor } from "solid-js"
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
 import type { ServerCtx } from "@/context/global"
 import { loadHomeSessionIndex, type HomeSessionEvents } from "./home-session-index"
@@ -51,6 +51,15 @@ export function createHomeSessionQuery(context: Accessor<ServerCtx | undefined>)
     }),
     client,
   )
+
+  createEffect(() => {
+    const ctx = context()
+    if (!ctx || !index.data) return
+    ctx.projects.rememberSessions([
+      ...ctx.sync.homeSessions.sessions(index.data, events.data),
+      ...ctx.sync.homeSessions.sessions(index.data, events.data, true),
+    ])
+  })
 
   return {
     sessions: () => context()?.sync.homeSessions.sessions(index.data, events.data) ?? [],

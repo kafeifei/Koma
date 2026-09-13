@@ -1,9 +1,11 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { LocalProject } from "@/context/layout"
-import { compareSessionTime, displayName, projectForSession } from "@/pages/layout/helpers"
+import { compareSessionTime, displayName } from "@/pages/layout/helpers"
 import { pathKey } from "@/utils/path-key"
+import { RECENT, sessionProject, type SessionProjects } from "@/utils/session-project"
 
 export function buildHomeSessionRecords(input: {
+  assignments?: () => SessionProjects
   sessions: () => Session[]
   projectDirectories: () => string[]
   projects: () => LocalProject[]
@@ -17,12 +19,8 @@ export function buildHomeSessionRecords(input: {
     .flatMap((session) => {
       const directory = pathKey(session.directory)
       const project =
-        input
-          .projects()
-          .find(
-            (item) =>
-              pathKey(item.worktree) === directory || item.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
-          ) ?? projectForSession(session, input.projects(), input.projectByID(), input.knownProjects?.())
+        sessionProject(session, input.projects(), input.knownProjects?.(), input.assignments?.()) ??
+        input.projects().find((project) => project.worktree === RECENT)
       if (!project) return []
       if (!directories.has(directory) && !directories.has(pathKey(project.worktree))) return []
       return { session, project, projectName: displayName(project) }

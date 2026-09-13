@@ -1491,6 +1491,7 @@ export const dict = {
 
   "workspace.new": "新建工作区",
   "workspace.newTask": "新建任务",
+  "workspace.recent": "最近",
   "workspace.activeTasks": "全部任务",
   "workspace.archived": "已归档",
   "workspace.archive.empty": "暂无已归档任务",

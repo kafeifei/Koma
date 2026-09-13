@@ -7,6 +7,8 @@ import { toggleHomeProjectSelection } from "@/pages/layout/helpers"
 import { createEffect, createMemo } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { showToast } from "@/utils/toast"
+import { createHomeSessionQuery } from "@/context/global-sync/home-session-query"
+import { RECENT, recentGroup } from "@/utils/session-project"
 
 export function createHomeController() {
   const sync = useServerSync()
@@ -25,7 +27,15 @@ export function createHomeController() {
     return global.ensureServerCtx(conn)
   })
   const focusedSync = () => focusedServerCtx()?.sync ?? sync()
-  const projects = createMemo(() => focusedServerCtx()?.projects.list() ?? layout.projects.list())
+  const sessions = createHomeSessionQuery(focusedServerCtx)
+  const recent = createMemo(() => recentGroup(language.t("workspace.recent")))
+  const projects = createMemo(() => {
+    const ctx = focusedServerCtx()
+    const opened = ctx?.projects.list() ?? layout.projects.list()
+    return ctx && sessions.sessions().some((session) => !session.parentID && !ctx.projects.forSession(session))
+      ? [recent(), ...opened]
+      : opened
+  })
   const recentlyClosed = createMemo(
     () => focusedServerCtx()?.projects.recentlyClosed() ?? layout.projects.recentlyClosed(),
   )
@@ -35,7 +45,8 @@ export function createHomeController() {
     () =>
       selectedProject() ??
       projects().find((project) => project.worktree === focusedServerCtx()?.projects.last()) ??
-      projects()[0],
+      focusedServerCtx()?.projects.list()[0] ??
+      recent(),
   )
 
   createEffect(() => {
@@ -51,10 +62,12 @@ export function createHomeController() {
 
   async function openProjectNewSession(conn: ServerConnection.Any, directory: string) {
     const ctx = global.ensureServerCtx(conn)
-    const tab = await tabs.newDraft({ server: ServerConnection.key(conn), directory })
-    if (!tab) return
-    ctx.projects.open(tab.directory)
-    ctx.projects.touch(tab.directory)
+    if (directory !== RECENT && !(await ctx.projects.open(directory))) return
+    const tab = await tabs.newDraft({
+      server: ServerConnection.key(conn),
+      directory: directory === RECENT ? undefined : directory,
+    })
+    if (tab && directory !== RECENT) ctx.projects.touch(tab.directory)
   }
 
   return {
@@ -82,6 +95,7 @@ export function createHomeController() {
         const key = ServerConnection.key(conn)
         if (global.servers.health[key]?.healthy === false) return
         if (
+          directory !== RECENT &&
           !global
             .ensureServerCtx(conn)
             .projects.list()
@@ -103,8 +117,8 @@ export function createHomeController() {
         if (!directories) return
         const directory = directories[0]
         if (!directory) return
-        directories.forEach((item) => {
-          if (ctx.projects.list().some((project) => project.worktree === item)) return
+        for (const item of directories) {
+          if (ctx.projects.list().some((project) => project.worktree === item)) continue
           const location = { directory: item }
           void ctx.sdk.api.file
             .list({ path: ".", location })
@@ -115,16 +129,17 @@ export function createHomeController() {
             })
             .then((project) => ctx.sync.child(item, { bootstrap: false })[1]("project", project.id))
             .catch(() => undefined)
-          ctx.projects.open(item)
-        })
+          if (!(await ctx.projects.open(item))) return
+        }
         ctx.projects.touch(directory)
         setSelection({ server: ServerConnection.key(conn), directory })
       },
       openNewSession: () => {
         const conn = focusedServer()
         const project = newSessionProject()
-        if (!conn || !project) return
-        openProjectNewSession(conn, project.worktree)
+        if (!conn) return
+        if (project) return openProjectNewSession(conn, project.worktree)
+        return tabs.newDraft({ server: ServerConnection.key(conn) })
       },
       openProjectNewSession,
     },

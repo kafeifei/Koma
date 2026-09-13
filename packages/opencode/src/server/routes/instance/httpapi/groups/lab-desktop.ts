@@ -7,6 +7,11 @@ import { Authorization } from "../middleware/authorization"
 export const LabDesktopApi = HttpApi.make("lab-desktop").add(
   HttpApiGroup.make("lab-desktop")
     .add(
+      HttpApiEndpoint.post("projectlessWorkspace", "/lab/desktop/projectless-workspace", {
+        payload: Schema.Struct({ key: Schema.optionalKey(Schema.String) }),
+        success: Schema.Struct({ directory: Schema.String }),
+        error: InvalidRequestError,
+      }),
       HttpApiEndpoint.post("computerUse", "/lab/desktop/computer-use", {
         payload: Schema.Union([
           Schema.Struct({ action: Schema.Literals(["status", "install", "start", "grant"]) }),

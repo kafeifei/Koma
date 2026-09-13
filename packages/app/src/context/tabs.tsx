@@ -24,6 +24,8 @@ import { migrateTabs } from "./tab-migration"
 import { useGlobal } from "./global"
 import { useLanguage } from "./language"
 import { showToast } from "@/utils/toast"
+import { prepareProjectlessWorkspace } from "@/utils/projectless-workspace"
+import { uuid } from "@/utils/uuid"
 
 export type SessionTab = {
   type: "session"
@@ -38,6 +40,8 @@ export type DraftTab = {
   draftID: string
   server: ServerConnection.Key
   directory: string
+  projectless?: boolean
+  workspaceKey?: string
   worktree?: string
   permissionMode?: PermissionMode
 }
@@ -236,7 +240,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return tab
       },
       async newDraft(
-        draft: Omit<DraftTab, "type" | "draftID">,
+        draft: Omit<DraftTab, "type" | "draftID" | "directory"> & { directory?: string },
         prompt?: string,
         model?: PromptModel,
         options?: { worktree?: "main" },
@@ -244,8 +248,16 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         const request = ++draftRequest
         await ready.promise
         const conn = global.servers.list().find((conn) => ServerConnection.key(conn) === draft.server)
+        if (!conn) return
+        const projectless = !draft.directory || draft.projectless === true
+        const target =
+          draft.directory ||
+          (await prepareProjectlessWorkspace(conn.http, undefined, platform.fetch).catch((cause: unknown) => {
+            showToast({ title: language.t("common.requestFailed"), description: String(cause) })
+          }))
+        if (!target || request !== draftRequest) return
         const directory = await resolveInputDirectory({
-          directory: draft.directory,
+          directory: target,
           scope: server.scope(draft.server),
           server: draft.server,
           tabs: store,
@@ -260,7 +272,15 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           })
         })
         if (directory === undefined || request !== draftRequest) return
-        const tab = composerInput(store, { ...draft, directory })
+        const tab = composerInput(store, { ...draft, directory, projectless })
+        const previous = store.find((item) => item.type === "draft" && item.draftID === tab.draftID)
+        if (
+          previous?.type !== "draft" ||
+          previous.server !== tab.server ||
+          previous.directory !== tab.directory ||
+          previous.projectless !== projectless
+        )
+          tab.workspaceKey = undefined
         const draftID = tab.draftID
         const input = memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { model }))
         await prefillDirectoryInput(input, prompt)
@@ -277,12 +297,42 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         })
         return tab
       },
+      reserveProjectlessWorkspace(draftID: string) {
+        const draft = store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === draftID)
+        if (!draft?.projectless) return
+        const key = draft.workspaceKey ?? uuid()
+        if (!draft.workspaceKey)
+          setStore(
+            produce((tabs) => {
+              const tab = tabs.find((tab) => tab.type === "draft" && tab.draftID === draftID)
+              if (tab?.type === "draft") tab.workspaceKey = key
+            }),
+          )
+        return key
+      },
+      async prepareProjectlessWorkspace(server: ServerConnection.Key, key: string) {
+        const conn = global.servers.list().find((conn) => ServerConnection.key(conn) === server)
+        if (!conn) throw new Error("Server is unavailable")
+        return prepareProjectlessWorkspace(conn.http, key, platform.fetch)
+      },
+      releaseProjectlessWorkspace(draftID: string, key: string) {
+        setStore(
+          produce((tabs) => {
+            const tab = tabs.find((tab) => tab.type === "draft" && tab.draftID === draftID && tab.workspaceKey === key)
+            if (tab?.type === "draft") tab.workspaceKey = undefined
+          }),
+        )
+      },
       updateDraft(draftID: string, draft: Partial<Omit<DraftTab, "type" | "draftID">>) {
         if (draft.server !== undefined || draft.directory !== undefined) draftRequest++
         void startTransition(() => {
           setStore(
             (tab) => tab.type === "draft" && tab.draftID === draftID,
-            produce((tab) => Object.assign(tab, draft)),
+            produce((tab) => {
+              if (tab.type === "draft" && (draft.server !== undefined || draft.directory !== undefined))
+                tab.workspaceKey = undefined
+              Object.assign(tab, draft)
+            }),
           )
         })
       },

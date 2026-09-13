@@ -222,6 +222,10 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
     }
     if (path === "/api/project") return json(route, [config.project])
+    if (path === "/api/location") {
+      const directory = url.searchParams.get("location[directory]") ?? config.directory
+      return json(route, { directory, project: { id: (config.project as { id?: string }).id, directory } })
+    }
     if (path === "/api/project/current")
       return json(route, { id: (config.project as { id?: string }).id, directory: config.directory })
     if (path.startsWith("/api/project/") && route.request().method() === "PATCH") return json(route, config.project)

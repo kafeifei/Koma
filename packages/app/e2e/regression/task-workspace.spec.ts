@@ -182,7 +182,9 @@ test("finds a task from message body text and shows the matching snippet", async
   await expect(beta.locator('[data-slot="workspace-task-snippet"]')).toContainText(bodyNeedle)
 })
 
-test("removes the current project during search and restores its tasks when added again", async ({ page }) => {
+test("removes the current project during search and keeps its tasks in Recent after adding it again", async ({
+  page,
+}) => {
   const mutations: string[] = []
   page.on("request", (request) => {
     if (!["POST", "PATCH", "DELETE"].includes(request.method())) return
@@ -194,11 +196,14 @@ test("removes the current project during search and restores its tasks when adde
   await expect(project.locator('[data-session-id="ses-task-a"]')).toBeHidden()
   await project.getByRole("button", { name: "Remove project", exact: true }).click()
   await page.getByRole("menuitem", { name: "Remove project", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeHidden()
-  await expect(sidebar.locator('[data-slot="workspace-project"]')).toHaveCount(0)
+  const recent = sidebar.locator('[data-slot="workspace-project"][data-directory="koma:recent"]')
+  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeVisible()
+  await expect(recent.locator('[data-session-id="ses-task-b"]')).toBeVisible()
+  await expect(recent.getByRole("button", { name: "Remove project", exact: true })).toHaveCount(0)
   await page.reload()
   await expect(sidebar.locator('button[aria-label="Add project"]')).toBeVisible()
-  await expect(sidebar.locator('[data-slot="workspace-project"]')).toHaveCount(0)
+  await expect(recent.locator('[data-session-id="ses-task-a"]')).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeVisible()
   const browsing: string[] = []
   const recordBrowse = (request: import("@playwright/test").Request) => browsing.push(new URL(request.url()).pathname)
   page.on("request", recordBrowse)
@@ -215,9 +220,29 @@ test("removes the current project during search and restores its tasks when adde
     .getByRole("dialog")
     .getByRole("button", { name: /C:\/OpenCode\/.*TaskWorkspaceRegression/ })
     .click()
-  await expect(sidebar.locator('[data-session-id="ses-task-a"]')).toBeVisible()
-  await expect(sidebar.locator('[data-session-id="ses-task-b"]')).toBeVisible()
+  await expect(recent.locator('[data-session-id="ses-task-a"]')).toBeVisible()
+  await expect(recent.locator('[data-session-id="ses-task-b"]')).toBeVisible()
+  await expect(sidebar.locator(`[data-slot="workspace-project"][data-directory="${directory}"]`)).toBeVisible()
   expect(mutations).toEqual([])
+})
+
+test("keeps the project when its session index cannot be read and allows removal to be retried", async ({ page }) => {
+  const sidebar = page.locator('[data-component="task-sidebar"]')
+  const project = sidebar.locator(`[data-slot="workspace-project"][data-directory="${directory}"]`)
+  let fail = true
+  await page.route("**/api/session?**", (route) =>
+    fail ? route.fulfill({ status: 500, json: { message: "Synthetic index failure" } }) : route.fallback(),
+  )
+  await project.getByRole("button", { name: "Remove project", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Remove project", exact: true }).click()
+  await expect(page.locator("[data-title]").getByText("Request failed", { exact: true })).toBeVisible()
+  await expect(project.locator('[data-session-id="ses-task-a"]')).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Alpha task", exact: true })).toBeVisible()
+  fail = false
+  await project.getByRole("button", { name: "Remove project", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Remove project", exact: true }).click()
+  await expect(project).toHaveCount(0)
+  await expect(sidebar.locator('[data-directory="koma:recent"] [data-session-id="ses-task-a"]')).toBeVisible()
 })
 
 test("shows running and pending input on their respective sessions", async ({ page }) => {

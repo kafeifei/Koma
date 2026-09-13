@@ -11,6 +11,15 @@ import { QueryClient } from "@tanstack/solid-query"
 import type { ServerScope } from "@/utils/server-scope"
 import { Persist, persisted } from "@/utils/persist"
 import { createOpenedProjectResolver, dedupeOpenedProjects, openedProjectMetadata } from "./global-sync/utils"
+import { RECENT, rememberSessionProjects, sessionProject } from "@/utils/session-project"
+import {
+  loadHomeSessionIndex,
+  homeSessionIndexSessions,
+  type HomeSessionEvents,
+} from "./global-sync/home-session-index"
+import type { Session } from "@opencode-ai/sdk/v2/client"
+import { showToast } from "@/utils/toast"
+import { useLanguage } from "./language"
 
 export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext({
   name: "Global",
@@ -114,6 +123,7 @@ function createServerCtx(
   })
   const sdk = createServerSdkContext(conn, scope)
   const sync = createServerSyncContext(sdk)
+  const language = useLanguage()
   const [tasks, setTasks, , tasksReady] = persisted(
     Persist.serverGlobal(scope, "task-workspace"),
     createStore({ pinned: [] as string[] }),
@@ -122,7 +132,7 @@ function createServerCtx(
   const resolveProject = createMemo(() => createOpenedProjectResolver(sync.data.project))
 
   createEffect(() => {
-    if (!serverReady() || !sync.ready) return
+    if (!serverReady() || !sync.project.ready()) return
     projects.normalize(resolveProject())
   })
 
@@ -153,6 +163,42 @@ function createServerCtx(
       .map((worktree) => enrich({ worktree, expanded: false }))
   })
 
+  const rememberSessions = (sessions: Session[]) => {
+    if (!serverReady() || !sync.project.ready()) return
+    projects.remember(rememberSessionProjects(sessions, projectsList(), sync.data.project, projects.assignments()))
+  }
+  let projectChange = Promise.resolve(true)
+  function changeProject(directory: string, operation: "open" | "close") {
+    if (directory === RECENT) return Promise.resolve(true)
+    const request = projectChange
+      .then(async () => {
+        if (!serverReady()) throw new Error(language.t("common.requestFailed"))
+        await sync.project.ensure()
+        const root = resolveProject()(directory)
+        const opened = projectsList().some((project) => pathKey(project.worktree) === pathKey(root))
+        if ((operation === "open") === opened) return true
+        const cache = sync.homeSessions
+        const index = await loadHomeSessionIndex(
+          (input, options) => sdk.client.v2.session.list(input, options),
+          cache.eventSequence(),
+        )
+        rememberSessions(
+          homeSessionIndexSessions(index, cache.queryClient.getQueryData<HomeSessionEvents>(cache.eventsKey)),
+        )
+        projects[operation](root)
+        return true
+      })
+      .catch((cause: unknown) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: cause instanceof Error ? cause.message : String(cause),
+        })
+        return false
+      })
+    projectChange = request
+    return request
+  }
+
   const isLocal = ServerConnection.local(conn)
 
   return {
@@ -172,17 +218,17 @@ function createServerCtx(
     },
     projects: {
       ...projects,
+      rememberSessions,
+      forSession: (session: Pick<Session, "id" | "directory" | "projectID">) =>
+        sessionProject(session, projectsList(), sync.data.project, projects.assignments()),
       list: projectsList,
       recentlyClosed: recentlyClosedList,
       remove(directory: string) {
+        if (directory === RECENT) return
         projects.remove(resolveProject()(directory))
       },
-      open(directory: string) {
-        projects.open(resolveProject()(directory))
-      },
-      close(directory: string) {
-        projects.close(resolveProject()(directory))
-      },
+      open: (directory: string) => changeProject(directory, "open"),
+      close: (directory: string) => changeProject(directory, "close"),
       expand(directory: string) {
         projects.expand(resolveProject()(directory))
       },
@@ -193,7 +239,9 @@ function createServerCtx(
         projects.move(resolveProject()(directory), toIndex)
       },
       touch(directory: string) {
-        projects.touch(resolveProject()(directory))
+        if (directory === RECENT) return
+        const root = resolveProject()(directory)
+        if (projectsList().some((project) => pathKey(project.worktree) === pathKey(root))) projects.touch(root)
       },
     },
   }

@@ -1524,6 +1524,7 @@ export const dict = {
 
   "workspace.new": "New workspace",
   "workspace.newTask": "New task",
+  "workspace.recent": "Recent",
   "workspace.activeTasks": "All tasks",
   "workspace.archived": "Archived",
   "workspace.archive.empty": "No archived tasks",

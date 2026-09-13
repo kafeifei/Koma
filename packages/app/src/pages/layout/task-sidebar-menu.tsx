@@ -32,6 +32,17 @@ export type TaskSidebarMenuProps = {
 export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
   const dialog = useDialog()
   const language = useLanguage()
+  let dropdownContent: HTMLDivElement | undefined
+  let contextContent: HTMLDivElement | undefined
+  const preserveNewMenuFocus = (event: Event) => {
+    // A closing context menu must not steal focus from a newly opened menu on the same task.
+    if (
+      [dropdownContent, contextContent].some(
+        (content) => content !== event.currentTarget && content?.isConnected && content.hasAttribute("data-expanded"),
+      )
+    )
+      event.preventDefault()
+  }
   const [cleanup, setCleanup] = createStore({ retry: false, message: undefined as string | undefined })
   const inspect = (open: boolean) => {
     if (!open) return
@@ -104,7 +115,12 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
             …
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content data-prevent-autofocus onKeyDown={activateShortcut}>
+            <DropdownMenu.Content
+              ref={dropdownContent}
+              data-prevent-autofocus
+              onKeyDown={activateShortcut}
+              onCloseAutoFocus={preserveNewMenuFocus}
+            >
               <DropdownMenu.Item data-task-menu-key="p" aria-keyshortcuts="P" onSelect={props.onPin}>
                 <DropdownMenu.ItemLabel>{pinLabel()}</DropdownMenu.ItemLabel>
                 <TaskMenuShortcut>P</TaskMenuShortcut>
@@ -148,7 +164,12 @@ export function TaskSidebarMenu(props: TaskSidebarMenuProps) {
         </DropdownMenu>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content data-prevent-autofocus onKeyDown={activateShortcut}>
+        <ContextMenu.Content
+          ref={contextContent}
+          data-prevent-autofocus
+          onKeyDown={activateShortcut}
+          onCloseAutoFocus={preserveNewMenuFocus}
+        >
           <ContextMenu.Item data-task-menu-key="p" aria-keyshortcuts="P" onSelect={props.onPin}>
             <ContextMenu.ItemLabel>{pinLabel()}</ContextMenu.ItemLabel>
             <TaskMenuShortcut>P</TaskMenuShortcut>

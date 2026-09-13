@@ -5,6 +5,9 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { batch, onCleanup, startTransition, type Accessor } from "solid-js"
 import { useTabs } from "@/context/tabs"
+import { useGlobal } from "@/context/global"
+import { ServerConnection } from "@/context/server"
+import { pathKey } from "@/utils/path-key"
 import { useServerSync, type ServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -267,6 +270,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
   const [search] = useSearchParams<{ draftId?: string }>()
   const tabs = useTabs()
+  const global = useGlobal()
   let disposed = false
   onCleanup(() => {
     disposed = true
@@ -370,7 +374,18 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const sourceSync = sync()
     const sourceServerSync = serverSync()
     const draftID = search.draftId
-    const draftServer = draftID ? tabs.draft(draftID).server : undefined
+    const sourceDraft = draftID ? { ...tabs.draft(draftID) } : undefined
+    const draftServer = sourceDraft?.server
+    const connection = global.servers.list().find((conn) => ServerConnection.key(conn) === draftServer)
+    const projects = connection ? global.ensureServerCtx(connection).projects : undefined
+    const project = sourceDraft?.projectless
+      ? undefined
+      : projects?.forSession({ id: "", projectID: "global", directory: sourceSDK.directory })?.worktree
+    const assignCreatedSession = (info: Session) =>
+      projects?.assign(
+        info.id,
+        project && projects.list().some((item) => pathKey(item.worktree) === pathKey(project)) ? project : null,
+      )
     const active = () => !disposed && prompt.capture() === target && sdk() === sourceSDK
     const submission = createPromptSubmissionState({
       target,
@@ -398,6 +413,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
+    const workspaceKey =
+      !params.id && sourceDraft?.projectless && draftID ? tabs.reserveProjectlessWorkspace(draftID) : undefined
     const existingID = params.id
     const isNewSession = !existingID
     const engine = isNewSession
@@ -487,7 +504,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     let session = input.info()
 
     if (isNewSession) {
-      if (worktreeSelection === "create") {
+      if (workspaceKey && draftServer) {
+        const directory = await tabs.prepareProjectlessWorkspace(draftServer, workspaceKey).catch((err) => {
+          showToast({ title: language.t("prompt.toast.sessionCreateFailed.title"), description: errorMessage(err) })
+        })
+        if (!directory) return
+        sessionDirectory = directory
+      }
+      if (!workspaceKey && worktreeSelection === "create") {
         const createdWorktree = await client.worktree
           .create({
             directory: projectDirectory,
@@ -514,7 +538,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         sessionDirectory = createdWorktree.directory
       }
 
-      if (worktreeSelection === "main" && branchSelection) {
+      if (!workspaceKey && worktreeSelection === "main" && branchSelection) {
         const checkedOut = await client.worktree
           .checkout({ directory: sessionDirectory, worktreeCheckoutInput: { branch: branchSelection } })
           .then((result) => result.data)
@@ -535,7 +559,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         }
       }
 
-      if (worktreeSelection !== "main" && worktreeSelection !== "create") {
+      if (!workspaceKey && worktreeSelection !== "main" && worktreeSelection !== "create") {
         sessionDirectory = worktreeSelection
       }
 
@@ -653,6 +677,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           return undefined
         })
         if (!resolved) return
+        assignCreatedSession(resolved)
         seed(sourceServerSync, sessionDirectory, resolved)
         const scope = { dir: base64Encode(sessionDirectory), id: resolved.id }
         const destination = draftServer
@@ -680,6 +705,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
 
       if (durableExternalDelivery(accepted.delivery.state)) {
+        if (createdSession && workspaceKey && draftID) tabs.releaseProjectlessWorkspace(draftID, workspaceKey)
         if (target.externalRequest.current()?.requestID === request.requestID) target.externalRequest.set(undefined)
         if (submission.target().externalRequest.current()?.requestID === request.requestID)
           submission.target().externalRequest.set(undefined)
@@ -729,6 +755,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           return undefined
         })
       if (created) {
+        assignCreatedSession(created)
+        if (workspaceKey && draftID) tabs.releaseProjectlessWorkspace(draftID, workspaceKey)
         seed(sourceServerSync, sessionDirectory, created)
         session = created
         const scope = { dir: base64Encode(sessionDirectory), id: created.id }

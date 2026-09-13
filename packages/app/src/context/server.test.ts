@@ -266,7 +266,7 @@ describe("createServerProjects", () => {
         { worktree: "/code/repo", expanded: true },
         { worktree: "/code/new", expanded: true },
       ])
-      expect(projects.last()).toBe("/code/repo")
+      expect(projects.last()).toBeUndefined()
       expect(projects.recentlyClosed()).toEqual(["/code/closed"])
       expect(store.projects.local).toEqual([{ worktree: "/code/other", expanded: true }])
       dispose()
@@ -275,6 +275,19 @@ describe("createServerProjects", () => {
 })
 
 describe("migrateCanonicalLocalServerState", () => {
+  test("migrates session membership without replacing an explicit local Recent assignment", () => {
+    expect(
+      migrateCanonicalLocalServerState(
+        {
+          sessionProjects: {
+            "https://opencode.example.com": { a: "/repo", b: "/other" },
+            local: { a: null },
+          },
+        },
+        ServerConnection.Key.make("https://opencode.example.com"),
+      ),
+    ).toEqual({ sessionProjects: { local: { a: null, b: "/other" } } })
+  })
   test("moves an existing canonical web bucket into local scope", () => {
     expect(
       migrateCanonicalLocalServerState(

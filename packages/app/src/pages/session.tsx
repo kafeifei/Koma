@@ -1,4 +1,4 @@
-import { useStartupTask } from "@/desktop/startup"
+import { useStartupPending, useStartupTask } from "@/desktop/startup"
 import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { getExternalTurnDiff } from "@/components/session/session-external-diffs"
 import { getFilename } from "@opencode-ai/core/util/path"
@@ -211,6 +211,8 @@ export function SessionRouteErrorBoundary(
 }
 
 function SessionErrorFallback(props: { error: unknown; sessionID?: string; serverKey?: ServerConnection.Key }) {
+  const restoring = useStartupPending()()
+  const navigate = useNavigate()
   useStartupTask("page", () => ({ ready: true }), true)
   const language = useLanguage()
   const server = useServer()
@@ -225,6 +227,17 @@ function SessionErrorFallback(props: { error: unknown; sessionID?: string; serve
     tabs.removeSessionTab({ server: props.serverKey ?? server.key, sessionId: props.sessionID })
   }
   if (isCurrentSessionNotFoundError(props.error, props.sessionID)) {
+    if (restoring) {
+      createEffect(() => {
+        closeTab()
+        navigate(`/new-session?serverKey=${encodeURIComponent(props.serverKey ?? server.key)}`, { replace: true })
+      })
+      return (
+        <div class="m-auto" role="status">
+          {language.t("common.loading")}
+        </div>
+      )
+    }
     return (
       <div class="flex-1 min-h-0 overflow-hidden">
         <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center gap-4">
