@@ -1,4 +1,4 @@
-import { Show, createResource } from "solid-js"
+import { Show, Suspense, createResource } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Switch } from "@opencode-ai/ui/switch"
@@ -6,6 +6,22 @@ import type { BackendExperimentsPlatform } from "@/backend-experiments"
 import { useLanguage } from "@/context/language"
 
 export function SettingsExperiments(props: { experiments: BackendExperimentsPlatform }) {
+  const language = useLanguage()
+  // Dialogs inherit the page owner. Keep this request from suspending the workspace behind them.
+  return (
+    <Suspense
+      fallback={
+        <div class="p-6 text-12-regular text-text-weak" role="status">
+          {language.t("common.loading")}
+        </div>
+      }
+    >
+      <SettingsExperimentsContent experiments={props.experiments} />
+    </Suspense>
+  )
+}
+
+function SettingsExperimentsContent(props: { experiments: BackendExperimentsPlatform }) {
   const language = useLanguage()
   const [state, setState] = createStore({ saving: false, failed: false })
   const [settings, { mutate, refetch }] = createResource(async () => {
