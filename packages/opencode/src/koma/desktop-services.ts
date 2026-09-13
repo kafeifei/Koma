@@ -42,7 +42,12 @@ async function start() {
     },
   )
   try {
-    await request("initialize", { directory: join(KomaBackend.stateDirectory(root), "desktop"), renderer, backend })
+    await request("initialize", {
+      profile: StoragePaths.resolve(root).root,
+      directory: join(KomaBackend.stateDirectory(root), "desktop"),
+      renderer,
+      backend,
+    })
   } catch (error) {
     child.kill()
     throw error

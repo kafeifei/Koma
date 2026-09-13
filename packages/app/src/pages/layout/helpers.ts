@@ -93,13 +93,18 @@ export function getProjectAvatarSource(id?: string, icon?: { color?: string; url
   return icon?.url
 }
 
-export function projectForSession<T extends { id?: string; worktree: string; sandboxes?: string[] }>(
+export function projectForSession<
+  T extends { id?: string; worktree: string; sandboxes?: string[]; projectIDs?: string[] },
+>(
   session: Session,
   projects: T[],
   byID: Map<string, T> = new Map(projects.flatMap((project) => (project.id ? [[project.id, project] as const] : []))),
 ) {
   const direct = byID.get(session.projectID)
   if (direct) return direct
+  const alias =
+    session.projectID !== "global" && projects.find((project) => project.projectIDs?.includes(session.projectID))
+  if (alias) return alias
   const directory = pathKey(session.directory)
   return projects.find(
     (project) =>

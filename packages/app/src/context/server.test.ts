@@ -1,9 +1,11 @@
+import type { RemoteAccessState } from "@/remote-access"
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import {
   createServerProjects,
   migrateCanonicalLocalServerState,
+  migrateRemoteServers,
   nextServerAfterRemoval,
   resolveServerList,
   ServerConnection,
@@ -315,4 +317,29 @@ describe("migrateCanonicalLocalServerState", () => {
       lastProject: { local: "/local" },
     })
   })
+})
+
+test("remote connection migration removes self entries and isolates sibling listener URLs", () => {
+  const stored = [
+    { type: "http" as const, displayName: "This Tauri", http: { url: "http://127.0.0.1:4200" } },
+    { type: "http" as const, displayName: "Other computer", http: { url: "http://127.0.0.1:4300" } },
+    { type: "http" as const, displayName: "Manual HTTP", http: { url: "http://localhost:5000" } },
+  ]
+  const migrated = migrateRemoteServers(stored, {
+    connections: [
+      { id: "self", clientID: "electron", url: "http://127.0.0.1:4200", current: true },
+      { id: "remote", clientID: "electron", url: "http://127.0.0.1:4300", current: false },
+    ],
+  } as RemoteAccessState)
+  expect(migrated).toHaveLength(2)
+  expect(resolveServerList({ stored: migrated, clientID: "tauri" }).map((conn) => conn.displayName)).toEqual([
+    "Manual HTTP",
+  ])
+  const electron = resolveServerList({ stored: migrated, clientID: "electron" })
+  expect(electron.map((conn) => conn.displayName)).toEqual(["Other computer", "Manual HTTP"])
+  const remote = electron[0] as ServerConnection.Http
+  const rebound = { ...remote, http: { url: "http://127.0.0.1:4301" } }
+  expect(ServerConnection.key(rebound)).toBe(ServerConnection.Key.make("http://127.0.0.1:4300"))
+  expect(ServerConnection.local(remote)).toBe(false)
+  expect(ServerConnection.local(electron[1])).toBe(true)
 })

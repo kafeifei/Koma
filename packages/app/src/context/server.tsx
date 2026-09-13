@@ -1,12 +1,14 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { type Accessor, batch, createMemo } from "solid-js"
+import { type Accessor, batch, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { ServerScope } from "@/utils/server-scope"
+import { usePlatform } from "./platform"
+import type { RemoteAccessState } from "@/remote-access"
 
 type StoredProject = { worktree: string; expanded: boolean }
-type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
+export type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 type ServerProjectState = {
   projects: Record<string, StoredProject[]>
   lastProject: Record<string, string>
@@ -182,24 +184,45 @@ export function createServerProjects<T extends ServerProjectState>(input: {
   }
 }
 
+function storedConnection(value: StoredServer): ServerConnection.Http {
+  return typeof value === "string"
+    ? { type: "http", http: { url: value } }
+    : "http" in value
+      ? value
+      : { type: "http", http: value }
+}
+
+/** Upgrade only ports recorded by our native clients; leave ordinary HTTP servers alone. */
+export function migrateRemoteServers(stored: StoredServer[], state: RemoteAccessState) {
+  let changed = false
+  const list = stored.flatMap((value) => {
+    const conn = storedConnection(value)
+    const known = conn.remote
+      ? state.connections?.find((item) => item.id === conn.remote!.id && item.clientID === conn.remote!.clientID)
+      : state.connections?.find((item) => item.url === normalizeServerUrl(conn.http.url))
+    if (known?.current) {
+      changed = true
+      return []
+    }
+    if (conn.remote || !known) return [value]
+    changed = true
+    return [{ ...conn, remote: { id: known.id, clientID: known.clientID, key: conn.http.url } }]
+  })
+  return changed ? list : stored
+}
+
 export function resolveServerList(input: {
   props?: Array<ServerConnection.Any>
   stored: StoredServer[]
+  clientID?: string
 }): Array<ServerConnection.Any> {
   const deduped = new Map<ServerConnection.Key, ServerConnection.Any>(
     input.props?.map((v) => [ServerConnection.key(v), v]) ?? [],
   )
 
   for (const value of input.stored) {
-    const conn: ServerConnection.Http =
-      typeof value === "string"
-        ? {
-            type: "http" as const,
-            http: { url: value },
-          }
-        : "http" in value
-          ? value
-          : { type: "http", http: value }
+    const conn = storedConnection(value)
+    if (conn.remote && conn.remote.clientID !== input.clientID) continue
     const key = ServerConnection.key(conn)
 
     const existing = deduped.get(key)
@@ -229,6 +252,7 @@ export namespace ServerConnection {
     type: "http"
     http: HttpBase
     authToken?: boolean
+    remote?: { id: string; clientID: string; key?: string }
   } & Base
 
   export type Sidecar = {
@@ -261,7 +285,7 @@ export namespace ServerConnection {
   export const key = (conn: Any): Key => {
     switch (conn.type) {
       case "http":
-        return Key.make(conn.http.url)
+        return Key.make(conn.remote?.key ?? conn.http.url)
       case "sidecar": {
         if (conn.variant === "wsl") return Key.make(`wsl:${conn.distro}`)
         return Key.make("sidecar")
@@ -276,7 +300,7 @@ export namespace ServerConnection {
 
   export const builtin = (conn: Any) => conn.type === "sidecar" && conn.variant === "base"
   export const local = (conn?: Any) =>
-    !!conn && (builtin(conn) || (conn.type === "http" && isLocalHost(conn.http.url) === "local"))
+    !!conn && (builtin(conn) || (conn.type === "http" && !conn.remote && isLocalHost(conn.http.url) === "local"))
 }
 
 export function nextServerAfterRemoval(
@@ -297,6 +321,30 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     canonicalLocalServer?: ServerConnection.Key
     servers?: Array<ServerConnection.Any>
   }) => {
+    const platform = usePlatform()
+    const [remoteState, setRemoteState] = createSignal<RemoteAccessState>()
+    const [remoteLoaded, setRemoteLoaded] = createSignal(!platform.remoteAccess)
+    const [revisions, setRevisions] = createStore<Record<string, number>>({})
+    const requests = new Map<string, number>()
+    const restoring = new Set<string>()
+    let disposed = false
+    onCleanup(() => {
+      disposed = true
+    })
+    onMount(() => {
+      const remote = platform.remoteAccess
+      if (!remote) return
+      const update = (state: RemoteAccessState) => {
+        if (disposed) return
+        setRemoteState(state)
+        setRemoteLoaded(true)
+      }
+      onCleanup(remote.subscribe(update))
+      void remote
+        .getState()
+        .then(update)
+        .catch(() => setRemoteLoaded(true))
+    })
     const [store, setStore, _, ready] = persisted(
       {
         ...Persist.global("server", ["server.v3"]),
@@ -310,10 +358,14 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       }),
     )
 
-    const url = (x: StoredServer) => (typeof x === "string" ? x : "type" in x ? x.http.url : x.url)
+    const storedKey = (x: StoredServer) => ServerConnection.key(storedConnection(x))
 
     const allServers = createMemo((): Array<ServerConnection.Any> => {
-      return resolveServerList({ stored: store.list, props: props.servers })
+      return resolveServerList({
+        stored: remoteLoaded() ? store.list : [],
+        props: props.servers,
+        clientID: remoteState()?.clientID,
+      })
     })
 
     const [state, setState] = createStore({
@@ -327,9 +379,21 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     function add(input: ServerConnection.Http) {
       const url_ = normalizeServerUrl(input.http.url)
       if (!url_) return
-      const conn: ServerConnection.Http = { ...input, authToken: undefined, http: { ...input.http, url: url_ } }
+      const previous =
+        input.remote &&
+        store.list
+          .map(storedConnection)
+          .find((conn) => conn.remote?.id === input.remote!.id && conn.remote.clientID === input.remote!.clientID)
+      const conn: ServerConnection.Http = {
+        ...input,
+        authToken: undefined,
+        http: { ...input.http, url: url_ },
+        ...(input.remote
+          ? { remote: { ...input.remote, key: previous ? ServerConnection.key(previous) : (input.remote.key ?? url_) } }
+          : {}),
+      }
       return batch(() => {
-        const existing = store.list.findIndex((x) => url(x) === url_)
+        const existing = store.list.findIndex((x) => storedKey(x) === ServerConnection.key(conn))
         if (existing !== -1) {
           setStore("list", existing, conn)
         } else {
@@ -342,15 +406,54 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     function remove(key: ServerConnection.Key) {
       const next = nextServerAfterRemoval(allServers(), key, props.defaultServer)
-      const list = store.list.filter((x) => url(x) !== key)
+      const conn = allServers().find((item) => ServerConnection.key(item) === key)
+      requests.set(key, (requests.get(key) ?? 0) + 1)
+      const list = store.list.filter((x) => storedKey(x) !== key)
+      if (conn?.type === "http" && conn.remote) {
+        void platform.remoteAccess?.disconnect(conn.remote.id).catch(() => {})
+      }
       batch(() => {
         setStore("list", list)
         if (state.active === key) setState("active", next)
       })
     }
 
+    async function reconnect(key: ServerConnection.Key, force = true) {
+      const conn = allServers().find((item) => ServerConnection.key(item) === key)
+      const remote = platform.remoteAccess
+      if (conn?.type !== "http" || !conn.remote || !remote) return
+      const revision = (requests.get(key) ?? 0) + 1
+      requests.set(key, revision)
+      if (force) await remote.disconnect(conn.remote.id)
+      const result = await remote.connect(conn.remote.id)
+      if (disposed || requests.get(key) !== revision) return
+      const index = store.list.findIndex((item) => storedKey(item) === key)
+      if (index === -1) return
+      // Keep the original server key so routes, project history and drafts survive a port change.
+      batch(() => {
+        setStore("list", index, { ...conn, remote: { ...conn.remote!, key }, http: { ...conn.http, url: result.url } })
+        setRevisions(key, (revisions[key] ?? 0) + 1)
+      })
+    }
+
+    createEffect(() => {
+      const state = remoteState()
+      if (!ready() || !state) return
+      const list = migrateRemoteServers(store.list, state)
+      if (list !== store.list) setStore("list", list)
+      if (!state.account) return
+      for (const value of list) {
+        const conn = storedConnection(value)
+        if (!conn.remote || conn.remote.clientID !== state.clientID) continue
+        const identity = `${state.account.username}:${conn.remote.clientID}:${conn.remote.id}`
+        if (restoring.has(identity)) continue
+        restoring.add(identity)
+        void untrack(() => reconnect(ServerConnection.key(conn), false)).catch(() => {})
+      }
+    })
+
     const isReady = Object.assign(
-      createMemo(() => ready() && !!state.active),
+      createMemo(() => ready() && remoteLoaded() && !!state.active),
       { promise: ready.promise },
     )
 
@@ -387,6 +490,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       setActive,
       add,
       remove,
+      reconnect,
+      revision: (key: ServerConnection.Key) => revisions[key] ?? 0,
       scope,
       projects: {
         ...projects,

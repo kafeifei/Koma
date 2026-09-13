@@ -6,6 +6,9 @@ export type RemoteDevice = {
 }
 
 export type RemoteAccessState = {
+  /** Native client identity and legacy listener ownership, independent of account connectivity. */
+  clientID?: string
+  connections?: { id: string; clientID: string; url: string; current: boolean }[]
   configured: boolean
   account: { name: string; username: string } | null
   authorization: { userCode: string; verificationUri: string; expiresAt: number } | null
@@ -25,7 +28,8 @@ export type RemoteAccessPlatform = {
   setEnabled(enabled: boolean): Promise<RemoteAccessState>
   rename(name: string): Promise<RemoteAccessState>
   refresh(): Promise<RemoteAccessState>
-  connect(id: string): Promise<{ url: string; name: string }>
+  connect(id: string): Promise<{ url: string; name: string; remote?: { id: string; clientID: string } }>
+  disconnect(id: string): Promise<void>
   subscribe(callback: (state: RemoteAccessState) => void): () => void
 }
 export type WebEntryState = {

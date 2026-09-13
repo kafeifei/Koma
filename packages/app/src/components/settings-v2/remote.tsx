@@ -134,7 +134,10 @@ export function SettingsRemoteV2(props: { remoteAccess: RemoteAccessPlatform }) 
     setStore({ pending: `connect:${id}`, actionError: false })
     const result = await props.remoteAccess.connect(id).catch(() => undefined)
     if (lifecycle.disposed || request !== lifecycle.request) return
-    if (!result || !server.add({ type: "http", displayName: result.name, http: { url: result.url } })) {
+    if (
+      !result ||
+      !server.add({ type: "http", displayName: result.name, http: { url: result.url }, remote: result.remote })
+    ) {
       setStore({ pending: null, actionError: true })
       return
     }
@@ -264,10 +267,7 @@ export function SettingsRemoteV2(props: { remoteAccess: RemoteAccessPlatform }) 
                         </Show>
                       }
                     >
-                      <Show
-                        when={store.state?.account}
-                        fallback={signedOutAccountAction()}
-                      >
+                      <Show when={store.state?.account} fallback={signedOutAccountAction()}>
                         <ButtonV2
                           variant="ghost-muted"
                           disabled={!!store.pending}

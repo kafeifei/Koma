@@ -474,6 +474,10 @@ function localStorageDirect(): SyncStorage {
 
 const DRAFT_PERSISTED_KEYS = ["prompt", "comments", "file-view", "layout"]
 
+export function browserStorage(name?: string): SyncStorage {
+  return name ? localStorageWithPrefix(name) : localStorageDirect()
+}
+
 export function draftPersistedKeys() {
   return DRAFT_PERSISTED_KEYS
 }
@@ -546,18 +550,15 @@ function resolveTarget(target: PersistTarget, platform: Platform): PersistTarget
   }
 }
 
-export function removePersisted(
-  target: PersistTarget,
-  platform?: Platform,
-) {
+export function removePersisted(target: PersistTarget, platform?: Platform) {
   if (platform) target = resolveTarget(target, platform)
   const pending: Promise<unknown>[] = []
   if (target.draft && platform?.draftStore) {
     pending.push(Promise.resolve(platform.draftStore.removeItem(`${target.storage ?? "default"}:${target.key}`)))
   }
-  const isDesktop = platform?.platform === "desktop" && !!platform.storage
+  const hasStorage = !!platform?.storage
 
-  if (isDesktop) {
+  if (hasStorage) {
     pending.push(Promise.resolve(platform.storage?.(target.storage)?.removeItem(target.key)))
     for (const storage of target.legacyStorageNames ?? []) {
       pending.push(Promise.resolve(platform.storage?.(storage)?.removeItem(target.key)))
@@ -589,6 +590,7 @@ export function persisted<T>(
   const legacy = config.legacy ?? []
 
   const isDesktop = platform.platform === "desktop" && !!platform.storage
+  const hasStorage = !!platform.storage
   const draft = config.draft ? platform.draftStore : undefined
 
   const currentStorage = (() => {
@@ -600,7 +602,7 @@ export function persisted<T>(
         removeItem: (key: string) => draft.removeItem(prefix + key),
       } satisfies AsyncStorage
     }
-    if (isDesktop) return platform.storage?.(config.storage)
+    if (hasStorage) return platform.storage?.(config.storage)
     if (!config.storage) return localStorageDirect()
     return localStorageWithPrefix(config.storage)
   })()
@@ -614,7 +616,7 @@ export function persisted<T>(
   const legacyStorageNames = config.legacyStorageNames ?? []
 
   const storage = (() => {
-    if (!isDesktop && !draft) {
+    if (!hasStorage && !draft) {
       const current = currentStorage as SyncStorage
       const legacyStore = legacyStorage as SyncStorage
       const legacyStores = legacyStorageNames.map(localStorageWithPrefix)

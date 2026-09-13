@@ -198,6 +198,20 @@ export function createOpenedProjectResolver(projects: Pick<Project, "worktree" |
   }
 }
 
+/** Git history changes can give one checkout several project IDs. Keep every task's group visible. */
+export function openedProjectMetadata(projects: Project[], worktree: string, preferredID?: string) {
+  const matches = projects.filter((project) => pathKey(project.worktree) === pathKey(worktree))
+  const primary = matches.find((project) => project.id === preferredID) ?? matches[0]
+  if (!primary) return
+  return {
+    ...primary,
+    projectIDs: matches.map((project) => project.id),
+    sandboxes: [
+      ...new Map(matches.flatMap((project) => project.sandboxes ?? []).map((dir) => [pathKey(dir), dir])).values(),
+    ],
+  }
+}
+
 export function dedupeOpenedProjects<T extends { worktree: string; expanded: boolean }>(projects: T[]) {
   return projects.reduce<T[]>((result, project) => {
     const index = result.findIndex((item) => pathKey(item.worktree) === pathKey(project.worktree))

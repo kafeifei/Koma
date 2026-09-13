@@ -650,3 +650,109 @@ describe("remote credential storage", () => {
     expect(stored.size).toBe(0)
   })
 })
+
+test("self and sibling host connections are rejected while sharing is disabled", async () => {
+  let connects = 0
+  const input = fixture(
+    {
+      isCurrent: (id) => id === "use1/other-device",
+      connect: async () => {
+        connects++
+        throw new Error("must not dial")
+      },
+    },
+    { remoteTunnels: { "10": { clusterId: "use1", tunnelId: "hello-world", port: 1234 } } },
+  )
+  try {
+    const state = await input.controller.signIn()
+    expect(state.devices.every((device) => device.current)).toBe(true)
+    expect(state.enabled).toBe(false)
+    await expect(input.controller.connect("use1/hello-world")).rejects.toThrow("Remote connection unavailable")
+    await expect(input.controller.connect("use1/other-device")).rejects.toThrow("Remote connection unavailable")
+    expect(connects).toBe(0)
+  } finally {
+    await input.controller.stop()
+  }
+})
+
+test("deleting an in-flight connection aborts it and closes a late result without caching it", async () => {
+  let finish!: (client: { url: string; name: string; stop(): Promise<void> }) => void
+  let signal: AbortSignal | undefined
+  let stopped = 0
+  let calls = 0
+  const input = fixture({
+    connect: async (_token, _id, nextSignal) => {
+      calls++
+      signal = nextSignal
+      if (calls > 1) return { url: "http://127.0.0.1:12346", name: "Remote", stop: async () => {} }
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    },
+  })
+  try {
+    await input.controller.signIn()
+    const pending = input.controller.connect("use1/other-device").catch((error) => error)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    await input.controller.disconnect("use1/other-device")
+    expect(signal?.aborted).toBe(true)
+    finish({
+      url: "http://127.0.0.1:12345",
+      name: "Remote",
+      stop: async () => {
+        stopped++
+      },
+    })
+    expect((await pending).message).toBe("Remote connection unavailable")
+    expect(stopped).toBe(1)
+    expect((await input.controller.connect("use1/other-device")).url).toBe("http://127.0.0.1:12346")
+    expect(calls).toBe(2)
+  } finally {
+    await input.controller.stop()
+  }
+})
+
+test("deleting one connection keeps hosting and other connections alive", async () => {
+  const stopped: string[] = []
+  const input = fixture({
+    connect: async (_token, id) => ({
+      url: "http://127.0.0.1:12345",
+      name: id,
+      stop: async () => {
+        stopped.push(id)
+      },
+    }),
+  })
+  try {
+    await input.controller.setEnabled(true)
+    await input.controller.connect("use1/other-device")
+    await input.controller.connect("use1/third-device")
+    await input.controller.disconnect("use1/other-device")
+    expect(stopped).toEqual(["use1/other-device"])
+    expect((await input.controller.getState()).status).toBe("online")
+    expect(input.events).not.toContain("host-stop")
+  } finally {
+    await input.controller.stop()
+  }
+})
+
+test("a late disconnect notification from a deleted client cannot evict its replacement", async () => {
+  const callbacks: (() => void)[] = []
+  const input = fixture({
+    connect: async (_token, _id, _signal, disconnected) => {
+      callbacks.push(disconnected)
+      return { url: `http://127.0.0.1:${12345 + callbacks.length}`, name: "Remote", stop: async () => {} }
+    },
+  })
+  try {
+    await input.controller.signIn()
+    await input.controller.connect("use1/other-device")
+    await input.controller.disconnect("use1/other-device")
+    const replacement = await input.controller.connect("use1/other-device")
+    callbacks[0]!()
+    expect(await input.controller.connect("use1/other-device")).toEqual(replacement)
+    expect(callbacks).toHaveLength(2)
+  } finally {
+    await input.controller.stop()
+  }
+})

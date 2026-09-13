@@ -5,6 +5,7 @@ import type { RemoteAccessState } from "./types"
 import type { createWebEntry } from "./web-entry"
 import type { RemoteControllerFailure } from "./remote-controller"
 import { createRemoteController } from "./remote-controller"
+import { localRemoteDevices } from "./local-devices"
 
 export function createRemoteAccess(options: {
   credentials: Parameters<typeof createRemoteController>[0]["credentials"]
@@ -14,6 +15,7 @@ export function createRemoteAccess(options: {
   deviceName?: string
   backend: Parameters<typeof createWebEntry>[0]["backend"]
   root: string
+  profile?: string
   clientOrigin: string
   changed(state: RemoteAccessState): void
   failed?(failure: RemoteControllerFailure): void
@@ -25,10 +27,13 @@ export function createRemoteAccess(options: {
   settings.set("remoteDeviceID", deviceID)
   const website = options.website || "https://koma-remote.vercel.app/"
   const url = website ? URL.parse(website) : null
-  return createRemoteController({
+  const local = () => localRemoteDevices(settings, options.profile)
+  const controller = createRemoteController({
     credentials: options.credentials,
     settings,
     deviceID,
+    isCurrent: (id) => local().ids.has(id),
+    connections: () => local().connections,
     deviceName: (options.deviceName ?? hostname()).slice(0, 40),
     website:
       url &&
@@ -84,4 +89,8 @@ export function createRemoteAccess(options: {
       return connection
     },
   })
+  return {
+    ...controller,
+    connect: async (id: string) => ({ ...(await controller.connect(id)), remote: { id, clientID: deviceID } }),
+  }
 }

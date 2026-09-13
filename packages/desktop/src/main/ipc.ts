@@ -103,10 +103,12 @@ export function registerIpcHandlers(deps: Deps) {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 40) throw new Error("Invalid remote name")
     return deps.remoteAccess.rename(name)
   })
-  ipcMain.handle("remote-access-connect", (_event, id: unknown) => {
-    if (typeof id !== "string" || id.length > 200) throw new Error("Invalid remote device")
-    return deps.remoteAccess.connect(id)
-  })
+  for (const action of ["connect", "disconnect"] as const) {
+    ipcMain.handle(`remote-access-${action}`, (_event, id: unknown) => {
+      if (typeof id !== "string" || !id || id.length > 200) throw new Error("Invalid remote device")
+      return deps.remoteAccess[action](id)
+    })
+  }
   ipcMain.handle("web-entry-get-state", () => deps.webEntry.getState())
   ipcMain.handle("web-entry-set-enabled", (_event: IpcMainInvokeEvent, enabled: unknown) => {
     if (typeof enabled !== "boolean") throw new Error("Invalid web entry preference")

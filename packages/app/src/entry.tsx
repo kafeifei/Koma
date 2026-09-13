@@ -6,9 +6,11 @@ import { AppBaseProviders, AppInterface } from "@/app"
 import { loadInitialLocale } from "@/context/language"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { createBrowserDraftStore } from "@/utils/draft-store"
+import { browserStorage } from "@/utils/persist"
+import { createWebProjectStorage } from "@/desktop/web-project-storage"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
-import { authFromToken } from "@/utils/server"
+import { authFromToken, authTokenFromCredentials } from "@/utils/server"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 
@@ -150,7 +152,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 }
 
 if (root instanceof HTMLElement) {
-  void loadInitialLocale().then((locale) => {
+  void loadInitialLocale().then(async (locale) => {
     const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
     clearAuthToken()
     const server: ServerConnection.Http = {
@@ -160,6 +162,28 @@ if (root instanceof HTMLElement) {
         url: getCurrentUrl(),
         ...auth,
       },
+    }
+    // Desktop-hosted Web pages share project navigation with their backend. Standalone
+    // upstream servers without this capability retain ordinary browser storage.
+    const projects = await createWebProjectStorage(async (request) => {
+      const response = await fetch(new URL("/lab/desktop/storage", server.http.url), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(auth ? { Authorization: `Basic ${authTokenFromCredentials(auth)}` } : {}),
+        },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(5_000),
+      })
+      if (!response.ok) throw new Error(`Project storage unavailable (${response.status})`)
+      return response.json()
+    }, browserStorage).catch(() => undefined)
+    if (projects) {
+      platform.storage = projects.storage
+      platform.observeStorage = projects.observeStorage
+      window.addEventListener("pagehide", (event) => {
+        if (!event.persisted) projects.dispose()
+      })
     }
     render(
       () => (

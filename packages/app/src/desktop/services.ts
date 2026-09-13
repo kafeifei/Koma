@@ -50,6 +50,7 @@ export function createDesktopServices(call: (request: unknown) => Promise<any>) 
     rename: (name) => remote.request("rename", { name }),
     refresh: () => remote.request("refresh"),
     connect: (id) => call({ service: "remote", op: "connect", id }),
+    disconnect: (id) => call({ service: "remote", op: "disconnect", id }),
   }
   return { remoteAccess, webEntry: web as WebEntryPlatform, dispose: () => disposers.forEach((dispose) => dispose()) }
 }
