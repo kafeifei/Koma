@@ -12,6 +12,7 @@
     "dev:tauri": "bun --cwd packages/desktop-tauri dev",
     "build:tauri": "bun --cwd packages/desktop-tauri build",
     "dev:web": "bun --cwd packages/app dev",
+    "dev:fast": "bun script/dev-fast.ts",
     "dev:console": "ulimit -n 10240 2>/dev/null; bun run --cwd packages/console/app dev",
     "dev:stats": "bun sst shell --stage=production -- bun run --cwd packages/stats/app dev",
     "dev:storybook": "bun --cwd packages/storybook storybook",

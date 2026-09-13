@@ -72,6 +72,10 @@ await writeFile(join(testRoot, "results", "tauri-build.json"), JSON.stringify(in
 if (mode === "dev") {
   await run([process.execPath, "run", "build:ui"], packageRoot)
   await cp(join(packageRoot, "dist"), join(binaries, "web"), { recursive: true })
+  // A development window can stay open for hours. It must not reserve a
+  // delivery sequence or block another worktree's Debug/Release build.
+  await run([join(packageRoot, "node_modules/.bin/tauri"), "dev"], packageRoot)
+  process.exit(0)
 }
 await withKomaBuildSequence(git(["rev-parse", "--path-format=absolute", "--git-common-dir"]), async (sequence) => {
   Object.assign(env, { OPENCODE_LAB_BUILD_SEQUENCE: String(sequence) })
@@ -86,16 +90,7 @@ await withKomaBuildSequence(git(["rev-parse", "--path-format=absolute", "--git-c
         }),
       ]
     : []
-  await run(
-    [
-      join(packageRoot, "node_modules/.bin/tauri"),
-      mode === "dev" ? "dev" : "build",
-      ...(mode !== "dev" ? ["--bundles", "app"] : []),
-      ...config,
-    ],
-    packageRoot,
-  )
-  if (mode === "dev") return
+  await run([join(packageRoot, "node_modules/.bin/tauri"), "build", "--bundles", "app", ...config], packageRoot)
   const app = join(packageRoot, `src-tauri/target/release/bundle/macos/${productName}.app`)
   if (release) {
     const signing = ["codesign", "--force", "--timestamp", "--options", "runtime", "--sign", identity!]
