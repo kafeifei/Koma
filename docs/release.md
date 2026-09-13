@@ -43,4 +43,10 @@ GitHub 仓库的 Release 与 Git 标签分开管理。清理上游 Release 不�
 
 Koma Debug 与 Koma 复用工作台和后端代码，默认数据共用，凭据服务身份保持各自规则；`bun run debug` 生成 Koma Debug.app。发行版与 Debug 均默认使用 `~/.koma`，并为已有 Lab profile 保留物理目录、锁和兼容链接，不复制数据库。修正默认路径不代表已完成物理迁移；移动真实数据须另行授权，并先停止占用该目录的应用和后端。旧存储文件名和上游 OpenCode 引擎包名保留兼容用途；它们不表示发行版应继承旧应用身份。
 
+## Debug 交付
+
+「发 debug」先验证本次改动，提交并合入本地 `main`，再从构建时最新、干净的 `main` 提交执行 `bun run debug`。该请求包含必要的提交和合并授权，具体分支检查见 [分支策略](branches.md)。不能先用未合并补丁发包、事后再补合并。
+
+验证候选包后覆盖安装 `/Applications/Koma Debug.app`，保留正在运行的应用与后端，不自动启动或重启。交付时报告版本、构建 ID／序号和来源 `main` 提交，并单独说明实际运行状态。此流程不包含推送、打标签或正式发布。
+
 分支同步与发布入口约束见 [分支策略](branches.md)。`dev` 只镜像上游，不能作为 Koma 发布源码；旧的 `script/release`、`script/version.ts`、`script/publish.ts`、`script/beta.ts` 在 Koma 仓库中会拒绝运行。
