@@ -3,6 +3,7 @@ export const COMPUTER_USE_SERVER = "koma-computer-use"
 export type ComputerUseAction =
   | { action: "status" | "install" | "start" | "grant" }
   | { action: "enable"; enabled: boolean }
+  | { action: "open-settings"; permission: "accessibility" | "screenRecording" }
 
 export type ComputerUseState = {
   supported: boolean

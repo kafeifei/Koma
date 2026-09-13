@@ -1,4 +1,4 @@
-import { Show, type Accessor } from "solid-js"
+import { For, Show, type Accessor } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Switch } from "@opencode-ai/ui/switch"
 import { useLanguage } from "@/context/language"
@@ -47,6 +47,11 @@ export function ComputerUseView(props: {
   const t = language.t
   const blocked = () => props.pending || !!props.state?.busy
   const status = () => (props.state ? computerUseStatus(props.state) : "loading")
+  const ready = () =>
+    props.state?.running &&
+    props.state.accessibility === true &&
+    props.state.screenRecording === true &&
+    !props.state.error
   const permission = (value: boolean | null | undefined) =>
     t(
       value === true
@@ -67,39 +72,21 @@ export function ComputerUseView(props: {
       >
         {(state) => (
           <>
-            <div class="flex items-start justify-between gap-4 rounded-lg bg-surface-base p-4">
-              <div class="flex flex-col gap-2">
-                <span class="text-14-medium text-text-strong">{t("settings.computerUse.enable")}</span>
-                <p class="text-12-regular text-text-weak">{t("settings.computerUse.scope")}</p>
-              </div>
-              <Switch
-                aria-label={t("settings.computerUse.enable")}
-                checked={state().enabled}
-                disabled={
-                  blocked() ||
-                  !state().supported ||
-                  (!state().enabled &&
-                    (!state().running ||
-                      state().accessibility !== true ||
-                      state().screenRecording !== true ||
-                      !!state().error))
-                }
-                onChange={(enabled) => props.onAction({ action: "enable", enabled })}
-              />
+            <div class="flex flex-wrap items-center justify-between gap-2 text-12-regular">
+              <span class="text-text-weak">{t("settings.computerUse.device")}</span>
+              <span class="text-text-base break-all">{state().device}</span>
             </div>
             <div class="flex flex-col gap-4 rounded-lg border border-border-weak-base p-4">
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-14-medium text-text-strong">{t("settings.computerUse.device")}</span>
-                <span class="text-12-regular text-text-base break-all">{state().device}</span>
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-14-medium text-text-strong">
-                  Cua Driver {state().version ? `v${state().version}` : ""}
-                </span>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-14-medium text-text-strong">{t("settings.computerUse.installTitle")}</h3>
                 <span class="text-12-regular text-text-weak" role="status">
-                  {t(`settings.computerUse.${status()}` as "settings.computerUse.loading")}
+                  {state().running
+                    ? t("settings.computerUse.running")
+                    : t(`settings.computerUse.${status()}` as "settings.computerUse.loading")}
+                  {state().version ? ` · v${state().version}` : ""}
                 </span>
               </div>
+              <p class="text-12-regular text-text-weak">{t("settings.computerUse.installDescription")}</p>
               <Show when={state().supported}>
                 <div class="flex flex-wrap gap-2">
                   <Show when={!state().installed}>
@@ -108,7 +95,9 @@ export function ComputerUseView(props: {
                       disabled={blocked()}
                       onClick={() => props.onAction({ action: "install" })}
                     >
-                      {t("settings.computerUse.install")}
+                      {t(
+                        state().busy === "install" ? "settings.computerUse.installing" : "settings.computerUse.install",
+                      )}
                     </Button>
                   </Show>
                   <Show when={state().installed && !state().running}>
@@ -117,35 +106,88 @@ export function ComputerUseView(props: {
                       disabled={blocked()}
                       onClick={() => props.onAction({ action: "start" })}
                     >
-                      {t("settings.computerUse.start")}
+                      {t(state().busy === "start" ? "settings.computerUse.starting" : "settings.computerUse.start")}
                     </Button>
                   </Show>
-                  <Button variant="ghost" disabled={blocked()} onClick={props.onRefresh}>
-                    {t("settings.computerUse.refresh")}
-                  </Button>
                 </div>
               </Show>
             </div>
-            <Show when={state().supported && state().installed}>
+            <Show when={state().supported}>
               <div class="flex flex-col gap-4 rounded-lg border border-border-weak-base p-4">
                 <h3 class="text-14-medium text-text-strong">{t("settings.computerUse.permissionsTitle")}</h3>
-                <div class="flex justify-between gap-4 text-12-regular">
-                  <span>{t("settings.computerUse.accessibility")}</span>
-                  <span>{permission(state().accessibility)}</span>
-                </div>
-                <div class="flex justify-between gap-4 text-12-regular">
-                  <span>{t("settings.computerUse.screenRecording")}</span>
-                  <span>{permission(state().screenRecording)}</span>
-                </div>
-                <p class="text-12-regular text-text-weak">{t("settings.computerUse.grantDescription")}</p>
+                <p class="text-12-regular text-text-weak">
+                  {t("settings.computerUse.grantDescription", { device: state().device })}
+                </p>
+                <For each={["accessibility", "screenRecording"] as const}>
+                  {(kind) => (
+                    <div class="flex flex-wrap items-center justify-between gap-3" data-permission={kind}>
+                      <div class="flex min-w-0 flex-col gap-1">
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span class="text-12-medium text-text-strong">{t(`settings.computerUse.${kind}`)}</span>
+                          <span class="text-12-regular text-text-weak" role="status">
+                            {permission(state()[kind])}
+                          </span>
+                        </div>
+                        <p class="text-12-regular text-text-weak">{t(`settings.computerUse.${kind}Description`)}</p>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        disabled={blocked() || !state().installed || !state().running}
+                        onClick={() => props.onAction({ action: "open-settings", permission: kind })}
+                      >
+                        {t(`settings.computerUse.${kind}Settings`)}
+                      </Button>
+                    </div>
+                  )}
+                </For>
+                <Show
+                  when={state().installed && state().running}
+                  fallback={<p class="text-12-regular text-text-weak">{t("settings.computerUse.startFirst")}</p>}
+                >
+                  <p class="text-12-regular text-text-weak">{t("settings.computerUse.returnFromSettings")}</p>
+                  <details class="text-12-regular text-text-weak">
+                    <summary class="cursor-pointer">{t("settings.computerUse.permissionHelp")}</summary>
+                    <div class="flex flex-col gap-2 pt-2">
+                      <p>{t("settings.computerUse.missingApp")}</p>
+                      <p>{t("settings.computerUse.restartHelp")}</p>
+                    </div>
+                  </details>
+                </Show>
                 <Button
                   class="self-start"
-                  variant="secondary"
-                  disabled={blocked()}
-                  onClick={() => props.onAction({ action: "grant" })}
+                  variant="ghost"
+                  disabled={blocked() || !state().installed}
+                  onClick={props.onRefresh}
                 >
-                  {t("settings.computerUse.grant")}
+                  {t("settings.computerUse.refresh")}
                 </Button>
+              </div>
+              <div class="flex flex-col gap-3 rounded-lg bg-surface-base p-4">
+                <div class="flex items-start justify-between gap-4">
+                  <h3 class="text-14-medium text-text-strong">{t("settings.computerUse.enableTitle")}</h3>
+                  <Show when={state().enabled}>
+                    <Switch
+                      aria-label={t("settings.computerUse.enable")}
+                      checked={state().enabled}
+                      disabled={blocked()}
+                      onChange={(enabled) => props.onAction({ action: "enable", enabled })}
+                    />
+                  </Show>
+                </div>
+                <p class="text-12-regular text-text-weak">{t("settings.computerUse.scope")}</p>
+                <Show when={!state().enabled}>
+                  <p class="text-12-regular text-text-weak">
+                    {t(ready() ? "settings.computerUse.readyToEnable" : "settings.computerUse.finishSetup")}
+                  </p>
+                  <Button
+                    class="self-start"
+                    variant="primary"
+                    disabled={blocked() || !ready()}
+                    onClick={() => props.onAction({ action: "enable", enabled: true })}
+                  >
+                    {t("settings.computerUse.enable")}
+                  </Button>
+                </Show>
               </div>
             </Show>
           </>

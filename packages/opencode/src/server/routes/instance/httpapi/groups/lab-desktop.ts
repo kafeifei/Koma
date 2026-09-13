@@ -11,6 +11,10 @@ export const LabDesktopApi = HttpApi.make("lab-desktop").add(
         payload: Schema.Union([
           Schema.Struct({ action: Schema.Literals(["status", "install", "start", "grant"]) }),
           Schema.Struct({ action: Schema.Literal("enable"), enabled: Schema.Boolean }),
+          Schema.Struct({
+            action: Schema.Literal("open-settings"),
+            permission: Schema.Literals(["accessibility", "screenRecording"]),
+          }),
         ]),
         success: Schema.Struct({
           supported: Schema.Boolean,

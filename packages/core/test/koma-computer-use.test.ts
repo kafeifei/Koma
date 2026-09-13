@@ -105,10 +105,78 @@ describe("computer control", () => {
     const { service, calls, root } = await fixture()
     await expect(service.request({ action: "enable", enabled: "true" })).rejects.toThrow()
     await expect(service.request({ action: "shell", command: "whoami" })).rejects.toThrow()
+    await expect(service.request({ action: "open-settings", permission: "file:///tmp" })).rejects.toThrow()
+    await expect(service.request({ action: "open-settings" })).rejects.toThrow()
     expect(calls).toHaveLength(0)
     const linux = createComputerUse({ root, platform: "linux", device: "Remote Linux", findBinary: () => undefined })
     expect(await linux.status()).toMatchObject({ supported: false, device: "Remote Linux", platform: "linux" })
     await expect(linux.request({ action: "install" })).rejects.toThrow("macOS")
+    await expect(linux.request({ action: "open-settings", permission: "accessibility" })).rejects.toThrow("macOS")
+  })
+
+  test("each permission opens its own host settings without granting access or restarting the driver", async () => {
+    const { service, calls, root } = await fixture({
+      accessibility: true,
+      screen_recording: false,
+      source: { attribution: "driver-daemon" },
+    })
+    for (const permission of ["accessibility", "screenRecording"] as const) {
+      const state = await service.request({ action: "open-settings", permission })
+      expect(state).toMatchObject({ accessibility: true, screenRecording: false, enabled: false })
+    }
+    expect(calls.filter((call) => call[0] === "/usr/bin/open")).toEqual([
+      ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+      ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
+    ])
+    expect(
+      calls.every(
+        (call) =>
+          call[0] === "/usr/bin/open" ||
+          call.slice(1).join(" ") === "--version" ||
+          call.slice(1).join(" ") === "permissions status --json",
+      ),
+    ).toBe(true)
+    expect(read(root)).toEqual({ enabled: false })
+  })
+
+  test("installation starts a stopped driver through LaunchServices before reporting readiness", async () => {
+    const { root } = await fixture()
+    let installed = false
+    let running = false
+    const calls: string[][] = []
+    const service = createComputerUse({
+      root,
+      platform: "darwin",
+      findBinary: () => (installed ? "/test/cua-driver" : undefined),
+      run: async (file, args) => {
+        calls.push([file, ...args])
+        if (file === "/bin/bash") installed = true
+        if (file === "/usr/bin/open") running = true
+        if (args[0] === "--version") return "cua-driver 0.28.1"
+        return JSON.stringify({ daemon_running: running, source: { attribution: "driver-daemon" } })
+      },
+    })
+    await service.request({ action: "install" })
+    let state = await service.status()
+    for (let attempt = 0; state.busy && attempt < 50; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      state = await service.status()
+    }
+    expect(state).toMatchObject({ installed: true, running: true, enabled: false })
+    expect(state.busy).toBeUndefined()
+    const installer = calls.findIndex((call) => call[0] === "/bin/bash")
+    const launch = calls.findIndex((call) => call[0] === "/usr/bin/open")
+    expect(installer).toBeGreaterThan(-1)
+    expect(launch).toBeGreaterThan(installer)
+    expect(calls[launch]).toEqual([
+      "/usr/bin/open",
+      "-g",
+      "-a",
+      "/Applications/CuaDriver.app",
+      "--args",
+      "serve",
+      "--no-permissions-gate",
+    ])
   })
 
   test("a failed probe remains unknown and blocks enablement", async () => {

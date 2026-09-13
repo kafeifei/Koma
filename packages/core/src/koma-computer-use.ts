@@ -14,10 +14,15 @@ export { COMPUTER_USE_SERVER }
 const execute = promisify(execFile)
 const APP = "/Applications/CuaDriver.app"
 const VERSION = "0.28.1"
+const PERMISSION_SETTINGS = {
+  accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+  screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+} as const
 const Settings = z.object({ enabled: z.boolean(), binary: z.string().optional() })
 const Action = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["status", "install", "start", "grant"]) }),
   z.object({ action: z.literal("enable"), enabled: z.boolean() }),
+  z.object({ action: z.literal("open-settings"), permission: z.enum(["accessibility", "screenRecording"]) }),
 ])
 
 export function read(root?: string) {
@@ -217,6 +222,17 @@ export function createComputerUse(input: {
       if (platform !== "darwin") throw new Error("Computer control setup currently supports macOS")
       if (busy || changing) throw new Error("Computer control setup is already in progress")
       failure = undefined
+      if (request.action === "open-settings") {
+        changing = true
+        try {
+          // Open on the task's host, including when the settings UI is connected remotely.
+          // Opening a pane never requests a grant or changes the driver's lifecycle.
+          await run("/usr/bin/open", [PERMISSION_SETTINGS[request.permission]])
+          return await status()
+        } finally {
+          changing = false
+        }
+      }
       if (request.action === "enable") {
         changing = true
         try {
@@ -240,7 +256,10 @@ export function createComputerUse(input: {
       busy = request.action
       // The operation belongs to the backend, not the lifetime of the HTTP request.
       void (async () => {
-        if (request.action === "install") await install()
+        if (request.action === "install") {
+          await install()
+          await start(locate()!)
+        }
         if (request.action === "start") await start(binary!)
         if (request.action === "grant") {
           await start(binary!)
