@@ -194,7 +194,7 @@ function TaskServer(props: {
     if (route.type !== "session" || route.server !== key()) return
     return context().sync.session.lineage.peek(route.sessionId)?.root.id ?? route.sessionId
   })
-  const projects = createMemo(() => [recentGroup(language.t("workspace.recent")), ...context().projects.list()])
+  const projects = createMemo(() => [...context().projects.list(), recentGroup(language.t("workspace.recent"))])
   const groups = createMemo(() =>
     taskProjectGroups(projects(), props.archived ? sessions.archived() : sessions.sessions(), props.query, {
       archived: props.archived,
