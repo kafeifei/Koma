@@ -30,7 +30,7 @@ Koma 的 Electron 包只携带共享 Koma CLI，不再附带未使用的上游 v
 
 两个宿主共用发行版调试开关策略。Koma 固定使用当前工作台布局，已有配置中的旧布局偏好自动归一，不显示上游新旧界面迁移开关和过期提示。
 
-“远程”设置始终显示 `https://koma-remote.vercel.app/` 网站入口，Electron 与 Tauri 由共享服务提供同一个默认值；`OPENCODE_REMOTE_WEBSITE` 仍可覆盖。网站托管 GitHub 登录、会话与设备目录 API，实际工作台流量仍走 Microsoft Dev Tunnels；当前网站不能整体部署到仅提供静态托管的 GitHub Pages。
+“连接 → 远程隧道”设置始终显示 `https://koma-remote.vercel.app/` 网站入口，Electron 与 Tauri 由共享服务提供同一个默认值；`OPENCODE_REMOTE_WEBSITE` 仍可覆盖。网站托管 GitHub 登录、会话与设备目录 API，实际工作台流量仍走 Microsoft Dev Tunnels；当前网站不能整体部署到仅提供静态托管的 GitHub Pages。
 
 ## 验证与发布
 

@@ -3,6 +3,13 @@ export type RemoteDevice = {
   name: string
   online: boolean | null
   current: boolean
+  connectable?: boolean
+  connected?: boolean
+}
+
+export type RemoteCleanupResult = {
+  state: RemoteAccessState
+  results: { id: string; status: import("./remote-registrations").RemoteRemovalStatus }[]
 }
 
 export type RemoteAccessState = {
@@ -14,7 +21,9 @@ export type RemoteAccessState = {
   deviceName: string
   website: string | null
   devices: RemoteDevice[]
-  error: "configuration" | "authentication" | "connection" | null
+  devicesError?: boolean
+  quota?: import("./remote-registrations").RemoteQuota | null
+  error: "configuration" | "authentication" | "connection" | "capacity" | null
 }
 
 export type RemoteAccessPlatform = {
@@ -26,6 +35,7 @@ export type RemoteAccessPlatform = {
   rename(name: string): Promise<RemoteAccessState>
   refresh(): Promise<RemoteAccessState>
   connect(id: string): Promise<{ url: string; name: string }>
+  remove(ids: string[]): Promise<RemoteCleanupResult>
   subscribe(callback: (state: RemoteAccessState) => void): () => void
 }
 export type WebEntryState = {

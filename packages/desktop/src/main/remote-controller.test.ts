@@ -50,6 +50,8 @@ function fixture(
     account: async () => ({ id: 10, name: "Tester", username: "tester" }),
     refreshCredential: async () => ({ accessToken: "new-private-token" }),
     list: async () => [device, { ...device, id: "use1/other-device", name: "Other computer" }],
+    quota: async () => null,
+    remove: async () => "deleted",
     host: async (input) => {
       events.push("host-start")
       input.save({ clusterId: "use1", tunnelId: "hello-world", port: 1234 })
@@ -649,4 +651,85 @@ describe("remote credential storage", () => {
     expect(() => credentials.write({ accessToken: "secret" })).toThrow()
     expect(stored.size).toBe(0)
   })
+})
+
+test("cleanup protects this host and active clients and reports mixed batch results", async () => {
+  const removed: string[] = []
+  const input = fixture({
+    remove: async (_token, id, guard) => {
+      guard.check()
+      removed.push(id)
+      return id === "use1/old-failure" ? "failed" : "deleted"
+    },
+  })
+  await input.controller.setEnabled(true)
+  await input.controller.connect("use1/other-device")
+  const result = await input.controller.remove([
+    "use1/hello-world",
+    "use1/other-device",
+    "use1/old-debug",
+    "use1/old-failure",
+    "use1/old-debug",
+  ])
+  expect(result.results.map((item) => item.status)).toEqual(["protected", "protected", "deleted", "failed"])
+  expect(removed).toEqual(["use1/old-debug", "use1/old-failure"])
+  await input.controller.stop()
+})
+
+test("sign-out cancels cleanup queued in the same tick", async () => {
+  let calls = 0
+  const input = fixture({
+    remove: async () => {
+      calls++
+      return "deleted"
+    },
+  })
+  await input.controller.signIn()
+  const cleanup = input.controller.remove(["use1/old-debug"])
+  const logout = input.controller.signOut()
+  expect((await cleanup).results[0]?.status).toBe("failed")
+  await logout
+  expect(calls).toBe(0)
+  await input.controller.stop()
+})
+
+test("logout during cleanup invalidates its token and stops remaining batch dispatch", async () => {
+  const entered = Promise.withResolvers<void>()
+  const proceed = Promise.withResolvers<void>()
+  const calls: string[] = []
+  const input = fixture({
+    remove: async (token, id, guard) => {
+      calls.push(id)
+      entered.resolve()
+      await proceed.promise
+      guard.check()
+      await token()
+      return "deleted"
+    },
+  })
+  await input.controller.signIn()
+  const cleanup = input.controller.remove(["use1/old-debug", "use1/second-debug"])
+  await entered.promise
+  const logout = input.controller.signOut()
+  proceed.resolve()
+  expect((await cleanup).results.map((item) => item.status)).toEqual(["failed", "failed"])
+  await logout
+  expect(calls).toEqual(["use1/old-debug"])
+  expect((await input.controller.getState()).devices).toEqual([])
+  await input.controller.stop()
+})
+
+test("a host quota failure still loads the device directory for cleanup", async () => {
+  const input = fixture({
+    host: async () => {
+      throw { response: { status: 429, data: { detail: "TunnelsPerUserPerLocation limit reached" } } }
+    },
+    quota: async () => ({ current: 10, limit: 10 }),
+  })
+  const state = await input.controller.setEnabled(true)
+  expect(state.error).toBe("capacity")
+  expect(state.devices).toHaveLength(2)
+  expect(state.devicesError).toBe(false)
+  expect(state.quota).toEqual({ current: 10, limit: 10 })
+  await input.controller.stop()
 })

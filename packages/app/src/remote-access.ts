@@ -1,1 +1,6 @@
-export type { RemoteDevice, RemoteAccessState, RemoteAccessPlatform } from "@opencode-ai/remote/desktop/types"
+export type {
+  RemoteDevice,
+  RemoteAccessState,
+  RemoteAccessPlatform,
+  RemoteCleanupResult,
+} from "@opencode-ai/remote/desktop/types"

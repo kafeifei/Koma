@@ -107,6 +107,17 @@ export function registerIpcHandlers(deps: Deps) {
     if (typeof id !== "string" || id.length > 200) throw new Error("Invalid remote device")
     return deps.remoteAccess.connect(id)
   })
+  ipcMain.handle("remote-access-remove", (_event, ids: unknown) => {
+    if (
+      !Array.isArray(ids) ||
+      !ids.length ||
+      ids.length > 100 ||
+      ids.some((id) => typeof id !== "string" || !id || id.length > 200)
+    ) {
+      throw new Error("Invalid remote devices")
+    }
+    return deps.remoteAccess.remove(ids)
+  })
   ipcMain.handle("web-entry-get-state", () => deps.webEntry.getState())
   ipcMain.handle("web-entry-set-enabled", (_event: IpcMainInvokeEvent, enabled: unknown) => {
     if (typeof enabled !== "boolean") throw new Error("Invalid web entry preference")

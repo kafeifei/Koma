@@ -45,8 +45,19 @@ export function createRemoteAccess(options: {
     account: github.getGitHubAccount,
     refreshCredential: github.refreshGitHubCredential,
     list: async (token) => {
-      const { createTunnelManagement, listRemoteDevices } = await import("@opencode-ai/remote/tunnels")
-      return listRemoteDevices(createTunnelManagement(token))
+      const { createTunnelManagement } = await import("@opencode-ai/remote/tunnels")
+      const { listRemoteRegistrations } = await import("./remote-registrations")
+      return listRemoteRegistrations(createTunnelManagement(token))
+    },
+    quota: async (token) => {
+      const { createTunnelManagement } = await import("@opencode-ai/remote/tunnels")
+      const { getRemoteQuota } = await import("./remote-registrations")
+      return getRemoteQuota(createTunnelManagement(token))
+    },
+    remove: async (token, id, guard) => {
+      const { createTunnelManagement } = await import("@opencode-ai/remote/tunnels")
+      const { removeRemoteRegistration } = await import("./remote-registrations")
+      return removeRemoteRegistration(createTunnelManagement(token), id, guard)
     },
     host: async (input) => {
       const { createTunnelManagement } = await import("@opencode-ai/remote/tunnels")
