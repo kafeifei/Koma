@@ -32,7 +32,6 @@ const projects = Layer.succeed(
   ProjectV2.Service.of({
     resolve: (directory) => Effect.succeed({ id: ProjectV2.ID.global, directory }),
     directories: () => Effect.succeed([]),
-    commit: () => Effect.void,
   }),
 )
 const it = testEffect(

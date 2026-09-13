@@ -1,11 +1,10 @@
 import { StorageDirectory } from "@opencode-ai/core/storage-directory"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
-import { ProjectDirectoryTable, ProjectTable } from "@opencode-ai/core/project/sql"
+import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { ProjectDirectories } from "@opencode-ai/core/project/directories"
 import { SessionTable } from "@opencode-ai/core/session/sql"
-import { WorkspaceTable } from "@opencode-ai/core/control-plane/workspace.sql"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { GlobalBus } from "@/bus/global"
 import { which } from "@opencode-ai/core/util/which"
@@ -164,55 +163,6 @@ const layer = Layer.effect(
       return [...new Set(sandboxes)].filter((directory) => directory !== primary)
     })
 
-    const migrateProjectId = Effect.fn("Project.migrateProjectId")(function* (
-      oldID: ProjectV2.ID | undefined,
-      newID: ProjectV2.ID,
-    ) {
-      if (!oldID) return
-      if (oldID === ProjectV2.ID.global) return
-      if (oldID === newID) return
-
-      yield* db
-        .transaction(
-          (d) =>
-            Effect.gen(function* () {
-              const oldProject = yield* d.select().from(ProjectTable).where(eq(ProjectTable.id, oldID)).get()
-              const newProject = yield* d.select().from(ProjectTable).where(eq(ProjectTable.id, newID)).get()
-              if (oldProject && !newProject) {
-                yield* d
-                  .insert(ProjectTable)
-                  .values({
-                    ...oldProject,
-                    id: newID,
-                    time_updated: Date.now(),
-                  })
-                  .run()
-              }
-
-              // Project directories may be shared across distinct
-              // checkouts which have diverged. Clear the directory
-              // list and rely on it being re-populated to ensure
-              // accuracy
-              yield* d.delete(ProjectDirectoryTable).where(eq(ProjectDirectoryTable.project_id, oldID)).run()
-
-              yield* d
-                .update(SessionTable)
-                .set({ project_id: newID, time_updated: sql`${SessionTable.time_updated}` })
-                .where(eq(SessionTable.project_id, oldID))
-                .run()
-              yield* d
-                .update(WorkspaceTable)
-                .set({ project_id: newID })
-                .where(eq(WorkspaceTable.project_id, oldID))
-                .run()
-
-              if (oldProject) yield* d.delete(ProjectTable).where(eq(ProjectTable.id, oldID)).run()
-            }),
-          { behavior: "immediate" },
-        )
-        .pipe(Effect.orDie)
-    })
-
     const saveProjectDirectory = Effect.fn("Project.saveProjectDirectory")(function* (input: {
       projectID: ProjectV2.ID
       directory: string
@@ -240,7 +190,6 @@ const layer = Layer.effect(
 
       // Phase 2: upsert
       const projectID = ProjectV2.ID.make(data.id)
-      yield* migrateProjectId(data.previous ? ProjectV2.ID.make(data.previous) : undefined, projectID)
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, projectID)).get().pipe(Effect.orDie)
       const existing = row
         ? fromRow(row)
@@ -251,8 +200,6 @@ const layer = Layer.effect(
             sandboxes: [] as string[],
             time: { created: Date.now(), updated: Date.now() },
           }
-
-      if (flags.experimentalIconDiscovery) yield* discover(existing).pipe(Effect.ignore, Effect.forkIn(scope))
 
       const result: Info = {
         ...existing,
@@ -325,9 +272,7 @@ const layer = Layer.effect(
       })
 
       yield* emitUpdated(result)
-      if (projectID !== ProjectV2.ID.global && data.vcs?.type === "git") {
-        yield* projectV2.commit({ store: data.vcs.store, id: data.id })
-      }
+      if (flags.experimentalIconDiscovery) yield* discover(result).pipe(Effect.ignore, Effect.forkIn(scope))
       return { project: result, sandbox: data.vcs ? opened : worktree }
     })
 

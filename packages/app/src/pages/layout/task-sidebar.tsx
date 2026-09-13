@@ -216,6 +216,7 @@ function TaskServer(props: {
       archived: props.archived,
       pinned: context().tasks.pinned(),
       matches: [...snippets().keys()],
+      knownProjects: context().sync.data.project,
     }).filter((group) => !props.archived || group.sessions.length > 0),
   )
 

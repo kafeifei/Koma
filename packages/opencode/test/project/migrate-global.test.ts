@@ -61,12 +61,8 @@ function ensureGlobal() {
 describe("migrateFromGlobal", () => {
   it.live("migrates global sessions on first project creation", () =>
     Effect.gen(function* () {
-      // 1. Start with git init but no commits — creates "global" project row
+      // 1. A non-Git directory uses the legacy directory-scoped global project.
       const tmp = yield* tmpdirScoped()
-      yield* Effect.promise(() => $`git init`.cwd(tmp).quiet())
-      yield* Effect.promise(() => $`git config user.name "Test"`.cwd(tmp).quiet())
-      yield* Effect.promise(() => $`git config user.email "test@opencode.test"`.cwd(tmp).quiet())
-      yield* Effect.promise(() => $`git config commit.gpgsign false`.cwd(tmp).quiet())
       const projects = yield* Project.Service
       const { project: pre } = yield* projects.fromDirectory(tmp)
       expect(pre.id).toBe(ProjectV2.ID.global)
@@ -75,8 +71,8 @@ describe("migrateFromGlobal", () => {
       const id = legacySessionID()
       yield* seed({ id, dir: tmp, project: ProjectV2.ID.global })
 
-      // 3. Make a commit so the project gets a real ID
-      yield* Effect.promise(() => $`git commit --allow-empty -m "root"`.cwd(tmp).quiet())
+      // 3. Initializing Git allocates identity without requiring a first commit.
+      yield* Effect.promise(() => $`git init`.cwd(tmp).quiet())
 
       const { project: real } = yield* projects.fromDirectory(tmp)
       expect(real.id).not.toBe(ProjectV2.ID.global)

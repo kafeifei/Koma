@@ -18,6 +18,29 @@ function session(id: string, directory = "/app", updated = 1): Session {
 }
 
 describe("task sidebar project groups", () => {
+  test("shows both historical project IDs under the same open root, including reclaimed worktrees", () => {
+    const oldProject = { id: "old", worktree: "/app", expanded: true, sandboxes: ["/worktrees/old"] }
+    const newProject = { id: "new", worktree: "/app/", expanded: true, sandboxes: ["/worktrees/new"] }
+    const knownProjects = [oldProject, newProject]
+    const saved = [
+      { ...session("old", "/worktrees/old"), projectID: "old" },
+      { ...session("new", "/worktrees/new"), projectID: "new" },
+      { ...session("reclaimed", "/worktrees/reclaimed"), projectID: "new" },
+    ]
+    for (const opened of [oldProject, newProject]) {
+      const groups = taskProjectGroups([opened], saved, "", { knownProjects })
+      expect(groups).toHaveLength(1)
+      expect(groups[0].sessions.map((item) => item.id)).toEqual(["new", "old", "reclaimed"])
+    }
+    expect(taskProjectGroups([oldProject], saved, "reclaimed", { knownProjects })[0].sessions).toEqual([saved[2]])
+    const archived = { ...saved[2], time: { ...saved[2].time, archived: 2 } }
+    expect(taskProjectGroups([oldProject], [archived], "", { archived: true, knownProjects })[0].sessions).toEqual([
+      archived,
+    ])
+    expect(taskProjectGroups([], saved, "", { knownProjects })).toEqual([])
+    expect(taskProjectGroups([projects[1]], saved, "", { knownProjects })[0].sessions).toEqual([])
+  })
+
   test("keeps reclaimed archived checkouts under their project and respects project removal", () => {
     const known = [{ id: "app", worktree: "/app", expanded: true, sandboxes: [] }]
     const directory = taskSessionProjectDirectory(session("archived", "/worktrees/reclaimed"), known)

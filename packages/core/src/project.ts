@@ -2,12 +2,12 @@ export * as ProjectV2 from "./project"
 export * as Project from "./project"
 
 import { Context, Effect, Layer, Schema } from "effect"
+import { randomUUID } from "node:crypto"
 import path from "path"
 import { AbsolutePath } from "./schema"
 import { FSUtil } from "./fs-util"
 import { Git } from "./git"
 import { makeGlobalNode } from "./effect/app-node"
-import { Hash } from "./util/hash"
 import { ProjectDirectories } from "./project/directories"
 import { ProjectSchema } from "./project/schema"
 import { StorageDirectory } from "./storage-directory"
@@ -29,7 +29,6 @@ export const Directories = ProjectDirectories.ListOutput
 export type Directories = typeof Directories.Type
 
 export interface Resolved {
-  readonly previous?: ID
   readonly id: ID
   readonly directory: AbsolutePath
   readonly vcs?: Vcs
@@ -37,17 +36,8 @@ export interface Resolved {
 
 export interface Interface {
   readonly directories: (input: DirectoriesInput) => Effect.Effect<Directories>
+  /** Resolves a project, durably allocating its identity before returning a new ID. */
   readonly resolve: (input: AbsolutePath) => Effect.Effect<Resolved>
-  /**
-   * Temporary bridge method for writing the resolved project ID to the repo-local cache.
-   *
-   * This exists while the old opencode project service and this core project
-   * service work together: core resolves the ID, while the old service still owns
-   * database migration and persistence. The old service should call this after it
-   * finishes migrating from `resolve().previous` to `resolve().id`; once project
-   * persistence moves into core, this separate bridge method can go away.
-   */
-  readonly commit: (input: { store: AbsolutePath; id: ID }) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ProjectV2") {}
@@ -63,70 +53,55 @@ const layer = Layer.effect(
       return yield* projectDirectories.list(input.projectID)
     })
 
-    const cached = Effect.fnUntraced(function* (dir: string) {
-      return yield* fs.readFileString(path.join(dir, "opencode")).pipe(
-        Effect.map((value) => value.trim()),
-        Effect.map((value) => (value ? ID.make(value) : undefined)),
-        Effect.catch(() => Effect.succeed(undefined)),
+    const readIdentity = Effect.fnUntraced(function* (file: string) {
+      const value = yield* fs.readFileString(file).pipe(
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(undefined)),
+        Effect.orDie,
       )
+      if (value === undefined) return undefined
+      const id = value.trim()
+      if (!id || id === ID.global) return yield* Effect.die(new Error(`Invalid project identity: ${file}`))
+      return ID.make(id)
     })
 
-    const remote = Effect.fnUntraced(function* (repo: Git.Repository) {
-      const origin = yield* git.remote.get(repo)
-      if (!origin) return undefined
-      const normalized = url(origin)
-      if (!normalized) return undefined
-      return ID.make(Hash.fast(`git-remote:${normalized}`))
-    })
+    const identity = Effect.fn("Project.identity")(function* (store: AbsolutePath) {
+      // Keep the legacy filename and existing IDs. The common Git directory is
+      // shared by linked worktrees and moves with the repository; origin and HEAD
+      // are mutable metadata and must never redefine task ownership.
+      const file = path.join(store, "opencode")
+      const existing = yield* readIdentity(file)
+      if (existing) return existing
 
-    function url(input: string) {
-      const value = input.trim()
-      if (!value) return undefined
-
-      try {
-        const parsed = new URL(value)
-        if (parsed.protocol === "file:") return undefined
-        return parts(parsed.hostname, parsed.pathname)
-      } catch {
-        const scp = value.match(/^([^@/:]+@)?([^/:]+):(.+)$/)
-        if (scp) return parts(scp[2], scp[3])
-        return undefined
-      }
-    }
-
-    function parts(host: string, name: string) {
-      const pathname = name
-        .replace(/^\/+/, "")
-        .replace(/\.git\/?$/, "")
-        .replace(/\/+$/, "")
-      if (!host || !pathname) return undefined
-      return `${host.toLowerCase()}/${pathname}`
-    }
-
-    const root = Effect.fnUntraced(function* (repo: Git.Repository) {
-      const root = (yield* git.history.rootCommits(repo))[0]
-      return root ? ID.make(root) : undefined
-    })
+      const id = ID.make(randomUUID())
+      const temporary = yield* Effect.acquireRelease(
+        Effect.succeed(path.join(store, `opencode-${randomUUID()}.tmp`)),
+        (file) => fs.remove(file, { force: true }).pipe(Effect.orDie),
+      )
+      yield* fs.writeFileString(temporary, id, { flag: "wx" }).pipe(Effect.orDie)
+      // Publish a complete file without replacing another process's identity.
+      // Direct exclusive writes expose an empty/partial ID to concurrent readers.
+      yield* fs.link(temporary, file).pipe(
+        Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.void),
+        Effect.orDie,
+      )
+      const persisted = yield* readIdentity(file)
+      if (!persisted) return yield* Effect.die(new Error(`Project identity disappeared: ${file}`))
+      return persisted
+    }, Effect.scoped)
 
     const resolve = Effect.fn("Project.resolve")(function* (input: AbsolutePath) {
       const repo = yield* git.repo.discover(input)
       if (!repo) return { id: ID.global, directory: AbsolutePath.make(path.parse(input).root), vcs: undefined }
 
-      const previous = yield* cached(repo.commonDirectory)
-      const id = (yield* remote(repo)) ?? previous ?? (yield* root(repo))
+      const id = yield* identity(repo.commonDirectory)
       return {
-        previous,
-        id: id ?? ID.global,
+        id,
         directory: AbsolutePath.make(StorageDirectory.resolve(repo.worktree)),
         vcs: { type: "git" as const, store: repo.commonDirectory },
       }
     })
 
-    const commit = Effect.fn("Project.commit")(function* (input: { store: AbsolutePath; id: ID }) {
-      yield* fs.writeFileString(path.join(input.store, "opencode"), input.id).pipe(Effect.ignore)
-    })
-
-    return Service.of({ directories, resolve, commit })
+    return Service.of({ directories, resolve })
   }),
 )
 

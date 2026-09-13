@@ -84,7 +84,6 @@ function projectV2FailureLayer() {
           directory: input,
           vcs: { type: "git" as const, store: input },
         }),
-      commit: () => Effect.void,
     }),
   )
 }
@@ -117,12 +116,12 @@ describe("Project.fromDirectory", () => {
       const result = yield* project.fromDirectory(tmp)
 
       expect(result.project).toBeDefined()
-      expect(result.project.id).toBe(ProjectV2.ID.global)
+      expect(result.project.id).not.toBe(ProjectV2.ID.global)
       expect(result.project.vcs).toBe("git")
       expect(result.project.worktree).toBe(tmp)
 
       const opencodeFile = path.join(tmp, ".git", "opencode")
-      expect(yield* Effect.promise(() => Bun.file(opencodeFile).exists())).toBe(false)
+      expect(yield* Effect.promise(() => Bun.file(opencodeFile).text())).toBe(result.project.id)
     }),
   )
 
@@ -149,7 +148,7 @@ describe("Project.fromDirectory", () => {
     }),
   )
 
-  it.live("derives stable project ID from root commit", () =>
+  it.live("persists project ID across repeated opens", () =>
     Effect.gen(function* () {
       const project = yield* Project.Service
       const tmp = yield* tmpdirScoped({ git: true })
@@ -159,7 +158,7 @@ describe("Project.fromDirectory", () => {
     }),
   )
 
-  it.live("prefers normalized origin remote over root commit", () =>
+  it.live("allocates project identity independently of origin", () =>
     Effect.gen(function* () {
       const project = yield* Project.Service
       const tmp = yield* tmpdirScoped({ git: true })
@@ -167,11 +166,12 @@ describe("Project.fromDirectory", () => {
 
       const result = yield* project.fromDirectory(tmp)
 
-      expect(result.project.id).toBe(remoteProjectID("github.com/Test-Org/Test-Repo"))
+      expect(result.project.id).not.toBe(remoteProjectID("github.com/Test-Org/Test-Repo"))
+      expect(yield* Effect.promise(() => Bun.file(path.join(tmp, ".git", "opencode")).text())).toBe(result.project.id)
     }),
   )
 
-  it.live("normalizes equivalent origin URL forms to the same project ID", () =>
+  it.live("keeps independent projects separate even with equivalent origins", () =>
     Effect.gen(function* () {
       const project = yield* Project.Service
       const ssh = yield* tmpdirScoped({ git: true })
@@ -182,19 +182,22 @@ describe("Project.fromDirectory", () => {
       const result = yield* project.fromDirectory(ssh)
       const next = yield* project.fromDirectory(https)
 
-      expect(result.project.id).toBe(remoteProjectID("github.com/owner/repo"))
-      expect(next.project.id).toBe(result.project.id)
+      expect(result.project.id).not.toBe(remoteProjectID("github.com/owner/repo"))
+      expect(next.project.id).not.toBe(result.project.id)
     }),
   )
 
-  it.live("migrates cached root project data when origin becomes available", () =>
+  it.live("retains legacy project, session and workspace ownership through origin changes", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
       const tmp = yield* tmpdirScoped({ git: true })
       const projects = yield* Project.Service
+      const legacyID = ProjectV2.ID.make(
+        (yield* Effect.promise(() => $`git rev-list --max-parents=0 HEAD`.cwd(tmp).text())).trim(),
+      )
+      yield* Effect.promise(() => Bun.write(path.join(tmp, ".git", "opencode"), legacyID))
       const rootResult = yield* projects.fromDirectory(tmp)
       const rootProject = rootResult.project
-      const remoteID = remoteProjectID("github.com/acme/app")
       const sessionID = crypto.randomUUID() as SessionID
       const workspaceID = WorkspaceV2.ID.ascending()
 
@@ -219,20 +222,26 @@ describe("Project.fromDirectory", () => {
         .pipe(Effect.orDie)
       yield* Effect.promise(() => $`git remote add origin git@github.com:acme/app.git`.cwd(tmp).quiet())
 
+      const added = yield* projects.fromDirectory(tmp)
+      yield* Effect.promise(() => $`git remote set-url origin https://github.com/acme/renamed.git`.cwd(tmp).quiet())
+      const renamed = yield* projects.fromDirectory(tmp)
+      yield* Effect.promise(() => $`git remote remove origin`.cwd(tmp).quiet())
       const result = yield* projects.fromDirectory(tmp)
 
-      expect(result.project.id).toBe(remoteID)
+      expect(added.project.id).toBe(legacyID)
+      expect(renamed.project.id).toBe(legacyID)
+      expect(result.project.id).toBe(legacyID)
       expect(
         yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, rootProject.id)).get().pipe(Effect.orDie),
-      ).toBeUndefined()
+      ).toBeDefined()
       expect(
         (yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie))
           ?.project_id,
-      ).toBe(remoteID)
+      ).toBe(rootProject.id)
       expect(
         (yield* db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, workspaceID)).get().pipe(Effect.orDie))
           ?.project_id,
-      ).toBe(remoteID)
+      ).toBe(rootProject.id)
     }),
   )
 })
@@ -247,7 +256,7 @@ describe("Project.fromDirectory git failure paths", () => {
       // rev-list fails because HEAD doesn't exist yet: this is the natural scenario.
       const result = yield* project.fromDirectory(tmp)
       expect(result.project.vcs).toBe("git")
-      expect(result.project.id).toBe(ProjectV2.ID.global)
+      expect(result.project.id).not.toBe(ProjectV2.ID.global)
       expect(result.project.worktree).toBe(tmp)
     }),
   )
@@ -342,7 +351,7 @@ describe("Project.fromDirectory with worktrees", () => {
     }),
   )
 
-  it.live("separate clones of the same repo should share project ID", () =>
+  it.live("separate clones of the same repo have independent project IDs", () =>
     Effect.gen(function* () {
       const project = yield* Project.Service
       const tmp = yield* tmpdirScoped({ git: true })
@@ -359,7 +368,7 @@ describe("Project.fromDirectory with worktrees", () => {
       const result = yield* project.fromDirectory(tmp)
       const next = yield* project.fromDirectory(clone)
 
-      expect(next.project.id).toBe(result.project.id)
+      expect(next.project.id).not.toBe(result.project.id)
     }),
   )
 

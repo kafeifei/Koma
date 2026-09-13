@@ -7,7 +7,12 @@ export function taskProjectGroups(
   projects: LocalProject[],
   sessions: Session[],
   query = "",
-  options: { archived?: boolean; pinned?: string[]; matches?: string[] } = {},
+  options: {
+    archived?: boolean
+    pinned?: string[]
+    matches?: string[]
+    knownProjects?: Array<Pick<LocalProject, "id" | "worktree" | "sandboxes">>
+  } = {},
 ) {
   const search = query.trim().toLowerCase()
   const groups = projects.map((project) => ({ project, sessions: [] as Session[] }))
@@ -25,7 +30,7 @@ export function taskProjectGroups(
     const project =
       projects.find(
         (item) => pathKey(item.worktree) === directory || item.sandboxes?.some((path) => pathKey(path) === directory),
-      ) ?? (session.projectID === "global" ? undefined : projectForSession(session, projects, byID))
+      ) ?? projectForSession(session, projects, byID, options.knownProjects)
     const group = groups.find((item) => item.project === project)
     if (!group) continue
     if (

@@ -103,7 +103,7 @@ describe("Project directory persistence", () => {
     }),
   )
 
-  it.live("stores a separately opened clone as a secondary directory", () =>
+  it.live("registers a separately opened clone under its own project", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ git: true })
       const bare = tmp + "-project-directory-bare"
@@ -116,14 +116,13 @@ describe("Project directory persistence", () => {
       const project = yield* Project.Service
       const main = yield* project.fromDirectory(tmp)
 
-      yield* project.fromDirectory(clone)
+      const second = yield* project.fromDirectory(clone)
 
-      expect(yield* directories(main.project.id)).toEqual(
-        [
-          { directory: AbsolutePath.make(tmp), strategy: undefined },
-          { directory: AbsolutePath.make(clone), strategy: undefined },
-        ].toSorted((a, b) => a.directory.localeCompare(b.directory)),
-      )
+      expect(second.project.id).not.toBe(main.project.id)
+      expect(yield* directories(main.project.id)).toEqual([{ directory: AbsolutePath.make(tmp), strategy: undefined }])
+      expect(yield* directories(second.project.id)).toEqual([
+        { directory: AbsolutePath.make(clone), strategy: undefined },
+      ])
     }),
   )
 
@@ -147,11 +146,11 @@ describe("Project directory persistence", () => {
     }),
   )
 
-  it.live("records the active directory under its newly resolved project id", () =>
+  it.live("does not attach directories to another project with the same origin", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ git: true })
       const project = yield* Project.Service
-      yield* project.fromDirectory(tmp)
+      const original = yield* project.fromDirectory(tmp)
       const remoteID = ProjectV2.ID.make(Hash.fast("git-remote:github.com/project-directory-test/collision"))
       const { db } = yield* Database.Service
       yield* db
@@ -172,11 +171,14 @@ describe("Project directory persistence", () => {
 
       yield* project.fromDirectory(tmp)
 
-      expect(yield* directories(remoteID)).toEqual([{ directory: AbsolutePath.make(tmp), strategy: undefined }])
+      expect(yield* directories(remoteID)).toEqual([])
+      expect(yield* directories(original.project.id)).toEqual([
+        { directory: AbsolutePath.make(tmp), strategy: undefined },
+      ])
     }),
   )
 
-  it.live("clears stale directories when the project id changes", () =>
+  it.live("preserves directory registrations when origin changes", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ git: true })
       const project = yield* Project.Service
@@ -188,15 +190,15 @@ describe("Project directory persistence", () => {
         .values({ project_id: original.project.id, directory: stale })
         .run()
         .pipe(Effect.orDie)
-      const remoteID = ProjectV2.ID.make(Hash.fast("git-remote:github.com/project-directory-test/migration"))
       yield* Effect.promise(() =>
         $`git remote add origin git@github.com:project-directory-test/migration.git`.cwd(tmp).quiet(),
       )
 
       yield* project.fromDirectory(tmp)
 
-      expect(yield* directories(original.project.id)).toEqual([])
-      expect(yield* directories(remoteID)).toEqual([{ directory: AbsolutePath.make(tmp), strategy: undefined }])
+      expect((yield* directories(original.project.id)).map((entry) => entry.directory).toSorted()).toEqual(
+        [AbsolutePath.make(tmp), stale].toSorted(),
+      )
     }),
   )
 })

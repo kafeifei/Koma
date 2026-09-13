@@ -97,14 +97,21 @@ export function projectForSession<T extends { id?: string; worktree: string; san
   session: Session,
   projects: T[],
   byID: Map<string, T> = new Map(projects.flatMap((project) => (project.id ? [[project.id, project] as const] : []))),
+  knownProjects: Array<{ id?: string; worktree: string; sandboxes?: string[] }> = projects,
 ) {
   const direct = byID.get(session.projectID)
-  if (direct) return direct
+  if (direct && session.projectID !== "global") return direct
   const directory = pathKey(session.directory)
-  return projects.find(
+  const exact = projects.find(
     (project) =>
       pathKey(project.worktree) === directory || project.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
   )
+  if (exact || session.projectID === "global") return exact
+  // A repository can have historical project IDs for the same root. Resolve
+  // the saved session's ID against the full registry, then find its open row.
+  const known = knownProjects.find((project) => project.id === session.projectID)
+  if (!known) return
+  return projects.find((project) => pathKey(project.worktree) === pathKey(known.worktree))
 }
 
 export const errorMessage = (err: unknown, fallback: string) => {

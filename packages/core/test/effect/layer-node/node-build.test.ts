@@ -79,7 +79,6 @@ describe("node build", () => {
         return Project.Service.of({
           directories: () => Effect.succeed([]),
           resolve: (directory) => Effect.succeed({ id: Project.ID.global, directory }),
-          commit: () => Effect.void,
         })
       }),
     )
