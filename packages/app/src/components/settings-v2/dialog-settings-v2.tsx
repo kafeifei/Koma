@@ -20,6 +20,7 @@ import { useServerSync } from "@/context/server-sync"
 import { BuildInfo } from "../build-info"
 import { SettingsExperiments } from "../settings-experiments"
 import { SettingsComputerUse } from "./computer-use"
+import { SettingsPanelV2 } from "./parts/panel"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -133,37 +134,37 @@ export const DialogSettings: Component<{
             </div>
           </div>
         </TabsV2.List>
-        <TabsV2.Content value="general" class="settings-v2-panel">
+        <SettingsPanelV2 value="general">
           <SettingsGeneralV2 sessionID={props.sessionID} />
-        </TabsV2.Content>
-        <TabsV2.Content value="shortcuts" class="settings-v2-panel">
+        </SettingsPanelV2>
+        <SettingsPanelV2 value="shortcuts">
           <SettingsKeybinds v2 />
-        </TabsV2.Content>
-        <TabsV2.Content value="connections" class="settings-v2-panel">
+        </SettingsPanelV2>
+        <SettingsPanelV2 value="connections">
           <SettingsConnectionsV2 initialSection={props.defaultValue} />
-        </TabsV2.Content>
+        </SettingsPanelV2>
         <Show when={tab() === "computer-use" && import.meta.env.OPENCODE_BUILD?.channel === "lab"}>
-          <TabsV2.Content value="computer-use" class="settings-v2-panel">
+          <SettingsPanelV2 value="computer-use">
             <SettingsComputerUse />
-          </TabsV2.Content>
+          </SettingsPanelV2>
         </Show>
-        <TabsV2.Content value="providers" class="settings-v2-panel">
+        <SettingsPanelV2 value="providers">
           <SettingsProvidersV2 directory={directory} onBack={showProviders} />
-        </TabsV2.Content>
-        <TabsV2.Content value="plugins" class="settings-v2-panel">
+        </SettingsPanelV2>
+        <SettingsPanelV2 value="plugins">
           <SettingsPluginsV2 />
-        </TabsV2.Content>
-        <TabsV2.Content value="integrations" class="settings-v2-panel">
+        </SettingsPanelV2>
+        <SettingsPanelV2 value="integrations">
           <SettingsIntegrationsV2 directory={directory} />
-        </TabsV2.Content>
-        <TabsV2.Content value="models" class="settings-v2-panel">
+        </SettingsPanelV2>
+        <SettingsPanelV2 value="models">
           <SettingsModelsV2 />
-        </TabsV2.Content>
+        </SettingsPanelV2>
         <Show when={platform.backendExperiments}>
           {(experiments) => (
-            <TabsV2.Content value="experiments" class="settings-v2-panel">
+            <SettingsPanelV2 value="experiments">
               <SettingsExperiments experiments={experiments()} />
-            </TabsV2.Content>
+            </SettingsPanelV2>
           )}
         </Show>
       </TabsV2>
