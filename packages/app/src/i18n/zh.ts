@@ -1107,9 +1107,9 @@ export const dict = {
   "settings.computerUse.refresh": "重新检查权限",
   "settings.computerUse.permissionsTitle": "2. 授予系统权限",
   "settings.computerUse.accessibility": "辅助功能",
-  "settings.computerUse.screenRecording": "屏幕与系统音频录制",
+  "settings.computerUse.screenRecording": "录屏与系统录音",
   "settings.computerUse.accessibilityDescription": "允许点击、输入和操作应用。",
-  "settings.computerUse.screenRecordingDescription": "允许查看屏幕内容。",
+  "settings.computerUse.screenRecordingDescription": "在页面上方的录屏列表中开启 CuaDriver，允许查看屏幕内容。",
   "settings.computerUse.accessibilitySettings": "打开辅助功能设置",
   "settings.computerUse.screenRecordingSettings": "打开屏幕录制设置",
   "settings.computerUse.granted": "已授权",
@@ -1120,7 +1120,7 @@ export const dict = {
   "settings.computerUse.returnFromSettings": "开启后回到这里，会自动检查授权状态。",
   "settings.computerUse.permissionHelp": "找不到 CuaDriver，或开启后仍显示未授权？",
   "settings.computerUse.missingApp":
-    "如果列表中没有 CuaDriver，点击「+」，按 ⌘⇧G 输入 /Applications/CuaDriver.app 并添加。",
+    "如果列表中没有 CuaDriver，点击该列表下方的「+」，按 ⌘⇧G 输入 /Applications/CuaDriver.app 并添加。录屏权限请添加到页面上方的录屏列表。",
   "settings.computerUse.restartHelp":
     "如果权限已开启但这里仍显示未授权，请先确认 CuaDriver 没有正在执行的操作，再退出并重新打开 CuaDriver，然后点「重新检查权限」。",
   "settings.computerUse.enableTitle": "3. 启用电脑控制",

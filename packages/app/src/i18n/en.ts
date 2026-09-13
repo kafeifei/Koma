@@ -1118,7 +1118,8 @@ export const dict = {
   "settings.computerUse.accessibility": "Accessibility",
   "settings.computerUse.screenRecording": "Screen & System Audio Recording",
   "settings.computerUse.accessibilityDescription": "Allow clicking, typing, and operating apps.",
-  "settings.computerUse.screenRecordingDescription": "Allow reading screen content.",
+  "settings.computerUse.screenRecordingDescription":
+    "Turn on CuaDriver in the screen recording list at the top of the page to allow reading screen content.",
   "settings.computerUse.accessibilitySettings": "Open Accessibility settings",
   "settings.computerUse.screenRecordingSettings": "Open Screen Recording settings",
   "settings.computerUse.granted": "Granted",
@@ -1131,7 +1132,7 @@ export const dict = {
     "Return here after granting access. Permission status updates automatically.",
   "settings.computerUse.permissionHelp": "CuaDriver missing, or still showing as not granted?",
   "settings.computerUse.missingApp":
-    "If CuaDriver is missing from the list, click +, press ⌘⇧G, enter /Applications/CuaDriver.app, and add it.",
+    "If CuaDriver is missing from the list, click + below that list, press ⌘⇧G, enter /Applications/CuaDriver.app, and add it. For screen access, use the screen recording list at the top of the page.",
   "settings.computerUse.restartHelp":
     "If access is on but still shows as not granted here, make sure CuaDriver has no active operations, quit and reopen CuaDriver, then click Check permissions again.",
   "settings.computerUse.enableTitle": "3. Enable computer control",
