@@ -435,6 +435,46 @@ test("shows only an available native plan and hides it when the report becomes u
   await expect(plan).toHaveCount(0)
 })
 
+test("labels command rule approvals and submits the exact choice", async ({ page }, testInfo) => {
+  const command = interaction({
+    id: "native-command-rule",
+    revision: 40,
+    kind: "command",
+    title: "sed -n '300,345p' macos/Sources/XDial/XDialApp.swift",
+    choices: [
+      { id: "opaque-once", kind: "allow" },
+      {
+        id: "opaque-rule",
+        kind: "custom",
+        scope: "commandPrefix",
+        label: "sed -n 300,345p macos/Sources/XDial/XDialApp.swift",
+      },
+      { id: "opaque-cancel", kind: "cancel" },
+    ],
+  })
+  const harness: Harness = {
+    current: snapshot(40, { interactions: [command] }),
+    replies: [],
+    queue: [],
+    deliveryReads: [],
+    afterReply: () => snapshot(41),
+  }
+  await setup(page, harness)
+  const controls = await open(page)
+  const button = controls.getByRole("button", { name: "Allow and remember command rule", exact: true })
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute(
+    "title",
+    "Don't ask again for commands starting with: sed -n 300,345p macos/Sources/XDial/XDialApp.swift",
+  )
+  await testInfo.attach("command-rule", { body: await page.screenshot(), contentType: "image/png" })
+  await button.click()
+  await expect(controls.locator('[data-interaction-id="native-command-rule"]')).toHaveCount(0)
+  expect(harness.replies).toEqual([
+    { interactionID: "native-command-rule", body: { revision: 40, choiceID: "opaque-rule" } },
+  ])
+})
+
 test("submits exact native command choices and preserves secret answers", async ({ page }) => {
   const command = interaction({
     id: "native-command",

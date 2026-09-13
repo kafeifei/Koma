@@ -263,6 +263,11 @@ export function CodexSessionControls(props: {
     })
 
   const choiceLabel = (choice: Interaction["choices"][number]) => {
+    if (choice.scope === "commandPrefix") return language.t("codex.interaction.choice.allowCommandRule")
+    if (choice.scope === "networkAllow")
+      return language.t("codex.interaction.choice.allowNetworkRule", { host: choice.label ?? "" })
+    if (choice.scope === "networkDeny")
+      return language.t("codex.interaction.choice.denyNetworkRule", { host: choice.label ?? "" })
     if (choice.label) return choice.label
     if (choice.kind === "allow") return language.t("codex.interaction.choice.allow")
     if (choice.kind === "allowSession") return language.t("codex.interaction.choice.allowSession")
@@ -329,6 +334,11 @@ export function CodexSessionControls(props: {
           {(choice) => (
             <Button
               data-choice-id={choice.id}
+              title={
+                choice.scope === "commandPrefix"
+                  ? language.t("codex.interaction.choice.commandRuleHint", { prefix: choice.label ?? "" })
+                  : undefined
+              }
               size="small"
               variant={choice.kind === "allow" || choice.kind === "allowSession" ? "primary" : "secondary"}
               disabled={
