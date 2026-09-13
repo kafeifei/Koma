@@ -11,6 +11,7 @@ import {
   openSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   readdirSync,
   renameSync,
   statSync,
@@ -39,6 +40,15 @@ export type HomeStorage = {
 
 type Options = { root: string; legacyRoot: string }
 type Checkpoint = { stage: "manifest" | "renamed" | "linked" | "complete"; from?: string; to?: string }
+
+/** An alias created by this migration is not an independent legacy profile. */
+export function isLegacyHomeAlias(options: Options) {
+  const legacyRoot = resolve(options.legacyRoot)
+  return (
+    entry(legacyRoot)?.isSymbolicLink() === true &&
+    canonical(resolve(dirname(legacyRoot), readlinkSync(legacyRoot))) === join(canonical(options.root), "desktop")
+  )
+}
 
 /** Shared only for initialization; moving legacy data still requires the Electron singleton lock. */
 export async function lock(root: string) {
@@ -76,7 +86,8 @@ export function prepareUnifiedHome(
   if (previous?.status !== "complete") requireStoppedLegacyService(root, legacyRoot)
   const manifest = previous ?? plan(root, legacyRoot)
   if (manifest.status === "complete") validateWorktreeStaging(root, legacyRoot, manifest)
-  if (previous?.source === null && entry(legacyRoot)) fail("legacy data appeared after home initialization", legacyRoot)
+  if (previous?.source === null && entry(legacyRoot) && !isLegacyHomeAlias({ root, legacyRoot }))
+    fail("legacy data appeared after home initialization", legacyRoot)
   if (previous && !entry(join(root, "storage.json"))) {
     renameSync(join(root, "storage.json.tmp"), join(root, "storage.json"))
     syncDirectory(root)
@@ -219,7 +230,7 @@ function plan(root: string, legacyRoot: string): HomeStorage {
   if (entry(root) && (!statSync(root).isDirectory() || readdirSync(root).some((name) => name !== "bin"))) {
     fail("unified home already contains independent data", root)
   }
-  const source = entry(legacyRoot)
+  const source = isLegacyHomeAlias({ root, legacyRoot }) ? undefined : entry(legacyRoot)
   if (source && (!source.isDirectory() || source.isSymbolicLink()))
     fail("legacy home is not an owned directory", legacyRoot)
   const databasePath = join(legacyRoot, "backend/data/opencode")
@@ -499,6 +510,12 @@ function inside(parent: string, child: string) {
 
 function existingParent(path: string): string {
   return existsSync(path) ? path : existingParent(dirname(path))
+}
+
+function canonical(path: string) {
+  const absolute = resolve(path)
+  const parent = existingParent(absolute)
+  return join(realpathSync(parent), relative(parent, absolute))
 }
 
 function fail(reason: string, path: string): never {
