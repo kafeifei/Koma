@@ -63,6 +63,14 @@ OAuth 应用身份沿用 Sandy／Code OSS，授权页面可能显示 Visual Stud
 
 `build:koma-cli` 构建终端程序；`install:koma-cli [binary]` 原子安装受管版本及 `~/.local/bin/koma` 链接，已有独立同名命令构成冲突。显式 `OPENCODE_HOME` 只安装到指定 home；卸载只移除受管命令链接，保留数据及已有版本。
 
+## 电脑控制
+
+“设置 → 桌面 → 电脑控制”管理独立安装的 Cua Driver。共享后端提供安装、启动、只读权限查询和显式授权入口，Electron、Tauri 和网页均针对当前选中的后端设备操作。第一版支持 macOS；首次安装使用官方固定版本安装器，已有驱动不会被升级或重启。系统权限仍由用户在被控制设备上授予 CuaDriver。
+
+启用状态保存在 profile 的 `config/computer-use.json`，受管 MCP 名称为 `koma-computer-use`，不改写用户的 OpenCode 或 Codex 配置。OpenCode 在解析下一轮工具时连接，原生 Codex 在空闲任务下一轮投递前应用配置。关闭不停止其他 MCP、任务或共享 Cua daemon，也不能撤回已发出的操作。状态查询不启动驱动；权限未知保持未知。操作指引由 Koma 全局说明提供，支持时可继续读取驱动的内嵌 skill。
+
+设置页和会话状态面板显示驱动状态；“驱动已就绪”表示驱动运行且系统权限已授予，不等于任务的某次 GUI 操作已成功。实现：共享 [控制服务](../core/src/koma-computer-use.ts)、[设置页](../app/src/components/settings-v2/computer-use.tsx)。
+
 ## 实验配置
 
 实验功能保存于 `config/experiments.json`，属于本机后端启动偏好。后台子代理选项映射 `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`；保存值与运行值分开显示，下次后端启动生效，不自动重启，也不改变 Task 的前后台默认模式。未保存时沿用上游环境变量行为。实现：[`backend-experiments.ts`](src/main/backend-experiments.ts)。

@@ -17,6 +17,8 @@ import { useGlobal } from "@/context/global"
 import { useSettings } from "@/context/settings"
 import { useMcpToggle } from "@/context/mcp"
 import { useServerProtocol } from "@/context/server-sdk"
+import { ComputerUseStatusRow } from "./settings-v2/computer-use"
+import { COMPUTER_USE_SERVER } from "@opencode-ai/core/koma-computer-use-types"
 
 const pluginEmptyMessage = (value: string, file: string): JSXElement => {
   const parts = value.split(file)
@@ -286,7 +288,11 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
   })
   const toggleMcp = useMcpToggle()
   const defaultServer = useDefaultServerKey(platform.getDefaultServer)
-  const mcpNames = createMemo(() => Object.keys(sync().data.mcp ?? {}).sort((a, b) => a.localeCompare(b)))
+  const mcpNames = createMemo(() =>
+    Object.keys(sync().data.mcp ?? {})
+      .filter((name) => name !== COMPUTER_USE_SERVER)
+      .sort((a, b) => a.localeCompare(b)),
+  )
   const mcpStatus = (name: string) => sync().data.mcp?.[name]?.status
   const mcpConnected = createMemo(() => mcpNames().filter((name) => mcpStatus(name) === "connected").length)
   const lspItems = createMemo(() => sync().data.lsp ?? [])
@@ -399,6 +405,9 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
 
         <Tabs.Content value="mcp">
           <div class="flex flex-col px-2 pb-2">
+            <Show when={import.meta.env.OPENCODE_BUILD?.channel === "lab"}>
+              <ComputerUseStatusRow shown={props.shown} />
+            </Show>
             <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
               <Show
                 when={mcpNames().length > 0}

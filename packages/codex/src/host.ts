@@ -9,6 +9,7 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { Global } from "@opencode-ai/core/global"
 import { KomaInstructions } from "@opencode-ai/core/koma-instructions"
+import { KomaComputerUse } from "@opencode-ai/core/koma-computer-use"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionExternal } from "@opencode-ai/core/session/external/index"
@@ -602,6 +603,7 @@ const layer = Layer.effect(
           modelProvider: providerID,
           serviceTier: model.serviceTier ?? null,
           config: {
+            ...KomaComputerUse.codexConfiguration(global.root),
             [`model_providers.${providerID}`]: await credentials.config(provider),
             // Responses-compatible providers do not imply support for OpenAI's
             // hosted web-search tool (for example XD's Bedrock models reject it).

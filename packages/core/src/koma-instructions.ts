@@ -7,6 +7,7 @@ import { FSUtil } from "./fs-util"
 import { Global } from "./global"
 import { truthy } from "./flag/flag"
 import { SystemContext } from "./system-context/index"
+import { KomaComputerUse } from "./koma-computer-use"
 
 const File = Schema.Struct({ path: Schema.String, content: Schema.String })
 export type File = typeof File.Type
@@ -65,7 +66,13 @@ const layer = Layer.effect(
           )
       return Array.from(
         new Map(
-          [common, opencode ?? fallback]
+          [
+            common,
+            opencode ?? fallback,
+            ...(global.root && KomaComputerUse.read(global.root).enabled
+              ? [{ path: "Koma Computer Control", content: KomaComputerUse.guidance }]
+              : []),
+          ]
             .filter((file): file is File => file !== undefined)
             .map((file) => [file.path, file]),
         ).values(),

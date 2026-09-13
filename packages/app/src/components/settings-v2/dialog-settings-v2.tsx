@@ -19,6 +19,7 @@ import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { BuildInfo } from "../build-info"
 import { SettingsExperiments } from "../settings-experiments"
+import { SettingsComputerUse } from "./computer-use"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -77,6 +78,12 @@ export const DialogSettings: Component<{
                       <Icon name="keyboard" />
                       {language.t("settings.tab.shortcuts")}
                     </TabsV2.Trigger>
+                    <Show when={import.meta.env.OPENCODE_BUILD?.channel === "lab"}>
+                      <TabsV2.Trigger value="computer-use">
+                        <Icon name="window-cursor" />
+                        {language.t("settings.computerUse.title")}
+                      </TabsV2.Trigger>
+                    </Show>
                   </div>
                 </div>
 
@@ -135,6 +142,11 @@ export const DialogSettings: Component<{
         <TabsV2.Content value="connections" class="settings-v2-panel">
           <SettingsConnectionsV2 initialSection={props.defaultValue} />
         </TabsV2.Content>
+        <Show when={tab() === "computer-use" && import.meta.env.OPENCODE_BUILD?.channel === "lab"}>
+          <TabsV2.Content value="computer-use" class="settings-v2-panel">
+            <SettingsComputerUse />
+          </TabsV2.Content>
+        </Show>
         <TabsV2.Content value="providers" class="settings-v2-panel">
           <SettingsProvidersV2 directory={directory} onBack={showProviders} />
         </TabsV2.Content>

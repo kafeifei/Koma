@@ -27,7 +27,9 @@ import { McpOAuthCallback } from "./oauth-callback"
 import { McpAuth } from "./auth"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { TuiEvent } from "@/server/tui-event"
-import { Cause, Effect, Exit, Layer, Context, Schema, Stream } from "effect"
+import { Cause, Effect, Exit, Layer, Context, Schema, Stream, Semaphore } from "effect"
+import { Global } from "@opencode-ai/core/global"
+import { KomaComputerUse, COMPUTER_USE_SERVER } from "@opencode-ai/core/koma-computer-use"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -141,6 +143,8 @@ interface AuthResult {
 // --- Effect Service ---
 
 interface State {
+  computerUseRevision?: string
+  computerUseAttempt?: number
   config: Record<string, ConfigMCPV1.Info>
   status: Record<string, Status>
   clients: Record<string, MCPClient>
@@ -210,6 +214,7 @@ const layer = Layer.effect(
     const auth = yield* McpAuth.Service
     const events = yield* EventV2Bridge.Service
     const browser = yield* McpBrowser.Service
+    const global = yield* Global.Service
 
     type Transport = StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport
 
@@ -594,6 +599,7 @@ const layer = Layer.effect(
 
     const status = Effect.fn("MCP.status")(function* () {
       const s = yield* InstanceState.get(state)
+      yield* syncComputerUse(s, false)
 
       const cfg = yield* cfgSvc.get()
       const config = cfg.mcp ?? {}
@@ -613,11 +619,13 @@ const layer = Layer.effect(
 
     const clients = Effect.fn("MCP.clients")(function* () {
       const s = yield* InstanceState.get(state)
+      yield* syncComputerUse(s)
       return s.clients
     })
 
     const instructions = Effect.fn("MCP.instructions")(function* () {
       const s = yield* InstanceState.get(state)
+      yield* syncComputerUse(s)
       return Object.entries(s.instructions)
         .filter(([name]) => s.status[name]?.status === "connected")
         .sort(([a], [b]) => a.localeCompare(b))
@@ -643,6 +651,8 @@ const layer = Layer.effect(
     })
 
     const add = Effect.fn("MCP.add")(function* (name: string, mcp: ConfigMCPV1.Info) {
+      if (name === COMPUTER_USE_SERVER && global.root)
+        throw new Error("Manage computer control in Settings > Computer control")
       const s = yield* InstanceState.get(state)
       s.config[name] = mcp
       yield* createAndStore(name, mcp)
@@ -650,11 +660,15 @@ const layer = Layer.effect(
     })
 
     const connect = Effect.fn("MCP.connect")(function* (name: string) {
+      if (name === COMPUTER_USE_SERVER && global.root)
+        throw new Error("Manage computer control in Settings > Computer control")
       const mcp = yield* requireMcpConfig(name)
       yield* createAndStore(name, { ...mcp, enabled: true })
     })
 
     const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {
+      if (name === COMPUTER_USE_SERVER && global.root)
+        throw new Error("Manage computer control in Settings > Computer control")
       yield* requireMcpConfig(name)
       const s = yield* InstanceState.get(state)
       yield* closeClient(s, name)
@@ -663,6 +677,8 @@ const layer = Layer.effect(
     })
 
     const remove = Effect.fn("MCP.remove")(function* (name: string) {
+      if (name === COMPUTER_USE_SERVER && global.root)
+        throw new Error("Manage computer control in Settings > Computer control")
       const s = yield* InstanceState.get(state)
       yield* closeClient(s, name)
       McpOAuthCallback.cancelPending(name)
@@ -678,9 +694,40 @@ const layer = Layer.effect(
       return s.config[name]?.timeout ?? staticTimeout ?? fallback
     }
 
+    const computerUseGate = Semaphore.makeUnsafe(1)
+    const syncComputerUse = (s: State, connect = true) =>
+      computerUseGate.withPermits(1)(
+        Effect.gen(function* () {
+          if (!global.root) return
+          const config = KomaComputerUse.configuration(global.root)
+          const revision = JSON.stringify(config) ?? ""
+          if (
+            s.computerUseRevision === revision &&
+            (s.status[COMPUTER_USE_SERVER]?.status !== "failed" || Date.now() - (s.computerUseAttempt ?? 0) < 5000)
+          )
+            return
+          if (!config) {
+            if (s.computerUseRevision) {
+              yield* closeClient(s, COMPUTER_USE_SERVER)
+              delete s.config[COMPUTER_USE_SERVER]
+              delete s.status[COMPUTER_USE_SERVER]
+            }
+            s.computerUseRevision = revision
+            return
+          }
+          s.config[COMPUTER_USE_SERVER] = config
+          // Opening a status menu must not launch the driver or a permission gate.
+          if (config.enabled && !connect) return
+          s.computerUseAttempt = Date.now()
+          yield* createAndStore(COMPUTER_USE_SERVER, config)
+          s.computerUseRevision = revision
+        }),
+      )
+
     const tools = Effect.fn("MCP.tools")(function* () {
       const result: Record<string, McpTool> = {}
       const s = yield* InstanceState.get(state)
+      yield* syncComputerUse(s)
 
       const cfg = yield* cfgSvc.get()
       const config = cfg.mcp ?? {}
@@ -1014,7 +1061,7 @@ export type AuthStatus = "authenticated" | "expired" | "not_authenticated"
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node, McpBrowser.node],
+  deps: [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node, McpBrowser.node, Global.node],
 })
 
 export * as MCP from "."

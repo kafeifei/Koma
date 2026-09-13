@@ -9,6 +9,7 @@ import { Config } from "@/config/config"
 import { MCP } from "@/mcp"
 import { SessionStatus } from "@/session/status"
 import type { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
+import { COMPUTER_USE_SERVER } from "@opencode-ai/core/koma-computer-use-types"
 
 const attempt = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({
@@ -65,6 +66,8 @@ export const integrationHandlers = HttpApiBuilder.group(InstanceHttpApi, "koma-i
       })
     })
     const check = Effect.fn("Extensions.integrations.check")(function* (name: string) {
+      if (name === COMPUTER_USE_SERVER)
+        return yield* new ExtensionError({ message: "Manage computer control in Settings > Computer control." })
       if (!/^[a-zA-Z0-9_-]{1,80}$/.test(name))
         return yield* new ExtensionError({
           message: "Use 1–80 letters, numbers, underscores or hyphens for the integration name.",

@@ -5,6 +5,8 @@ import { List } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { useLanguage } from "@/context/language"
 import { useMcpToggle } from "@/context/mcp"
+import { COMPUTER_USE_SERVER } from "@opencode-ai/core/koma-computer-use-types"
+import { ComputerUseStatusRow } from "./settings-v2/computer-use"
 
 const statusLabels = {
   connected: "mcp.status.connected",
@@ -20,6 +22,7 @@ export const DialogSelectMcp: Component = () => {
 
   const items = createMemo(() =>
     Object.entries(sync().data.mcp ?? {})
+      .filter(([name]) => name !== COMPUTER_USE_SERVER)
       .map(([name, status]) => ({ name, status: status.status }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   )
@@ -34,6 +37,11 @@ export const DialogSelectMcp: Component = () => {
       title={language.t("dialog.mcp.title")}
       description={language.t("dialog.mcp.description", { enabled: enabledCount(), total: totalCount() })}
     >
+      <Show when={import.meta.env.OPENCODE_BUILD?.channel === "lab"}>
+        <div class="px-3">
+          <ComputerUseStatusRow shown={() => true} />
+        </div>
+      </Show>
       <List
         class="px-3"
         search={{ placeholder: language.t("common.search.placeholder"), autofocus: true }}

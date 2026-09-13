@@ -223,6 +223,35 @@ describe("mcp HttpApi", () => {
 })
 
 describe("Koma integration management HttpApi", () => {
+  it.instance("rejects the computer control name before changing the integration store", () =>
+    Effect.gen(function* () {
+      const { readStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))
+      const before = yield* Effect.promise(() => readStore())
+      const tmp = yield* TestInstance
+      const handler = HttpApiApp.webHandler()
+      const name = "koma-computer-use"
+      for (const input of [
+        {
+          method: "PUT",
+          route: "/extensions/integrations",
+          body: JSON.stringify({ name, config: { type: "local", command: ["echo", "must-not-run"] } }),
+        },
+        { method: "DELETE", route: `/extensions/integrations/${name}` },
+      ]) {
+        const response = yield* request(handler, input.route, tmp.directory, {
+          method: input.method,
+          headers: { "content-type": "application/json" },
+          body: input.body,
+        })
+        expect(response.status).toBe(400)
+        expect(yield* json(response)).toMatchObject({
+          message: "Manage computer control in Settings > Computer control.",
+        })
+      }
+      expect(yield* Effect.promise(() => readStore())).toEqual(before)
+    }),
+  )
+
   it.instance("persists managed connections and removes only the selected project entry", () =>
     Effect.gen(function* () {
       const { readStore, updateStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))

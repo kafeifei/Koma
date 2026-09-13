@@ -7,6 +7,26 @@ import { Authorization } from "../middleware/authorization"
 export const LabDesktopApi = HttpApi.make("lab-desktop").add(
   HttpApiGroup.make("lab-desktop")
     .add(
+      HttpApiEndpoint.post("computerUse", "/lab/desktop/computer-use", {
+        payload: Schema.Union([
+          Schema.Struct({ action: Schema.Literals(["status", "install", "start", "grant"]) }),
+          Schema.Struct({ action: Schema.Literal("enable"), enabled: Schema.Boolean }),
+        ]),
+        success: Schema.Struct({
+          supported: Schema.Boolean,
+          device: Schema.String,
+          platform: Schema.String,
+          enabled: Schema.Boolean,
+          installed: Schema.Boolean,
+          version: Schema.optionalKey(Schema.String),
+          running: Schema.Boolean,
+          accessibility: Schema.NullOr(Schema.Boolean),
+          screenRecording: Schema.NullOr(Schema.Boolean),
+          busy: Schema.optionalKey(Schema.Literals(["install", "grant", "start"])),
+          error: Schema.optionalKey(Schema.String),
+        }),
+        error: InvalidRequestError,
+      }),
       HttpApiEndpoint.post("storage", "/lab/desktop/storage", {
         payload: Schema.Unknown,
         success: Schema.Unknown,

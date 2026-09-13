@@ -22,6 +22,7 @@ import { writerHandoff } from "../src/writer-handoff"
 import { CodexWorktreeAccess } from "../src/worktree-access"
 import { CodexAuth } from "../src/auth"
 import { CodexProviders } from "../src/providers"
+import { KomaComputerUse, COMPUTER_USE_SERVER } from "@opencode-ai/core/koma-computer-use"
 import type { v2 } from "../src/protocol/generated/index"
 
 let directory: string
@@ -124,6 +125,7 @@ async function harness<A>(
   auth?: CodexAuth.Interface,
   providers: CodexProviders.Interface = customProviders,
   databasePath = ":memory:",
+  profileRoot?: string,
 ) {
   const home = homeOverride ?? (await mkdtemp(path.join(directory, "home-")))
   await writeFile(path.join(home, "command.json"), JSON.stringify({ id: randomUUID(), messages: [] }))
@@ -136,7 +138,7 @@ async function harness<A>(
       ...(auth ? [[CodexAuth.node, Layer.succeed(CodexAuth.Service, auth)] as const] : []),
       ...(providers ? [[CodexProviders.node, Layer.succeed(CodexProviders.Service, providers)] as const] : []),
       [Database.node, Database.layerFromPath(databasePath)],
-      [Global.node, Global.layerWith({ home, state: home })],
+      [Global.node, Global.layerWith({ home, ...(profileRoot ? { root: profileRoot } : { state: home }) })],
       [
         ProjectV2.node,
         Layer.mock(ProjectV2.Service, {
@@ -441,6 +443,57 @@ describe("CodexHost native process boundaries", () => {
         else process.env.OPENCODE_HOME = prior
       }
     }))
+
+  test("computer control config is applied to native Codex and disabled only after the active turn finishes", async () => {
+    const root = await mkdtemp(path.join(directory, "computer-control-"))
+    await KomaComputerUse.save(root, true, "/fixture/cua-driver")
+    await harness(
+      async ({ host, home }) => {
+        const created = await run(
+          host.create({
+            requestID: "cua-first",
+            engine: "codex",
+            location: location(),
+            input: prompt,
+            delivery: "steer",
+          }),
+        )
+        const id = created.descriptor.sessionID
+        await until(
+          () => run(host.delivery(id, "cua-first")),
+          (receipt) => receipt.state === "accepted",
+        )
+        const start = (await rpc(home)).find((call) => call.method === "thread/start")!
+        expect((start.params?.config as Record<string, unknown>)[`mcp_servers.${COMPUTER_USE_SERVER}`]).toMatchObject({
+          command: "/fixture/cua-driver",
+          args: ["mcp"],
+          enabled: true,
+        })
+        expect(start.params?.developerInstructions).toContain(KomaComputerUse.guidance)
+        await KomaComputerUse.save(root, false, "/fixture/cua-driver")
+        await run(host.submit(id, { requestID: "cua-next", input: prompt, delivery: "steer" }))
+        expect((await run(host.delivery(id, "cua-next"))).state).toBe("pending")
+        expect((await rpc(home)).some((call) => call.method === "thread/unsubscribe")).toBe(false)
+        await complete(home)
+        await until(
+          () => run(host.delivery(id, "cua-next")),
+          (receipt) => receipt.state === "accepted",
+        )
+        const calls = await rpc(home)
+        const resume = calls.findLast((call) => call.method === "thread/resume")!
+        expect((resume.params?.config as Record<string, unknown>)[`mcp_servers.${COMPUTER_USE_SERVER}`]).toMatchObject({
+          enabled: false,
+        })
+        expect(resume.params?.developerInstructions).not.toContain(KomaComputerUse.guidance)
+        expect(calls.filter((call) => call.method === "thread/start")).toHaveLength(1)
+      },
+      undefined,
+      undefined,
+      customProviders,
+      ":memory:",
+      root,
+    )
+  })
 
   test("injects common and personal Codex rules and refreshes them only after native execution is idle", () =>
     harness(async ({ host, home }) => {
