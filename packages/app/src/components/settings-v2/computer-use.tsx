@@ -167,11 +167,13 @@ export function ComputerUseView(props: {
                   <h3 class="text-14-medium text-text-strong">{t("settings.computerUse.enableTitle")}</h3>
                   <Show when={state().enabled}>
                     <Switch
-                      aria-label={t("settings.computerUse.enable")}
+                      hideLabel
                       checked={state().enabled}
                       disabled={blocked()}
                       onChange={(enabled) => props.onAction({ action: "enable", enabled })}
-                    />
+                    >
+                      {t("settings.computerUse.enable")}
+                    </Switch>
                   </Show>
                 </div>
                 <p class="text-12-regular text-text-weak">{t("settings.computerUse.scope")}</p>
