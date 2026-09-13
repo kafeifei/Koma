@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createMemo, type ComponentProps, type JSX } from "solid-js"
+import { Match, Show, Switch, createMemo, createResource, createSignal, type ComponentProps } from "solid-js"
 import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
 import { ProgressCircleV2 } from "@opencode-ai/ui/v2/progress-circle-v2"
 import { Button } from "@opencode-ai/ui/button"
@@ -10,11 +10,11 @@ import { useFile } from "@/context/file"
 import { useLayout } from "@/context/layout"
 import { useSync } from "@/context/sync"
 import { useServerSync } from "@/context/server-sync"
-import { getExternalSessionMetrics } from "@/components/session/session-external-metrics"
+import { getSessionUsageMetrics } from "@/components/session/session-usage-metrics"
+import { SessionUsageDetails } from "@/components/session/session-usage-details"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useSDK } from "@/context/sdk"
-import { getSessionContext } from "@/components/session/session-context-metrics"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useSettings } from "@/context/settings"
@@ -23,15 +23,6 @@ interface SessionContextUsageProps {
   variant?: "button" | "indicator"
   buttonAppearance?: "default" | "v2"
   placement?: ComponentProps<typeof TooltipV2>["placement"]
-}
-
-function ContextTooltipRow(props: { name: JSX.Element; value: JSX.Element }) {
-  return (
-    <div class="flex min-w-0 items-center gap-4">
-      <span class="shrink-0 text-v2-text-text-muted">{props.name}</span>
-      <span class="ml-auto min-w-0 truncate text-right text-v2-text-text-base">{props.value}</span>
-    </div>
-  )
 }
 
 function openSessionContext(args: {
@@ -59,9 +50,6 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const providers = useProviders(() => sdk().directory)
   const { params, tabs, view } = useSessionLayout()
   const external = () => !!params.id && serverSync().external.isExternal(params.id)
-  const native = createMemo(() =>
-    getExternalSessionMetrics(params.id ? serverSync().external.data.snapshots[params.id] : undefined),
-  )
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
   const variant = createMemo(() => props.variant ?? "button")
@@ -76,24 +64,29 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const messages = createMemo(() => (params.id ? (sync().data.message[params.id] ?? []) : []))
   const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))
 
-  const usd = createMemo(
-    () =>
-      new Intl.NumberFormat(language.intl(), {
-        style: "currency",
-        currency: "USD",
-      }),
+  const metrics = createMemo(() =>
+    getSessionUsageMetrics({
+      external: external(),
+      snapshot: params.id ? serverSync().external.data.snapshots[params.id] : undefined,
+      model: params.id ? serverSync().external.data.descriptors[params.id]?.settings.model : undefined,
+      engines: serverSync().external.data.engines,
+      messages: messages(),
+      providers: [...providers.all().values()],
+      cost: info()?.cost,
+    }),
   )
-
-  const context = createMemo(() => getSessionContext(messages(), [...providers.all().values()]))
-  const cost = createMemo(() => {
-    if (external()) return native().cost === undefined ? "—" : usd().format(native().cost!)
-    return usd().format(info()?.cost ?? 0)
-  })
-  const usage = () => (external() ? native().usage : (context()?.usage ?? 0))
-  const tokens = () =>
-    external()
-      ? (native().current?.toLocaleString(language.intl()) ?? "—")
-      : (context()?.total.toLocaleString(language.intl()) ?? "0")
+  const [inspecting, setInspecting] = createSignal(false)
+  const providerID = createMemo(() => metrics().providerID)
+  const [account] = createResource(
+    () => inspecting() && !!providerID() && { client: sdk().client, providerID: providerID()! },
+    async ({ client, providerID }) => {
+      const result = await client.provider
+        .usage({ providerID }, { signal: AbortSignal.timeout(12000) })
+        .catch(() => undefined)
+      return result?.data?.usage
+    },
+  )
+  const usage = () => metrics().percent
   const workspace = () => settings.general.newLayoutDesigns() && isDesktop() && !!params.id
   const panel = () => (workspace() ? view().workspacePanel : view().reviewPanel)
   const contextVisible = createMemo(() => panel().opened() && tabState.activeTab() === "context")
@@ -122,69 +115,70 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   }
 
   const circle = () => (
-    <div class="flex items-center justify-center">
-      <Show when={usage() !== undefined} fallback={<span aria-label={language.t("common.unknown")}>—</span>}>
-        <ProgressCircle
-          size={16}
-          strokeWidth={2}
-          percentage={usage() ?? 0}
-          style={
-            variant() === "indicator"
-              ? {
-                  "--progress-circle-background": "var(--v2-background-bg-layer-04, var(--border-weak-base))",
-                  "--progress-circle-background-overlay": "var(--v2-overlay-simple-overlay-pressed, transparent)",
-                  "--progress-circle-progress": "var(--v2-icon-icon-base, var(--icon-base))",
-                }
-              : undefined
-          }
-        />
-      </Show>
-    </div>
+    <ProgressCircle
+      size={16}
+      strokeWidth={2}
+      percentage={usage() ?? 0}
+      style={
+        variant() === "indicator"
+          ? {
+              "--progress-circle-background": "var(--v2-background-bg-layer-04, var(--border-weak-base))",
+              "--progress-circle-progress": "var(--v2-icon-icon-base, var(--icon-base))",
+            }
+          : undefined
+      }
+    />
   )
-  const circleV2 = () => (
-    <div class="flex items-center justify-center">
-      <Show when={usage() !== undefined} fallback={<span aria-label={language.t("common.unknown")}>—</span>}>
-        <ProgressCircleV2 percentage={usage() ?? 0} />
-      </Show>
-    </div>
-  )
+  const circleV2 = () => <ProgressCircleV2 percentage={usage() ?? 0} />
 
   const tooltipValue = () => (
-    <div class="flex w-[120px] flex-col gap-2">
-      <ContextTooltipRow name={language.t("context.usage.cost")} value={cost()} />
-      <ContextTooltipRow name={language.t("context.usage.usage")} value={usage() === undefined ? "—" : `${usage()}%`} />
-      <ContextTooltipRow name={language.t("context.usage.tokens")} value={tokens()} />
-    </div>
+    <SessionUsageDetails
+      metrics={metrics()}
+      account={
+        inspecting() && providerID() && !account.loading && account()?.providerID === providerID()
+          ? account()
+          : undefined
+      }
+      providerName={providers.all().get(metrics().providerID ?? "")?.name}
+    />
   )
 
   return (
-    <Show when={params.id}>
-      <TooltipV2 value={tooltipValue()} placement={props.placement ?? "top"} shift={-8}>
-        <Switch>
-          <Match when={variant() === "indicator"}>{circle()}</Match>
-          <Match when={buttonAppearance() === "v2"}>
-            <IconButtonV2
-              type="button"
-              variant="ghost-muted"
-              size="large"
-              icon={circleV2()}
-              onClick={openContext}
-              aria-label={language.t("context.usage.view")}
-            />
-          </Match>
-          <Match when={true}>
-            <Button
-              type="button"
-              variant="ghost"
-              class="size-6"
-              onClick={openContext}
-              aria-label={language.t("context.usage.view")}
-            >
-              {circle()}
-            </Button>
-          </Match>
-        </Switch>
-      </TooltipV2>
+    <Show when={params.id && usage() !== undefined}>
+      <div
+        class="flex items-center"
+        onPointerEnter={() => setInspecting(true)}
+        onPointerLeave={() => setInspecting(false)}
+        onFocusIn={() => setInspecting(true)}
+        onFocusOut={() => setInspecting(false)}
+      >
+        <TooltipV2 value={tooltipValue()} placement={props.placement ?? "top"} shift={-8}>
+          <Switch>
+            <Match when={variant() === "indicator"}>{circle()}</Match>
+            <Match when={buttonAppearance() === "v2"}>
+              <IconButtonV2
+                type="button"
+                variant="ghost-muted"
+                size="large"
+                icon={circleV2()}
+                onClick={openContext}
+                aria-label={language.t("context.usage.view")}
+              />
+            </Match>
+            <Match when={true}>
+              <Button
+                type="button"
+                variant="ghost"
+                class="size-6"
+                onClick={openContext}
+                aria-label={language.t("context.usage.view")}
+              >
+                {circle()}
+              </Button>
+            </Match>
+          </Switch>
+        </TooltipV2>
+      </div>
     </Show>
   )
 }

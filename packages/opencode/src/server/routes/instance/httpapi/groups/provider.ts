@@ -8,6 +8,7 @@ import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware, WorkspaceRoutingQuery } from "../middleware/workspace-routing"
 import { described } from "./metadata"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ProviderUsage } from "@opencode-ai/schema/provider-usage"
 
 const root = "/provider"
 
@@ -53,6 +54,17 @@ export const ProviderApi = HttpApi.make("provider")
             identifier: "provider.auth",
             summary: "Get provider auth methods",
             description: "Retrieve available authentication methods for all AI providers.",
+          }),
+        ),
+        HttpApiEndpoint.get("usage", `${root}/:providerID/usage`, {
+          params: { providerID: ProviderV2.ID },
+          query: WorkspaceRoutingQuery,
+          success: described(ProviderUsage.Result, "Account usage when available"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "provider.usage",
+            summary: "Get provider account usage",
+            description: "Read available subscription limits for the currently connected Provider account.",
           }),
         ),
         HttpApiEndpoint.post("authorize", `${root}/:providerID/oauth/authorize`, {

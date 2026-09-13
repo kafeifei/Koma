@@ -4195,6 +4195,29 @@ export type PtyTicketConnectToken = {
   expires_in: number
 }
 
+export type ProviderUsageWindow = {
+  id: string
+  name?: string
+  usedPercent?: number
+  durationSeconds?: number
+  /**
+   * Reset time as Unix milliseconds
+   */
+  resetsAt?: number
+}
+
+export type ProviderUsageInfo = {
+  providerID: string
+  plan?: string
+  windows: Array<ProviderUsageWindow>
+  credits?: number
+  unlimitedCredits?: boolean
+}
+
+export type ProviderUsageResult = {
+  usage?: ProviderUsageInfo
+}
+
 export type WorkspaceEventConnectionStatus = {
   workspaceID: string
   status: "connected" | "connecting" | "disconnected" | "error"
@@ -10370,6 +10393,36 @@ export type ProviderAuthResponses = {
 }
 
 export type ProviderAuthResponse = ProviderAuthResponses[keyof ProviderAuthResponses]
+
+export type ProviderUsageData = {
+  body?: never
+  path: {
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/{providerID}/usage"
+}
+
+export type ProviderUsageErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProviderUsageError = ProviderUsageErrors[keyof ProviderUsageErrors]
+
+export type ProviderUsageResponses = {
+  /**
+   * Account usage when available
+   */
+  200: ProviderUsageResult
+}
+
+export type ProviderUsageResponse = ProviderUsageResponses[keyof ProviderUsageResponses]
 
 export type ProviderOauthAuthorizeData = {
   body?: {

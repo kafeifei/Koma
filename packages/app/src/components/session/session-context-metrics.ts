@@ -22,6 +22,7 @@ type Context = {
   limit: number | undefined
   input: number
   total: number
+  current: number
   usage: number | null
 }
 
@@ -33,7 +34,7 @@ const lastAssistantWithTokens = (messages: Message[]) => {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
     if (msg.role !== "assistant") continue
-    if (tokenTotal(msg) <= 0) continue
+    if (tokenTotal(msg) <= 0 && !msg.context) continue
     return msg
   }
 }
@@ -48,6 +49,7 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Context | 
   // to the client-side math against the catalog.
   const limit = message.context?.limit ?? model?.limit.context
   const total = tokenTotal(message)
+  const current = message.context?.used ?? total
 
   return {
     message,
@@ -58,6 +60,7 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Context | 
     limit,
     input: message.tokens.input,
     total,
+    current,
     usage: message.context
       ? Math.round(message.context.ratio * 100)
       : limit

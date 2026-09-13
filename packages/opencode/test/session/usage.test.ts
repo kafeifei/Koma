@@ -22,6 +22,19 @@ const model = (context: number) =>
   }) as never
 
 describe("Session.getUsage context", () => {
+  test("does not invent zero context usage when a Provider omitted its token counts", () => {
+    expect(Session.getUsage({ model: model(1000), usage: new Usage({}) }).context).toBeUndefined()
+  })
+
+  test("preserves explicitly reported zero usage", () => {
+    expect(
+      Session.getUsage({
+        model: model(1000),
+        usage: new Usage({ inputTokens: 0, outputTokens: 0 }),
+      }).context,
+    ).toEqual({ limit: 1000, used: 0, ratio: 0 })
+  })
+
   test("reports raw input plus raw output against the model context limit", () => {
     const result = Session.getUsage({
       model: model(1000),

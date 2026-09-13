@@ -3,6 +3,7 @@ import { Config } from "@/config/config"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Provider } from "@/provider/provider"
 import { Auth } from "@/auth"
+import { ProviderUsage } from "@/provider/usage"
 
 import { mapValues } from "remeda"
 import { Effect, Schema } from "effect"
@@ -38,6 +39,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     const provider = yield* Provider.Service
     const svc = yield* ProviderAuth.Service
     const authStore = yield* Auth.Service
+    const usage = yield* ProviderUsage.Service
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
       const config = yield* cfg.get()
@@ -110,6 +112,18 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     return handlers
       .handle("list", list)
       .handle("auth", auth)
+      .handleRaw("usage", ({ params }) =>
+        usage
+          .read(params.providerID)
+          .pipe(
+            Effect.map((result) =>
+              HttpServerResponse.jsonUnsafe(
+                { usage: result ?? undefined },
+                { headers: { "cache-control": "no-store" } },
+              ),
+            ),
+          ),
+      )
       .handleRaw("authorize", authorizeRaw)
       .handle("callback", callback)
   }),
