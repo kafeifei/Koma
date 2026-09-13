@@ -250,8 +250,12 @@ function TaskRenameDialog(props: { title: string; onRename: (title: string) => P
   }
 
   return (
-    <Dialog title={language.t("workspace.task.rename.title")} class="w-full max-w-[420px] mx-auto">
-      <form onSubmit={submit} class="flex flex-col gap-6 p-6 pt-0">
+    <Dialog
+      title={language.t("workspace.task.rename.title")}
+      fit
+      class="task-action-dialog w-full max-w-[420px] mx-auto"
+    >
+      <form onSubmit={submit} class="task-action-dialog-body">
         <TextField
           autofocus
           type="text"
@@ -262,7 +266,7 @@ function TaskRenameDialog(props: { title: string; onRename: (title: string) => P
           error={state.error}
           disabled={state.pending}
         />
-        <div class="flex justify-end gap-2">
+        <div class="task-action-dialog-actions">
           <Button type="button" variant="ghost" size="large" disabled={state.pending} onClick={() => dialog.close()}>
             {language.t("common.cancel")}
           </Button>
@@ -288,13 +292,21 @@ function TaskDeleteDialog(props: { title: string; onDelete: () => Promise<void> 
     )
   }
   return (
-    <Dialog title={language.t("workspace.task.delete.title")} class="w-full max-w-[420px] mx-auto">
-      <div class="flex flex-col gap-6 p-6 pt-0">
-        <p>{language.t("workspace.task.delete.description", { title: props.title })}</p>
+    <Dialog
+      title={language.t("workspace.task.delete.title")}
+      fit
+      class="task-action-dialog w-full max-w-[420px] mx-auto"
+    >
+      <div class="task-action-dialog-body">
+        <div class="task-action-dialog-copy">
+          <p>{language.t("workspace.task.delete.confirmation", { title: props.title })}</p>
+          <p class="text-text-base">{language.t("workspace.task.delete.details")}</p>
+          <p class="text-text-base">{language.t("workspace.task.delete.warning")}</p>
+        </div>
         <Show when={state.error}>
           <p role="alert">{state.error}</p>
         </Show>
-        <div class="flex justify-end gap-2">
+        <div class="task-action-dialog-actions">
           <Button variant="ghost" size="large" disabled={state.pending} onClick={() => dialog.close()}>
             {language.t("common.cancel")}
           </Button>

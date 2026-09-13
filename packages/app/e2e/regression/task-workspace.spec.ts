@@ -393,6 +393,8 @@ test("keeps a failed rename value and succeeds on retry", async ({ page }) => {
 })
 
 test("renames the only search result without losing the active task", async ({ page }) => {
+  // This case matches the title only; body search must not retain the fixture's old title after rename.
+  await page.route("**/experimental/session/search**", (route) => route.fulfill({ json: { data: [] } }))
   const sidebar = page.locator('[data-component="task-sidebar"]')
   await sidebar.getByRole("searchbox").fill("Alpha")
   await expect(sidebar.locator("[data-session-id]")).toHaveCount(1)

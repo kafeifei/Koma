@@ -44,6 +44,41 @@
   color: var(--v2-text-text-muted);
 }
 
+[data-component="dialog"] [data-slot="dialog-content"].task-action-dialog [data-slot="dialog-header"] {
+  padding: 18px 20px 12px;
+}
+
+.task-action-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0 20px 20px;
+}
+
+.task-action-dialog-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.task-action-dialog-copy p {
+  margin: 0;
+}
+
+.task-action-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.task-action-dialog-actions [data-component="button"] {
+  min-width: 64px;
+}
+
 @media (pointer: coarse) {
   .task-sidebar-menu-trigger {
     width: 44px;

@@ -1504,6 +1504,9 @@ export const dict = {
   "workspace.task.pin": "置顶",
   "workspace.task.unpin": "取消置顶",
   "workspace.task.delete.title": "删除任务？",
+  "workspace.task.delete.confirmation": "永久删除「{{title}}」及其历史记录？",
+  "workspace.task.delete.details": "任务专属的 Worktree 和已保存的改动也会删除。共享目录和外部目录会保留。",
+  "workspace.task.delete.warning": "此操作无法撤销。",
   "workspace.task.delete.description":
     "永久删除 {{title}} 及其历史记录？任务专属的 Worktree 和已保存的改动也会删除。共享目录和外部目录会保留。此操作无法撤销。",
   "workspace.task.cleanup.retry": "重试清理 Worktree",

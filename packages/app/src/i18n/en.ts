@@ -1538,6 +1538,10 @@ export const dict = {
   "workspace.task.pin": "Pin",
   "workspace.task.unpin": "Unpin",
   "workspace.task.delete.title": "Delete task?",
+  "workspace.task.delete.confirmation": "Permanently delete “{{title}}” and its history?",
+  "workspace.task.delete.details":
+    "Its dedicated Worktree and saved changes will also be deleted. Shared and external folders are kept.",
+  "workspace.task.delete.warning": "This cannot be undone.",
   "workspace.task.delete.description":
     "Permanently delete {{title}} and its history? Its dedicated Worktree and saved changes will also be deleted. Shared and external folders are kept. This cannot be undone.",
   "workspace.task.cleanup.retry": "Retry Worktree cleanup",
