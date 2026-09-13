@@ -1,3 +1,4 @@
+import { integrations } from "@/koma/extensions/store"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -173,6 +174,7 @@ export interface Interface {
   ) => Effect.Effect<Record<string, ResourceTemplateInfo & { client: string }>>
   readonly add: (name: string, mcp: ConfigMCPV1.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
   readonly connect: (name: string) => Effect.Effect<void, NotFoundError>
+  readonly remove: (name: string) => Effect.Effect<void>
   readonly disconnect: (name: string) => Effect.Effect<void, NotFoundError>
   readonly getPrompt: (
     clientName: string,
@@ -493,9 +495,11 @@ const layer = Layer.effect(
       Effect.fn("MCP.state")(function* () {
         const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
-        const config = cfg.mcp ?? {}
+        const directory = yield* InstanceState.directory
+        const managed = yield* Effect.promise(() => integrations(directory))
+        const config = { ...managed, ...cfg.mcp }
         const s: State = {
-          config: {},
+          config: Object.fromEntries(Object.entries(managed).filter(([name]) => !(name in (cfg.mcp ?? {})))),
           status: {},
           clients: {},
           defs: {},
@@ -656,6 +660,17 @@ const layer = Layer.effect(
       yield* closeClient(s, name)
       delete s.clients[name]
       s.status[name] = { status: "disabled" }
+    })
+
+    const remove = Effect.fn("MCP.remove")(function* (name: string) {
+      const s = yield* InstanceState.get(state)
+      yield* closeClient(s, name)
+      McpOAuthCallback.cancelPending(name)
+      const pending = pendingOAuthTransports.get(name)
+      pendingOAuthTransports.delete(name)
+      if (pending) yield* Effect.tryPromise(() => pending.transport.close()).pipe(Effect.ignore)
+      delete s.config[name]
+      delete s.status[name]
     })
 
     function requestTimeout(s: State, name: string, configured: McpEntry | undefined, fallback?: number) {
@@ -980,6 +995,7 @@ const layer = Layer.effect(
       add,
       connect,
       disconnect,
+      remove,
       getPrompt,
       readResource,
       startAuth,

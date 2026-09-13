@@ -558,3 +558,35 @@ it.live("McpOAuthCallback.cancelPending rejects the pending callback", () =>
     () => Effect.promise(() => McpOAuthCallback.stop()).pipe(Effect.ignore),
   ),
 )
+
+it.instance("removing a dynamically installed integration removes its connection and tools", () =>
+  Effect.gen(function* () {
+    const mcp = yield* MCP.Service
+    const server = yield* lifecycleServer()
+    yield* mcp.add("koma-removal", { type: "remote", url: server.url, oauth: false })
+    expect((yield* mcp.status())["koma-removal"]?.status).toBe("connected")
+    expect(Object.keys(yield* mcp.tools()).some((name) => name.startsWith("koma-removal_"))).toBe(true)
+    yield* mcp.remove("koma-removal")
+    expect((yield* mcp.status())["koma-removal"]).toBeUndefined()
+    expect((yield* mcp.clients())["koma-removal"]).toBeUndefined()
+    expect(Object.keys(yield* mcp.tools()).some((name) => name.startsWith("koma-removal_"))).toBe(false)
+  }),
+)
+
+it.instance("loads only this project's persisted MCP integrations", () =>
+  Effect.gen(function* () {
+    const { readStore, updateStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))
+    const previous = yield* Effect.promise(() => readStore())
+    yield* Effect.addFinalizer(() => Effect.promise(() => updateStore(() => previous)))
+    const instance = yield* TestInstance
+    const server = yield* lifecycleServer()
+    const connections: Awaited<ReturnType<typeof readStore>>["integrations"] = {
+      [instance.directory]: { persisted: remote(server.url) },
+      [instance.directory + "-other"]: { unrelated: { ...remote(server.url), enabled: false } },
+    }
+    yield* Effect.promise(() => updateStore((s) => ({ ...s, integrations: { ...s.integrations, ...connections } })))
+    const mcp = yield* MCP.Service
+    expect((yield* mcp.status()).persisted?.status).toBe("connected")
+    expect((yield* mcp.status()).unrelated).toBeUndefined()
+  }),
+)

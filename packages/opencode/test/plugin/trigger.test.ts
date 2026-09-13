@@ -106,3 +106,50 @@ describe("plugin.trigger", () => {
     ),
   )
 })
+
+describe("Koma managed plugin loading", () => {
+  it.instance("applies enabled plugins and keeps a loaded instance stable after disabling", () =>
+    Effect.gen(function* () {
+      const { readStore, updateStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))
+      const { installPlugin, changePlugin, listPlugins } = yield* Effect.promise(
+        () => import("../../src/koma/extensions/plugins"),
+      )
+      const previous = yield* Effect.promise(() => readStore())
+      yield* Effect.addFinalizer(() => Effect.promise(() => updateStore(() => previous)))
+      const test = yield* TestInstance
+      const file = path.join(test.directory, "managed.ts")
+      yield* Effect.promise(() =>
+        Bun.write(
+          file,
+          `export default async (_input, options) => ({ "experimental.chat.system.transform": (_i, out) => out.system.push(options.marker) })`,
+        ),
+      )
+      yield* Effect.promise(() => installPlugin({ spec: file, options: { marker: "managed-enabled" } }))
+      expect(yield* triggerSystemTransform()).toEqual(["managed-enabled"])
+      const id = pathToFileURL(file).href
+      yield* Effect.promise(() => changePlugin(id, { enabled: false }))
+      expect(yield* triggerSystemTransform()).toEqual(["managed-enabled"])
+      expect((yield* Effect.promise(() => listPlugins())).find((p) => p.id === id)).toMatchObject({
+        enabled: false,
+        pending: true,
+      })
+    }),
+  )
+
+  it.instance("does not execute a managed plugin disabled before instance initialization", () =>
+    Effect.gen(function* () {
+      const { readStore, updateStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))
+      const { installPlugin, changePlugin } = yield* Effect.promise(() => import("../../src/koma/extensions/plugins"))
+      const previous = yield* Effect.promise(() => readStore())
+      yield* Effect.addFinalizer(() => Effect.promise(() => updateStore(() => previous)))
+      const test = yield* TestInstance
+      const file = path.join(test.directory, "disabled.ts")
+      yield* Effect.promise(() =>
+        Bun.write(file, `throw new Error("disabled plugin executed"); export default async () => ({})`),
+      )
+      yield* Effect.promise(() => installPlugin({ spec: file, options: {} }))
+      yield* Effect.promise(() => changePlugin(pathToFileURL(file).href, { enabled: false }))
+      expect(yield* triggerSystemTransform()).toEqual([])
+    }),
+  )
+})

@@ -1,3 +1,4 @@
+import { PluginsApi, IntegrationsApi } from "./groups/extensions"
 import { Schema } from "effect"
 import { HttpApi } from "effect/unstable/httpapi"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -55,11 +56,13 @@ export const RootHttpApi = HttpApi.make("opencode-root")
   .addHttpApi(ControlApi)
   .addHttpApi(ControlPlaneApi)
   .addHttpApi(GlobalApi)
+  .addHttpApi(PluginsApi)
   .middleware(SchemaErrorMiddleware)
   .middleware(Authorization)
 
 export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(ConfigApi)
+  .addHttpApi(IntegrationsApi)
   .addHttpApi(ExperimentalApi)
   .addHttpApi(FileApi)
   .addHttpApi(InstanceApi)

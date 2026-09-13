@@ -36,6 +36,10 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstallationChannel } from "@opencode-ai/core/installation/version"
 
+import { readStore } from "@/koma/extensions/store"
+import { observe, identity } from "@/koma/extensions/plugins"
+import { ConfigPlugin } from "@/config/plugin"
+
 type State = {
   hooks: Hooks[]
 }
@@ -182,7 +186,28 @@ const layer = Layer.effect(
           if (init._tag === "Some") hooks.push(init.value)
         }
 
-        const plugins = flags.pure ? [] : (cfg.plugin_origins ?? [])
+        const observation = observe(ctx.directory)
+        yield* Effect.addFinalizer(() => Effect.sync(() => observation.dispose()))
+        const managed = yield* Effect.promise(() => readStore())
+        const existing = cfg.plugin_origins ?? []
+        const managedSource = "koma-extensions"
+        const plugins = flags.pure
+          ? []
+          : [
+              ...existing,
+              ...managed.plugins
+                .filter(
+                  (p) => p.enabled && !existing.some((e) => identity(ConfigPlugin.pluginSpecifier(e.spec)) === p.id),
+                )
+                .map((p) => ({
+                  spec: [p.spec, p.options] as [string, Record<string, unknown>],
+                  source: managedSource,
+                  scope: "global" as const,
+                })),
+            ]
+        const managedSpecs = new Set(
+          plugins.filter((p) => p.source === managedSource).map((p) => ConfigPlugin.pluginSpecifier(p.spec)),
+        )
         if (flags.pure && cfg.plugin_origins?.length) {
         }
         if (plugins.length) yield* config.waitForDependencies()
@@ -192,9 +217,31 @@ const layer = Layer.effect(
             items: plugins,
             kind: "server",
             report: {
-              start(candidate) {},
-              missing(candidate, _retry, message) {},
+              start(candidate) {
+                observation.set(
+                  candidate.plan.spec,
+                  candidate.origin.source === managedSource,
+                  candidate.plan.options ?? {},
+                  "loading",
+                )
+              },
+              missing(candidate, _retry, message) {
+                observation.set(
+                  candidate.plan.spec,
+                  candidate.origin.source === managedSource,
+                  candidate.plan.options ?? {},
+                  "failed",
+                  message,
+                )
+              },
               error(candidate, _retry, stage, error, resolved) {
+                observation.set(
+                  candidate.plan.spec,
+                  candidate.origin.source === managedSource,
+                  candidate.plan.options ?? {},
+                  "failed",
+                  errorMessage(error),
+                )
                 const spec = candidate.plan.spec
                 const cause = error instanceof Error ? (error.cause ?? error) : error
                 const message = stage === "load" ? errorMessage(error) : errorMessage(cause)
@@ -226,9 +273,13 @@ const layer = Layer.effect(
           // Keep plugin execution sequential so hook registration and execution
           // order remains deterministic across plugin runs.
           yield* Effect.tryPromise({
-            try: () => applyPlugin(load, input, hooks),
+            try: async () => {
+              await applyPlugin(load, input, hooks)
+              observation.set(load.spec, managedSpecs.has(load.spec), load.options ?? {}, "active")
+            },
             catch: (err) => {
               const message = errorMessage(err)
+              observation.set(load.spec, managedSpecs.has(load.spec), load.options ?? {}, "failed", message)
               return message
             },
           }).pipe(

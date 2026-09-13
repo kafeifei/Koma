@@ -1,0 +1,92 @@
+.extension-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.extension-header .settings-v2-section-title {
+  padding: 0;
+}
+.extension-body {
+  gap: 24px;
+}
+.extension-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--v2-text-text-muted);
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.extension-spec {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+}
+.extension-status {
+  display: block;
+  margin-block: 4px;
+  color: var(--v2-text-text-base);
+}
+.extension-error {
+  display: block;
+  color: var(--text-on-critical-base, #c95151);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.extension-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.extension-editor {
+  padding: 20px;
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.extension-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--v2-text-text-base);
+}
+.extension-editor select,
+.extension-editor input,
+.extension-editor textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: var(--v2-text-text-base);
+  background: var(--v2-background-bg-base);
+  font: inherit;
+}
+.extension-editor textarea {
+  font-family: var(--font-family-mono);
+  resize: vertical;
+}
+.extension-editor :is(input, textarea):focus-visible {
+  outline: 2px solid var(--v2-text-text-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 639px) {
+  .extension-header {
+    flex-wrap: wrap;
+  }
+  .extension-body {
+    padding-inline: 20px;
+  }
+}
+
+.extension-editor summary {
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 12px;
+}

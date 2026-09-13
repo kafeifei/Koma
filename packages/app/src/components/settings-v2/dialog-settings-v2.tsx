@@ -1,3 +1,6 @@
+import { useServerSDK } from "@/context/server-sdk"
+import { ServerConnection } from "@/context/server"
+import { SettingsPluginsV2, SettingsIntegrationsV2 } from "./extensions"
 import { Component, Show, createMemo, createSignal, startTransition } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/v2/dialog-v2"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
@@ -28,9 +31,14 @@ export const DialogSettings: Component<{
   const layout = useLayout()
   const tabs = useTabs()
   const serverSync = useServerSync()
+  const serverSDK = useServerSDK()
   const [tab, setTab] = createSignal(props.defaultValue ?? "general")
   const directory = createMemo(() => {
     const route = layout.route()
+    if (route.type === "home") {
+      const selection = layout.home.selection()
+      return selection.server === ServerConnection.key(serverSDK().server) ? selection.directory : undefined
+    }
     if (route.type === "dir-new-sesssion") return route.dir
     if (route.type === "draft") {
       const draft = tabs.store.find((item) => item.type === "draft" && item.draftID === route.draftID)
@@ -100,6 +108,17 @@ export const DialogSettings: Component<{
                     </Show>
                   </div>
                 </div>
+                <div class="flex flex-col gap-1.5">
+                  <TabsV2.SectionTitle>{language.t("settings.extensions.section")}</TabsV2.SectionTitle>
+                  <TabsV2.Trigger value="plugins">
+                    <Icon name="providers" />
+                    {language.t("settings.extensions.plugins")}
+                  </TabsV2.Trigger>
+                  <TabsV2.Trigger value="integrations">
+                    <Icon name="server" />
+                    {language.t("settings.extensions.integrations")}
+                  </TabsV2.Trigger>
+                </div>
               </div>
             </div>
             <div class="settings-v2-nav-footer">
@@ -130,6 +149,12 @@ export const DialogSettings: Component<{
         </TabsV2.Content>
         <TabsV2.Content value="providers" class="settings-v2-panel">
           <SettingsProvidersV2 directory={directory} onBack={showProviders} />
+        </TabsV2.Content>
+        <TabsV2.Content value="plugins" class="settings-v2-panel">
+          <SettingsPluginsV2 />
+        </TabsV2.Content>
+        <TabsV2.Content value="integrations" class="settings-v2-panel">
+          <SettingsIntegrationsV2 directory={directory} />
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 />

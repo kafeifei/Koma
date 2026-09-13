@@ -221,3 +221,77 @@ describe("mcp HttpApi", () => {
     { config: { mcp: {} } },
   )
 })
+
+describe("Koma integration management HttpApi", () => {
+  it.instance("persists managed connections and removes only the selected project entry", () =>
+    Effect.gen(function* () {
+      const { readStore, updateStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))
+      const before = yield* Effect.promise(() => readStore())
+      yield* Effect.addFinalizer(() => Effect.promise(() => updateStore(() => before)))
+      const tmp = yield* TestInstance
+      const handler = HttpApiApp.webHandler()
+      const saved = yield* request(handler, "/extensions/integrations", tmp.directory, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "managed",
+          config: { type: "remote", url: "https://example.com/mcp", enabled: false },
+        }),
+      })
+      expect(saved.status).toBe(200)
+      expect(yield* json(saved)).toMatchObject([{ name: "managed", managed: true, enabled: false, status: "disabled" }])
+      const stored = yield* Effect.promise(() => readStore())
+      expect(stored.integrations[tmp.directory]?.managed?.enabled).toBe(false)
+      const removed = yield* request(handler, "/extensions/integrations/managed", tmp.directory, { method: "DELETE" })
+      expect(removed.status).toBe(200)
+      expect(yield* json(removed)).toEqual([])
+      expect((yield* Effect.promise(() => readStore())).integrations[tmp.directory]?.managed).toBeUndefined()
+    }),
+  )
+
+  it.instance(
+    "rejects changes to integrations owned by a config file",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const handler = HttpApiApp.webHandler()
+        const removed = yield* request(handler, "/extensions/integrations/external", tmp.directory, {
+          method: "DELETE",
+        })
+        expect(removed.status).toBe(400)
+        expect(yield* json(removed)).toMatchObject({
+          message: "This integration is managed by an existing configuration file.",
+        })
+      }),
+    { config: { mcp: { external: { type: "remote", url: "https://example.com", enabled: false } } } },
+  )
+})
+
+it.instance("rejects integration changes while the project runtime is busy", () =>
+  Effect.gen(function* () {
+    const { AppRuntime } = yield* Effect.promise(() => import("../../src/effect/app-runtime"))
+    const { InstanceState } = yield* Effect.promise(() => import("../../src/effect/instance-state"))
+    const { InstanceRef } = yield* Effect.promise(() => import("../../src/effect/instance-ref"))
+    const { SessionStatus } = yield* Effect.promise(() => import("../../src/session/status"))
+    const { SessionID } = yield* Effect.promise(() => import("../../src/session/schema"))
+    const instance = yield* InstanceState.context
+    const id = SessionID.make("ses_extension_busy_test")
+    // HttpApiApp uses the production runtime; set the status in that same runtime.
+    const set = (type: "busy" | "idle") =>
+      Effect.promise(() =>
+        AppRuntime.runPromise(
+          SessionStatus.Service.use((s) => s.set(id, { type })).pipe(Effect.provideService(InstanceRef, instance)),
+        ),
+      )
+    yield* set("busy")
+    yield* Effect.addFinalizer(() => set("idle"))
+    const result = yield* request(HttpApiApp.webHandler(), "/extensions/integrations", instance.directory, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "busy-check", config: { type: "local", command: ["echo", "must-not-run"] } }),
+    })
+    expect(result.status).toBe(409)
+    const { readStore } = yield* Effect.promise(() => import("../../src/koma/extensions/store"))
+    expect((yield* Effect.promise(() => readStore())).integrations[instance.directory]?.["busy-check"]).toBeUndefined()
+  }),
+)

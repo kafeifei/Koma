@@ -1,3 +1,4 @@
+import type { PluginInfo, PluginInput, IntegrationInfo } from "@opencode-ai/schema/koma-extensions"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { OpenCode, type OpenCodeClient } from "@opencode-ai/client/promise"
 import type { ServerConnection } from "@/context/server"
@@ -109,6 +110,35 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
 
   return {
     ...client,
+    extensions: {
+      plugins: () =>
+        request("/global/extensions/plugins", { method: "GET" }).then((r) => r.json() as Promise<PluginInfo[]>),
+      install: (value: PluginInput) =>
+        request("/global/extensions/plugins", { method: "POST", body: JSON.stringify(value) }).then(
+          (r) => r.json() as Promise<PluginInfo[]>,
+        ),
+      change: (value: { id: string; enabled: boolean; options?: Record<string, unknown> }) =>
+        request("/global/extensions/plugins", { method: "PATCH", body: JSON.stringify(value) }).then(
+          (r) => r.json() as Promise<PluginInfo[]>,
+        ),
+      uninstall: (id: string) =>
+        request(`/global/extensions/plugins/${encodeURIComponent(id)}`, { method: "DELETE" }).then(
+          (r) => r.json() as Promise<PluginInfo[]>,
+        ),
+      integrations: (directory: string) =>
+        request(`/extensions/integrations?directory=${encodeURIComponent(directory)}`, { method: "GET" }).then(
+          (r) => r.json() as Promise<IntegrationInfo[]>,
+        ),
+      saveIntegration: (directory: string, value: { name: string; config: Record<string, unknown> }) =>
+        request(`/extensions/integrations?directory=${encodeURIComponent(directory)}`, {
+          method: "PUT",
+          body: JSON.stringify(value),
+        }).then((r) => r.json() as Promise<IntegrationInfo[]>),
+      removeIntegration: (directory: string, name: string) =>
+        request(`/extensions/integrations/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`, {
+          method: "DELETE",
+        }).then((r) => r.json() as Promise<IntegrationInfo[]>),
+    },
     directory: {
       async list(value: { path: string }) {
         const url = new URL("/api/directory", input.server.url)

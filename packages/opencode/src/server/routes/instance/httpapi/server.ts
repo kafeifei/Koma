@@ -1,3 +1,4 @@
+import { pluginHandlers, integrationHandlers } from "./handlers/extensions"
 import { DirectoryLease } from "@opencode-ai/core/directory-lease"
 import { WorktreeLifecycle } from "@/worktree/lifecycle"
 import { WorktreeRuntime } from "@/worktree/runtime"
@@ -156,7 +157,7 @@ const ptyConnectHttpApiAuthLayer = ptyConnectAuthorizationLayer.pipe(Layer.provi
 const serverHttpApiAuthLayer = serverAuthorizationLayer.pipe(Layer.provide(ServerAuth.Config.layer))
 const workspaceRoutingLive = workspaceRoutingLayer.pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal))
 const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(
-  Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
+  Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers, pluginHandlers]),
   Layer.provide(schemaErrorLayer),
   Layer.provide(httpApiAuthLayer),
 )
@@ -175,6 +176,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     fileHandlers,
     instanceHandlers,
     mcpHandlers,
+    integrationHandlers,
     projectHandlers,
     projectCopyHandlers,
     ptyHandlers,

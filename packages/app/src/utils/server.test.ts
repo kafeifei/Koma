@@ -98,3 +98,30 @@ describe("directory transport", () => {
     expect(requests[0]!.headers.get("authorization")).toBe(`Basic ${btoa("kit:secret")}`)
   })
 })
+
+describe("extension management transport", () => {
+  test("uses the selected server and credentials and preserves project and package identities", async () => {
+    const requests: Request[] = []
+    const api = createApiForServer({
+      server: { url: "https://remote.example", username: "user", password: "test-password" },
+      fetch: Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          requests.push(new Request(input, init))
+          return Response.json([])
+        },
+        { preconnect: globalThis.fetch.preconnect },
+      ),
+    })
+    await api.extensions.install({ spec: "@scope/plugin@1.0.0", options: {} })
+    await api.extensions.uninstall("@scope/plugin")
+    await api.extensions.saveIntegration("/projects/A & B", {
+      name: "demo",
+      config: { type: "remote", url: "https://mcp.example" },
+    })
+    expect(requests.every((r) => new URL(r.url).origin === "https://remote.example")).toBe(true)
+    expect(requests.every((r) => r.headers.get("authorization") === `Basic ${btoa("user:test-password")}`)).toBe(true)
+    expect(decodeURIComponent(new URL(requests[1]!.url).pathname)).toBe("/global/extensions/plugins/@scope/plugin")
+    expect(new URL(requests[2]!.url).searchParams.get("directory")).toBe("/projects/A & B")
+    expect(await requests[0]!.json()).toEqual({ spec: "@scope/plugin@1.0.0", options: {} })
+  })
+})
