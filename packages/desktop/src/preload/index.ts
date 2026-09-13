@@ -3,6 +3,10 @@ import type { ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 import type { RemoteAccessState } from "@opencode-ai/app/remote-access"
 import type { WebEntryState } from "@opencode-ai/app/web-entry"
+import { createDesktopQuitState } from "@opencode-ai/app/desktop/shutdown-controller"
+
+const quitState = createDesktopQuitState()
+ipcRenderer.on("app-quitting", (_event, quitting: boolean) => quitState.setQuitting(quitting))
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
 let updaterState: UpdaterState | undefined
@@ -111,6 +115,7 @@ const api: ElectronAPI = {
   draftBlobGet: (id) => ipcRenderer.invoke("draft-blob-get", id),
 
   getWindowID: () => ipcRenderer.invoke("get-window-id"),
+  onAppQuitting: quitState.subscribe,
   onMenuCommand: (cb) => {
     const handler = (_: unknown, id: string) => cb(id)
     ipcRenderer.on("menu-command", handler)

@@ -72,6 +72,9 @@ export function setRelaunchHandler(handler: () => void) {
 
 export function setAppQuitting(quitting = true) {
   registry.setQuitting(quitting)
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.webContents.isDestroyed()) window.webContents.send("app-quitting", quitting)
+  }
 }
 
 export function setBackgroundColor(color: string) {

@@ -1,13 +1,15 @@
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { confirmDesktopShutdown, type DesktopBackendConnection } from "@opencode-ai/app/desktop/shutdown"
-import { createShutdownController } from "@opencode-ai/app/desktop/shutdown-controller"
+import { createDesktopQuitState, createShutdownController } from "@opencode-ai/app/desktop/shutdown-controller"
 import { DESKTOP_NATIVE_ENGLISH, type DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 import { DESKTOP_MENU, desktopMenuVisible, type DesktopMenuItem } from "@opencode-ai/app/desktop-menu"
 import { createDesktopZoom } from "@opencode-ai/app/desktop/zoom"
 import { platform } from "./platform"
 
 export function installDesktopHost(connection: Promise<DesktopBackendConnection>) {
+  const quitState = createDesktopQuitState()
+  platform.onAppQuitting = quitState.subscribe
   let translations: DesktopNativeBundle = { locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH } }
   const commands = new Set<(id: string) => void>()
   const entries = new Map<string, DesktopMenuItem>()
@@ -23,7 +25,7 @@ export function installDesktopHost(connection: Promise<DesktopBackendConnection>
     quit: () => {
       void invoke("exit_app")
     },
-    setQuitting: () => {},
+    setQuitting: quitState.setQuitting,
     log: console.info,
     warn: console.warn,
   })

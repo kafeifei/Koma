@@ -256,6 +256,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
 
     runDesktopMenuAction,
     onMenuCommand: window.api.onMenuCommand,
+    onAppQuitting: window.api.onAppQuitting,
     setTitlebar: window.api.setTitlebar,
     setBackgroundColor: window.api.setBackgroundColor,
 

@@ -1,5 +1,26 @@
 type QuitEvent = { preventDefault(): void }
 
+// Host adapters publish only confirmed shutdowns; new subscribers receive the
+// current state so a terminal mounting during shutdown cannot start connecting.
+export function createDesktopQuitState() {
+  let quitting = false
+  const listeners = new Set<(quitting: boolean) => void>()
+  return {
+    setQuitting: (value: boolean) => {
+      if (quitting === value) return
+      quitting = value
+      listeners.forEach((listener) => listener(value))
+    },
+    subscribe: (listener: (quitting: boolean) => void) => {
+      listeners.add(listener)
+      listener(quitting)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+  }
+}
+
 type ShutdownControllerOptions = {
   confirm?(): Promise<boolean>
   stop(): Promise<void>

@@ -66,6 +66,9 @@ type PlatformBase = {
   /** Restart the app  */
   restart(): Promise<void>
 
+  /** Confirmed desktop shutdown, before the host stops its backend. */
+  onAppQuitting?(callback: (quitting: boolean) => void): () => void
+
   /** Send a system notification */
   notify(title: string, description?: string, onClick?: () => void): Promise<void>
 

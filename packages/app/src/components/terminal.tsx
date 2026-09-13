@@ -18,6 +18,7 @@ import { dispatchTerminalFailure, type TerminalFailureSource } from "@/context/t
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
 import { terminalWriter } from "@/utils/terminal-writer"
 import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
+import { terminalConnectTicket } from "@/utils/terminal-connect-ticket"
 
 const TOGGLE_TERMINAL_ID = "terminal.toggle"
 const DEFAULT_TOGGLE_TERMINAL_KEYBIND = "ctrl+`"
@@ -229,9 +230,28 @@ export const Terminal = (props: TerminalProps) => {
   let reconn: ReturnType<typeof setTimeout> | undefined
   let tries = 0
   let failureReported = false
+  let quitting = false
+  let reconnect: VoidFunction | undefined
+  let connectionAttempt: AbortController | undefined
+  const inactive = () => disposed || quitting
+  const unsubscribeQuit = platform.onAppQuitting?.((value) => {
+    if (quitting === value) return
+    quitting = value
+    if (!value) {
+      reconnect?.()
+      return
+    }
+    connectionAttempt?.abort()
+    if (reconn !== undefined) clearTimeout(reconn)
+    reconn = undefined
+    if (sizeTimer !== undefined) clearTimeout(sizeTimer)
+    sizeTimer = undefined
+    drop?.()
+  })
+  if (unsubscribeQuit) onCleanup(unsubscribeQuit)
 
   const fail = (source: TerminalFailureSource, error: unknown) => {
-    if (disposed || failureReported) return
+    if (inactive() || failureReported) return
     failureReported = true
     dispatchTerminalFailure({
       source,
@@ -260,7 +280,9 @@ export const Terminal = (props: TerminalProps) => {
   }
 
   const pushSize = async (cols: number, rows: number) => {
-    if ((await sdk().protocol) === "v1") {
+    const protocol = await sdk().protocol
+    if (inactive()) return
+    if (protocol === "v1") {
       return sdk()
         .client.pty.update({
           ptyID: id,
@@ -551,7 +573,7 @@ export const Terminal = (props: TerminalProps) => {
         if ((await sdk().protocol) === "v1") {
           return sdk()
             .client.pty.get({ ptyID: id }, { throwOnError: false })
-            .then((result) => result.response.status === 404)
+            .then((result) => result.response?.status === 404)
             .catch((err) => {
               debugTerminal("failed to inspect terminal session", err)
               return false
@@ -567,25 +589,26 @@ export const Terminal = (props: TerminalProps) => {
           })
       }
 
-      const connectToken = async () => {
+      const connectToken = async (signal: AbortSignal) => {
         if ((await sdk().protocol) === "v1") {
           const result = await sdk()
             .client.pty.connectToken(
               { ptyID: id, directory },
               {
                 throwOnError: false,
+                signal,
                 headers: { "x-opencode-ticket": "1" },
               },
             )
             .catch((err: unknown) => {
-              if (err instanceof Error && err.message.includes("Request is not supported")) return
+              if (err instanceof Error && err.message.includes("Request is not supported")) return undefined
               throw err
             })
-          if (!result) return
-          if (result.response.status === 200 && result.data?.ticket) return result.data.ticket
-          if (result.response.status === 404 || result.response.status === 405) return
-          if (result.response.status === 403) throw new Error(language.t("terminal.connectTicket.csrfError"))
-          throw new Error(language.t("terminal.connectTicket.statusError", { status: result.response.status }))
+          return terminalConnectTicket(result, {
+            csrf: () => language.t("terminal.connectTicket.csrfError"),
+            status: (status) => language.t("terminal.connectTicket.statusError", { status }),
+            network: () => language.t("terminal.connectionLost.description"),
+          })
         }
         // return sdk()
         //   .api.pty.connectToken({
@@ -594,39 +617,44 @@ export const Terminal = (props: TerminalProps) => {
         //     "x-opencode-ticket": "1",
         //   })
         //   .then((result) => result.data.ticket)
+        return undefined
       }
 
       const retry = (err: unknown) => {
-        if (disposed) return
+        if (inactive()) return
         if (reconn !== undefined) return
 
         const ms = Math.min(250 * 2 ** Math.min(tries, 4), 4_000)
         reconn = setTimeout(async () => {
           reconn = undefined
-          if (disposed) return
+          if (inactive()) return
           if (await gone()) {
-            if (disposed) return
+            if (inactive()) return
             fail("missing", err)
             return
           }
-          if (disposed) return
+          if (inactive()) return
           tries += 1
           void open().catch((error) => fail("network", error))
         }, ms)
       }
 
       const open = async () => {
-        if (disposed) return
+        if (inactive()) return
         drop?.()
+        connectionAttempt?.abort()
+        const attempt = new AbortController()
+        connectionAttempt = attempt
 
-        const ticket = await connectToken().catch((err) => {
+        const ticket = await connectToken(attempt.signal).catch((err) => {
+          if (attempt.signal.aborted) return undefined
           fail("ticket", err)
           return undefined
         })
         const protocol = await sdk().protocol
         // if (protocol === "v2" && !ticket) return
         if (failureReported) return
-        if (disposed) return
+        if (inactive() || attempt.signal.aborted) return
 
         const socket = new WebSocket(
           terminalWebSocketURL({
@@ -646,7 +674,7 @@ export const Terminal = (props: TerminalProps) => {
         ws = socket
 
         const handleOpen = () => {
-          if (disposed) return
+          if (inactive()) return
           tries = 0
           local.onConnect?.()
           scheduleSize(t.cols, t.rows)
@@ -654,7 +682,7 @@ export const Terminal = (props: TerminalProps) => {
         }
 
         const handleMessage = (event: MessageEvent) => {
-          if (disposed) return
+          if (inactive()) return
           if (event.data instanceof ArrayBuffer) {
             const bytes = new Uint8Array(event.data)
             if (bytes[0] !== 0) return
@@ -680,7 +708,7 @@ export const Terminal = (props: TerminalProps) => {
         }
 
         const handleError = (error: Event) => {
-          if (disposed) return
+          if (inactive()) return
           debugTerminal("websocket error", error)
         }
 
@@ -701,7 +729,7 @@ export const Terminal = (props: TerminalProps) => {
           socket.removeEventListener("message", handleMessage)
           socket.removeEventListener("error", handleError)
           socket.removeEventListener("close", handleClose)
-          if (disposed) return
+          if (inactive()) return
           if (event.code === 1000) return
           retry(new Error(language.t("terminal.connectionLost.abnormalClose", { code: event.code })))
         }
@@ -713,7 +741,12 @@ export const Terminal = (props: TerminalProps) => {
         socket.addEventListener("close", handleClose)
       }
 
-      void open().catch((error) => fail("network", error))
+      reconnect = () => {
+        failureReported = false
+        tries = 0
+        void open().catch((error) => fail("network", error))
+      }
+      reconnect()
     }
 
     void run().catch((err) => fail("initialization", err))
@@ -721,6 +754,7 @@ export const Terminal = (props: TerminalProps) => {
 
   onCleanup(() => {
     disposed = true
+    connectionAttempt?.abort()
     if (fitFrame !== undefined) cancelAnimationFrame(fitFrame)
     if (sizeTimer !== undefined) clearTimeout(sizeTimer)
     if (reconn !== undefined) clearTimeout(reconn)
