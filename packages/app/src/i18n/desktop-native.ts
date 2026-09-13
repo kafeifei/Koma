@@ -248,6 +248,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.menu.openProject": "Open Project...",
   "desktop.menu.newWindow": "New Window",
   "desktop.menu.closeWindow": "Close Window",
+  "command.tab.close": "Close tab",
   "desktop.menu.undo": "Undo",
   "desktop.menu.redo": "Redo",
   "desktop.menu.cut": "Cut",

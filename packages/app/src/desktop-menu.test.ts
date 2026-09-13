@@ -2,6 +2,17 @@ import { describe, expect, test } from "bun:test"
 import { DESKTOP_MENU } from "./desktop-menu"
 
 describe("desktop menu", () => {
+  test("routes Cmd+W through the app without a native close accelerator taking precedence", () => {
+    const items = DESKTOP_MENU.flatMap((menu) => menu.items ?? []).filter((item) => item.type === "item")
+    const close = items.filter((item) => item.accelerator?.macos === "Cmd+W")
+
+    expect(close).toHaveLength(1)
+    expect(close[0]?.command).toBe("tab.close")
+    expect(close[0]?.action).toBeUndefined()
+    expect(items.some((item) => item.role === "close")).toBe(false)
+    expect(items.some((item) => item.action === "window.close")).toBe(true)
+  })
+
   test("exports logs through the desktop command registry", () => {
     const items = DESKTOP_MENU.flatMap((menu) => menu.items ?? []).filter(
       (item) => item.type === "item" && item.labelKey === "desktop.menu.exportLogs",

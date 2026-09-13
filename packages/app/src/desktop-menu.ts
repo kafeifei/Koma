@@ -128,7 +128,12 @@ export const DESKTOP_MENU: DesktopMenu[] = [
         accelerator: { macos: "Cmd+Shift+N", windows: "Ctrl+Shift+N" },
       },
       { type: "separator" },
-      { type: "item", labelKey: "desktop.menu.closeWindow", action: "window.close", role: "close" },
+      {
+        type: "item",
+        labelKey: "command.tab.close",
+        command: "tab.close",
+        accelerator: { macos: "Cmd+W", windows: "Ctrl+W" },
+      },
     ],
   },
   {
@@ -274,7 +279,7 @@ export const DESKTOP_MENU: DesktopMenu[] = [
       { type: "item", labelKey: "desktop.menu.minimize", action: "window.minimize", accelerator: { macos: "Cmd+M" } },
       { type: "item", labelKey: "desktop.menu.maximize", action: "window.toggleMaximize" },
       { type: "separator" },
-      { type: "item", labelKey: "desktop.menu.closeWindow", action: "window.close", role: "close" },
+      { type: "item", labelKey: "desktop.menu.closeWindow", action: "window.close" },
     ],
   },
   {

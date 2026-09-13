@@ -168,6 +168,16 @@ export function Titlebar(props: {
   }
 
   command.register(() => [
+    // Side-panel commands override this fallback while they have a tab to close.
+    {
+      id: "tab.close",
+      title: language.t("desktop.menu.closeWindow"),
+      category: language.t("command.category.view"),
+      keybind: "mod+w",
+      hidden: true,
+      disabled: !platform.runDesktopMenuAction,
+      onSelect: () => void platform.runDesktopMenuAction?.("window.close"),
+    },
     {
       id: "common.goBack",
       title: language.t("common.goBack"),
@@ -383,37 +393,23 @@ export function Titlebar(props: {
               },
             ])
 
-            command.register("tabs", () => {
-              const current = currentTab()
-
-              return [
-                {
-                  id: "tab.new",
-                  category: "tab",
-                  title: language.t("command.session.new"),
-                  keybind: "mod+t,mod+n",
-                  hidden: true,
-                  onSelect: openNewTab,
-                },
-                current && {
-                  id: "tab.close",
-                  category: "tab",
-                  title: language.t("command.tab.close"),
-                  keybind: "mod+w",
-                  hidden: true,
-                  onSelect: () => {
-                    tabsStoreActions.closeTab(tabsStore.findIndex((tab) => current === tab))
-                  },
-                },
-                {
-                  id: "tab.reopenClosed",
-                  category: language.t("command.category.file"),
-                  title: language.t("command.tab.reopenClosed"),
-                  keybind: "mod+shift+t",
-                  onSelect: () => tabsStoreActions.reopenClosedTab(),
-                },
-              ].filter((v) => v !== undefined)
-            })
+            command.register("tabs", () => [
+              {
+                id: "tab.new",
+                category: "tab",
+                title: language.t("command.session.new"),
+                keybind: "mod+t,mod+n",
+                hidden: true,
+                onSelect: openNewTab,
+              },
+              {
+                id: "tab.reopenClosed",
+                category: language.t("command.category.file"),
+                title: language.t("command.tab.reopenClosed"),
+                keybind: "mod+shift+t",
+                onSelect: () => tabsStoreActions.reopenClosedTab(),
+              },
+            ])
 
             const [tabsAreOverflowing, setTabsAreOverflowing] = createSignal(false)
 
