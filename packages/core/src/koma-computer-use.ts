@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { accessSync, constants, existsSync, readFileSync } from "node:fs"
-import { mkdir, rename, rm, writeFile } from "node:fs/promises"
-import { homedir, hostname } from "node:os"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { homedir, hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { z } from "zod"
@@ -18,6 +18,17 @@ const PERMISSION_SETTINGS = {
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
   screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
 } as const
+const PermissionRegistration = z.object({
+  isError: z.literal(false).optional(),
+  structuredContent: z.object({
+    accessibility: z.boolean(),
+    screen_recording: z.boolean(),
+    source: z.object({
+      attribution: z.literal("driver-daemon"),
+      bundle_id: z.literal("com.trycua.driver"),
+    }),
+  }),
+})
 const Settings = z.object({ enabled: z.boolean(), binary: z.string().optional() })
 const Action = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["status", "install", "start", "grant"]) }),
@@ -214,6 +225,29 @@ export function createComputerUse(input: {
       await rm(directory, { recursive: true, force: true })
     }
   }
+  const registerPermissions = async () => {
+    // Use the signed LaunchServices helper behind `permissions grant`, with
+    // only its registration stage. The full CLI also waits for both grants and
+    // requests direct capture; opening a settings pane must do neither.
+    // This private helper contract is verified with CuaDriver 0.19.1. Fail
+    // visibly if a future driver changes it, rather than opening an empty list.
+    const file = join(tmpdir(), `cua-driver-permissions-${randomUUID()}.json`)
+    await writeFile(file, "", { mode: 0o600, flag: "wx" })
+    try {
+      await run(
+        "/usr/bin/open",
+        ["-n", "-W", "-g", APP, "--args", "__permissions-host-request", "--result-file", file],
+        20_000,
+      )
+      // A completed request registers the application even when the user has
+      // not enabled access yet. Never treat registration itself as a grant.
+      PermissionRegistration.parse(JSON.parse(await readFile(file, "utf8")))
+    } catch (error) {
+      throw new Error(`Could not request CuaDriver system permissions: ${message(error)}`)
+    } finally {
+      await rm(file, { force: true })
+    }
+  }
   return {
     status,
     async request(payload: unknown): Promise<ComputerUseState> {
@@ -225,11 +259,22 @@ export function createComputerUse(input: {
       if (request.action === "open-settings") {
         changing = true
         try {
-          // Open on the task's host, including when the settings UI is connected remotely.
-          // Opening a pane never requests a grant or changes the driver's lifecycle.
+          const state = await status()
+          if (!state.installed) throw new Error("Install Cua Driver first")
+          if (state[request.permission] !== true) {
+            busy = "grant"
+            await registerPermissions()
+          }
+          // Register before navigating so the selected pane already has the
+          // CuaDriver toggle. Both operations run on the selected task host.
           await run("/usr/bin/open", [PERMISSION_SETTINGS[request.permission]])
+          busy = undefined
           return await status()
+        } catch (error) {
+          failure = message(error)
+          throw error
         } finally {
+          busy = undefined
           changing = false
         }
       }

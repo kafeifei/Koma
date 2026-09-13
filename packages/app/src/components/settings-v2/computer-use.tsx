@@ -148,7 +148,6 @@ export function ComputerUseView(props: {
                   <details class="text-12-regular text-text-weak">
                     <summary class="cursor-pointer">{t("settings.computerUse.permissionHelp")}</summary>
                     <div class="flex flex-col gap-2 pt-2">
-                      <p>{t("settings.computerUse.missingApp")}</p>
                       <p>{t("settings.computerUse.restartHelp")}</p>
                     </div>
                   </details>

@@ -1148,12 +1148,11 @@ export const dict = {
   "settings.computerUse.granted": "已授权",
   "settings.computerUse.notGranted": "未授权",
   "settings.computerUse.unknown": "未知",
-  "settings.computerUse.grantDescription": "按钮会打开 {{device}} 上对应的系统设置。请找到 CuaDriver，并开启它的开关。",
+  "settings.computerUse.grantDescription":
+    "点击按钮后，会自动将 CuaDriver 注册到 {{device}} 的权限列表并打开对应设置。你只需开启或关闭它的开关。",
   "settings.computerUse.startFirst": "先完成上方的安装和启动，再打开权限设置。",
   "settings.computerUse.returnFromSettings": "开启后回到这里，会自动检查授权状态。",
-  "settings.computerUse.permissionHelp": "找不到 CuaDriver，或开启后仍显示未授权？",
-  "settings.computerUse.missingApp":
-    "如果列表中没有 CuaDriver，点击该列表下方的「+」，按 ⌘⇧G 输入 /Applications/CuaDriver.app 并添加。录屏权限请添加到页面上方的录屏列表。",
+  "settings.computerUse.permissionHelp": "开启后仍显示未授权？",
   "settings.computerUse.restartHelp":
     "如果权限已开启但这里仍显示未授权，请先确认 CuaDriver 没有正在执行的操作，再退出并重新打开 CuaDriver，然后点「重新检查权限」。",
   "settings.computerUse.enableTitle": "3. 启用电脑控制",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -18,6 +18,7 @@ afterEach(async () => {
 })
 async function fixture(
   permissions: object = { accessibility: true, screen_recording: true, source: { attribution: "driver-daemon" } },
+  registration?: (file: string) => Promise<void>,
 ) {
   const root = await mkdtemp(join(tmpdir(), "koma-cua-test-"))
   roots.push(root)
@@ -31,6 +32,21 @@ async function fixture(
       calls.push([file, ...args])
       if (args[0] === "--version") return "cua-driver 0.28.1\n"
       if (args[0] === "permissions" && args[1] === "status") return JSON.stringify(permissions)
+      if (args.includes("__permissions-host-request")) {
+        const result = args[args.indexOf("--result-file") + 1]!
+        expect((await stat(result)).mode & 0o777).toBe(0o600)
+        if (registration) await registration(result)
+        else
+          await writeFile(
+            result,
+            JSON.stringify({
+              structuredContent: {
+                ...permissions,
+                source: { attribution: "driver-daemon", bundle_id: "com.trycua.driver" },
+              },
+            }),
+          )
+      }
       return "{}"
     },
   })
@@ -114,7 +130,7 @@ describe("computer control", () => {
     await expect(linux.request({ action: "open-settings", permission: "accessibility" })).rejects.toThrow("macOS")
   })
 
-  test("each permission opens its own host settings without granting access or restarting the driver", async () => {
+  test("a missing permission is registered before its settings open, while existing grants only open settings", async () => {
     const { service, calls, root } = await fixture({
       accessibility: true,
       screen_recording: false,
@@ -124,10 +140,24 @@ describe("computer control", () => {
       const state = await service.request({ action: "open-settings", permission })
       expect(state).toMatchObject({ accessibility: true, screenRecording: false, enabled: false })
     }
-    expect(calls.filter((call) => call[0] === "/usr/bin/open")).toEqual([
+    const opens = calls.filter((call) => call[0] === "/usr/bin/open")
+    const result = opens[1]!.at(-1)!
+    expect(opens).toEqual([
       ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+      [
+        "/usr/bin/open",
+        "-n",
+        "-W",
+        "-g",
+        "/Applications/CuaDriver.app",
+        "--args",
+        "__permissions-host-request",
+        "--result-file",
+        result,
+      ],
       ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
     ])
+    await expect(stat(result)).rejects.toMatchObject({ code: "ENOENT" })
     expect(
       calls.every(
         (call) =>
@@ -137,6 +167,91 @@ describe("computer control", () => {
       ),
     ).toBe(true)
     expect(read(root)).toEqual({ enabled: false })
+  })
+
+  test("missing Accessibility is also registered without waiting for either permission to be enabled", async () => {
+    const { service, calls } = await fixture({
+      accessibility: false,
+      screen_recording: false,
+      source: { attribution: "driver-daemon" },
+    })
+    expect(await service.request({ action: "open-settings", permission: "accessibility" })).toMatchObject({
+      accessibility: false,
+      screenRecording: false,
+      enabled: false,
+    })
+    const opens = calls.filter((call) => call[0] === "/usr/bin/open")
+    expect(opens).toHaveLength(2)
+    expect(opens[0]).toContain("__permissions-host-request")
+    expect(opens[1]).toEqual([
+      "/usr/bin/open",
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    ])
+    expect(calls.flat()).not.toContain("--probe-direct-capture")
+    expect(calls.flat()).not.toContain("grant")
+    expect(calls.flat()).not.toContain("serve")
+  })
+
+  test("failed or incorrectly attributed registration stays visible, cleans up, and does not open settings", async () => {
+    for (const response of [
+      new Error("helper unavailable"),
+      "{}",
+      JSON.stringify({
+        structuredContent: {
+          accessibility: true,
+          screen_recording: true,
+          source: { attribution: "host", bundle_id: "com.trycua.driver" },
+        },
+      }),
+    ]) {
+      let result = ""
+      const { service, calls, root } = await fixture(
+        {
+          accessibility: true,
+          screen_recording: false,
+          source: { attribution: "driver-daemon" },
+        },
+        async (file) => {
+          result = file
+          if (response instanceof Error) throw response
+          await writeFile(file, response)
+        },
+      )
+      await expect(service.request({ action: "open-settings", permission: "screenRecording" })).rejects.toThrow(
+        "Could not request CuaDriver system permissions",
+      )
+      expect(calls.filter((call) => call[0] === "/usr/bin/open")).toHaveLength(1)
+      await expect(stat(result)).rejects.toMatchObject({ code: "ENOENT" })
+      const state = await service.status()
+      expect(state.busy).toBeUndefined()
+      expect(state).toMatchObject({
+        enabled: false,
+        error: expect.stringContaining("Could not request CuaDriver"),
+      })
+      expect(read(root).enabled).toBe(false)
+      // A failed attempt releases the action lock so a user can retry.
+      await expect(service.request({ action: "open-settings", permission: "screenRecording" })).rejects.toThrow(
+        "Could not request CuaDriver system permissions",
+      )
+    }
+  })
+
+  test("an absent installation cannot open an empty permission list", async () => {
+    const { root } = await fixture()
+    const calls: string[] = []
+    const service = createComputerUse({
+      root,
+      platform: "darwin",
+      findBinary: () => undefined,
+      run: async (file) => {
+        calls.push(file)
+        return "{}"
+      },
+    })
+    await expect(service.request({ action: "open-settings", permission: "screenRecording" })).rejects.toThrow(
+      "Install Cua Driver first",
+    )
+    expect(calls).toEqual([])
   })
 
   test("installation starts a stopped driver through LaunchServices before reporting readiness", async () => {

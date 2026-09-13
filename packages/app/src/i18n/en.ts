@@ -1162,13 +1162,11 @@ export const dict = {
   "settings.computerUse.notGranted": "Not granted",
   "settings.computerUse.unknown": "Unknown",
   "settings.computerUse.grantDescription":
-    "Each button opens the corresponding System Settings pane on {{device}}. Find CuaDriver and turn on its switch.",
+    "Each button registers CuaDriver in the permission list on {{device}}, then opens the corresponding settings. You only need to turn its switch on or off.",
   "settings.computerUse.startFirst": "Complete installation and startup above before opening permission settings.",
   "settings.computerUse.returnFromSettings":
     "Return here after granting access. Permission status updates automatically.",
-  "settings.computerUse.permissionHelp": "CuaDriver missing, or still showing as not granted?",
-  "settings.computerUse.missingApp":
-    "If CuaDriver is missing from the list, click + below that list, press ⌘⇧G, enter /Applications/CuaDriver.app, and add it. For screen access, use the screen recording list at the top of the page.",
+  "settings.computerUse.permissionHelp": "Still showing as not granted after enabling access?",
   "settings.computerUse.restartHelp":
     "If access is on but still shows as not granted here, make sure CuaDriver has no active operations, quit and reopen CuaDriver, then click Check permissions again.",
   "settings.computerUse.enableTitle": "3. Enable computer control",
