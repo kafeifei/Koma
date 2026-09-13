@@ -1,10 +1,14 @@
 import type { PluginInfo, PluginInput, IntegrationInfo, ExtensionCatalog } from "@opencode-ai/schema/koma-extensions"
+import type { Attempt } from "@opencode-ai/schema/integration"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { OpenCode, type OpenCodeClient } from "@opencode-ai/client/promise"
 import type { ServerConnection } from "@/context/server"
 import { decode64 } from "@/utils/base64"
 
 export type ServerPermissionMode = "default" | "auto" | "full"
+// The vendored client predates the explicit OAuth confirmation code field.
+type ServerOAuthConnectOutput = Awaited<ReturnType<OpenCodeClient["integration"]["oauth"]["connect"]>>
+export type ServerOAuthAuthorization = ServerOAuthConnectOutput["data"] & Pick<Attempt, "code">
 export type ServerSessionInfo = Awaited<ReturnType<OpenCodeClient["session"]["get"]>> & {
   permissionMode?: ServerPermissionMode
 }
@@ -110,6 +114,16 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
 
   return {
     ...client,
+    integration: {
+      ...client.integration,
+      oauth: {
+        ...client.integration.oauth,
+        connect: (...args: Parameters<OpenCodeClient["integration"]["oauth"]["connect"]>) =>
+          client.integration.oauth.connect(...args) as Promise<
+            ServerOAuthConnectOutput & { data: ServerOAuthAuthorization }
+          >,
+      },
+    },
     extensions: {
       installCatalog: (id: string) =>
         request("/global/extensions/catalog/install", { method: "POST", body: JSON.stringify({ id }) }).then(

@@ -2621,6 +2621,7 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
+  code?: string
 }
 
 export type ProviderAuthError1 = {

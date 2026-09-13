@@ -109,6 +109,8 @@ describe("OpencodePlugin", () => {
         inputs: {},
       })
       expect(attempt.url).toBe("https://opencode.ai/console/device?user_code=user&client_id=opencode-cli")
+      expect(attempt.code).toBe("user")
+      expect(attempt.instructions).toBe("Enter the confirmation code in your browser.")
     }),
   )
 

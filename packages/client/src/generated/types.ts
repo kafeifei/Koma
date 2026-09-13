@@ -2281,6 +2281,7 @@ export type IntegrationsConnectOauthOutput = {
     readonly attemptID: string
     readonly url: string
     readonly instructions: string
+    readonly code?: string
     readonly mode: "auto" | "code"
     readonly time: {
       readonly created: number | "Infinity" | "-Infinity" | "NaN"

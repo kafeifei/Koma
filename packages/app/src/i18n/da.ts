@@ -163,6 +163,7 @@ export const dict = {
   "provider.connect.oauth.auto.visit.link": "dette link",
   "provider.connect.oauth.auto.visit.suffix":
     " og indtast koden nedenfor for at forbinde din konto og bruge modeller fra {{provider}} i OpenCode.",
+  "provider.connect.oauth.auto.browser": " for at fuldføre godkendelsen i din browser. Dette vindue lukkes automatisk.",
   "provider.connect.oauth.auto.confirmationCode": "Bekræftelseskode",
   "provider.connect.toast.connected.title": "{{provider}} forbundet",
   "provider.connect.toast.connected.description": "Modeller fra {{provider}} er nu tilgængelige.",

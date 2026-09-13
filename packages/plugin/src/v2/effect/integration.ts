@@ -15,6 +15,7 @@ import type { Hooks } from "./registration.js"
 export type IntegrationOAuthAuthorization = {
   readonly url: string
   readonly instructions: string
+  readonly code?: string
 } & (
   | {
       readonly mode: "auto"

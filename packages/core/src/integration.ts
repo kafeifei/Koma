@@ -63,6 +63,7 @@ export type Inputs = Integration.Inputs
 export type OAuthAuthorization = {
   readonly url: string
   readonly instructions: string
+  readonly code?: string
 } & (
   | {
       readonly mode: "auto"
@@ -451,6 +452,7 @@ export const locationLayer = Layer.effect(
             attemptID: id,
             url: authorization.url,
             instructions: authorization.instructions,
+            ...(authorization.code !== undefined ? { code: authorization.code } : {}),
             mode: authorization.mode,
             time,
           })

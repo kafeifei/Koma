@@ -11,6 +11,37 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Integration.node, Credential.node, EventV2.node])))
 
 describe("Integration", () => {
+  for (const code of [undefined, "ABCD-1234"]) {
+    it.effect(`preserves explicit OAuth code ${code ?? "absence"} independently of instructions`, () =>
+      Effect.gen(function* () {
+        const integrations = yield* Integration.Service
+        const integrationID = Integration.ID.make("openai")
+        const methodID = Integration.MethodID.make("browser")
+        const instructions = "Browser authorization: complete sign-in in your browser."
+        yield* integrations.transform((editor) =>
+          editor.method.update({
+            integrationID,
+            method: { id: methodID, type: "oauth", label: "Browser" },
+            authorize: () =>
+              Effect.succeed({
+                mode: "auto" as const,
+                url: "https://example.com/authorize",
+                instructions,
+                ...(code === undefined ? {} : { code }),
+                callback: Effect.never,
+              }),
+          }),
+        )
+
+        const attempt = yield* integrations.connection.oauth({ integrationID, methodID, inputs: {} })
+        expect(attempt.instructions).toBe(instructions)
+        expect(attempt.code).toBe(code)
+        expect(Object.hasOwn(attempt, "code")).toBe(code !== undefined)
+        expect((yield* integrations.attempt.status(attempt.attemptID)).status).toBe("pending")
+      }),
+    )
+  }
+
   it.effect("registers integrations through the editor", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service

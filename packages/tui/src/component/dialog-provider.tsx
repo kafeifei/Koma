@@ -252,7 +252,9 @@ function AutoMethod(props: AutoMethodProps) {
         group: "Dialog",
         cmd: () => {
           const code =
-            props.authorization.instructions.match(/[A-Z0-9]{4}-[A-Z0-9]{4,5}/)?.[0] ?? props.authorization.url
+            props.authorization.code ??
+            props.authorization.instructions.match(/[A-Z0-9]{4}-[A-Z0-9]{4,5}/)?.[0] ??
+            props.authorization.url
           clipboard
             .write?.(code)
             .then(() => toast.show({ message: "Copied to clipboard", variant: "info" }))
@@ -296,6 +298,7 @@ function AutoMethod(props: AutoMethodProps) {
       <box gap={1}>
         <Link href={props.authorization.url} fg={theme.primary} />
         <text fg={theme.textMuted}>{props.authorization.instructions}</text>
+        <Show when={props.authorization.code}>{(code) => <text fg={theme.text}>Code: {code()}</text>}</Show>
       </box>
       <text fg={theme.textMuted}>Waiting for authorization…</text>
       <text fg={theme.text}>

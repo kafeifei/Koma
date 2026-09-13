@@ -114,7 +114,8 @@ const headless = {
       return {
         mode: "auto" as const,
         url: `${issuer}/codex/device`,
-        instructions: `Enter code: ${device.user_code}`,
+        instructions: "Enter the confirmation code in your browser.",
+        code: device.user_code,
         callback: Effect.gen(function* () {
           while (true) {
             const response = yield* Effect.tryPromise({
