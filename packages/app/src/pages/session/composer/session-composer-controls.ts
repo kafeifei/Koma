@@ -5,7 +5,7 @@ import { createQuery } from "@tanstack/solid-query"
 import { useNavigate, useSearchParams } from "@solidjs/router"
 import { type Accessor, createMemo } from "solid-js"
 import type { PromptInputControls } from "@/components/prompt-input/contracts"
-import type { PromptProjectControls } from "@/components/prompt-project-selector"
+import type { PromptProject, PromptProjectControls } from "@/components/prompt-project-selector"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useGlobal } from "@/context/global"
 import { useLayout } from "@/context/layout"
@@ -18,7 +18,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { useProviders } from "@/hooks/use-providers"
 import { pathKey } from "@/utils/path-key"
-import { RECENT, recentGroup } from "@/utils/session-project"
+import { RECENT } from "@/utils/session-project"
 import { useLanguage } from "@/context/language"
 
 export function createPromptInputController(input: {
@@ -82,9 +82,11 @@ export function createPromptProjectControls() {
   const [search] = useSearchParams<{ draftId?: string }>()
   const projectServer = () => serverSDK().server
   const language = useLanguage()
-  const availableProjects = (conn: ServerConnection.Any) => {
+  const availableProjects = (conn: ServerConnection.Any): PromptProject[] => {
     const ctx = global.ensureServerCtx(conn)
-    return search.draftId ? [recentGroup(language.t("workspace.recent")), ...ctx.projects.list()] : ctx.projects.list()
+    return search.draftId
+      ? [{ worktree: RECENT, name: language.t("session.new.project.none"), projectless: true }, ...ctx.projects.list()]
+      : ctx.projects.list()
   }
   const projects = createMemo(() => {
     if (server.list.length <= 1) {

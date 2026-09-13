@@ -1020,6 +1020,7 @@ export const dict = {
   "session.revertDock.restore": "恢复消息",
   "session.new.title": "构建任何内容",
   "session.new.project.new": "新建项目",
+  "session.new.project.none": "无项目",
   "session.new.project.search": "搜索项目",
   "session.new.project.add": "添加项目",
   "session.new.worktree.main": "主分支",

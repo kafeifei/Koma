@@ -49,28 +49,33 @@ export function NewSessionView(props: {
               <Show when={props.project.selected()}>
                 <div class="flex min-h-7 min-w-0 flex-col items-center justify-center gap-0 text-v2-text-text-faint sm:flex-row">
                   <PromptProjectSelector controller={props.project} placement="bottom" />
-                  <Show
-                    when={props.workspace.bar.visible()}
-                    fallback={
-                      <>
-                        <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
-                        <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
-                      </>
-                    }
-                  >
-                    <PromptWorkspaceSelector
-                      isolated={props.workspace.selection.isolated()}
-                      branch={props.workspace.bar.branch()}
-                      baseBranch={props.workspace.bar.baseBranch()}
-                      branches={props.workspace.project.branches()}
-                      worktreeDisabled={props.workspace.selection.disabled()}
-                      optionsLoading={props.workspace.selection.loading()}
-                      optionsFailed={props.workspace.selection.failed()}
-                      onRetry={props.workspace.selection.retry}
-                      onIsolationChange={props.workspace.selection.setIsolated}
-                      onBaseBranchChange={props.workspace.selection.setBaseBranch}
-                      onDone={props.input.restoreFocus}
-                    />
+                  <Show when={!props.project.projectless()}>
+                    <Show
+                      when={props.workspace.bar.visible()}
+                      fallback={
+                        <>
+                          <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
+                          <PromptGitStatus
+                            branch={props.workspace.bar.branch()}
+                            noGit={!props.workspace.project.git()}
+                          />
+                        </>
+                      }
+                    >
+                      <PromptWorkspaceSelector
+                        isolated={props.workspace.selection.isolated()}
+                        branch={props.workspace.bar.branch()}
+                        baseBranch={props.workspace.bar.baseBranch()}
+                        branches={props.workspace.project.branches()}
+                        worktreeDisabled={props.workspace.selection.disabled()}
+                        optionsLoading={props.workspace.selection.loading()}
+                        optionsFailed={props.workspace.selection.failed()}
+                        onRetry={props.workspace.selection.retry}
+                        onIsolationChange={props.workspace.selection.setIsolated}
+                        onBaseBranchChange={props.workspace.selection.setBaseBranch}
+                        onDone={props.input.restoreFocus}
+                      />
+                    </Show>
                   </Show>
                 </div>
               </Show>

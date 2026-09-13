@@ -25,6 +25,7 @@ export type PromptProject = {
   name?: string
   id?: string
   worktree: string
+  projectless?: boolean
   sandboxes?: string[]
   icon?: { color?: string; url?: string; override?: string }
   server?: { key: string; name: string }
@@ -153,6 +154,7 @@ export function createPromptProjectController(input: {
   return {
     selected,
     selectedTarget,
+    projectless: () => selected()?.projectless === true,
     empty: () => input.controls().available.length === 0,
     targets,
     servers,
@@ -515,11 +517,16 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
         fallback={<Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />}
       >
         {(item) => (
-          <ProjectAvatar
-            fallback={displayName(item())}
-            src={getProjectAvatarSource(item().id, item().icon)}
-            variant={getProjectAvatarVariant(item().icon?.color)}
-          />
+          <Show
+            when={!item().projectless}
+            fallback={<Icon name="dash" size="small" class="shrink-0 text-v2-icon-icon-muted" />}
+          >
+            <ProjectAvatar
+              fallback={displayName(item())}
+              src={getProjectAvatarSource(item().id, item().icon)}
+              variant={getProjectAvatarVariant(item().icon?.color)}
+            />
+          </Show>
         )}
       </Show>
       <span class="min-w-0 truncate leading-5">
@@ -560,11 +567,16 @@ function ProjectItem(props: {
       }}
       onSelect={() => props.onSelect(props.target)}
     >
-      <ProjectAvatar
-        fallback={displayName(props.target.project)}
-        src={getProjectAvatarSource(props.target.project.id, props.target.project.icon)}
-        variant={getProjectAvatarVariant(props.target.project.icon?.color)}
-      />
+      <Show
+        when={!props.target.project.projectless}
+        fallback={<Icon name="dash" size="small" class="shrink-0 text-v2-icon-icon-muted" />}
+      >
+        <ProjectAvatar
+          fallback={displayName(props.target.project)}
+          src={getProjectAvatarSource(props.target.project.id, props.target.project.icon)}
+          variant={getProjectAvatarVariant(props.target.project.icon?.color)}
+        />
+      </Show>
       <DropdownMenu.ItemLabel class="min-w-0 truncate leading-5">
         {displayName(props.target.project)}
       </DropdownMenu.ItemLabel>

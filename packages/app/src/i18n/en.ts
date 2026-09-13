@@ -955,6 +955,7 @@ export const dict = {
 
   "session.new.title": "Build anything",
   "session.new.project.new": "New project",
+  "session.new.project.none": "No project",
   "session.new.project.search": "Search projects",
   "session.new.project.add": "Add project",
   "session.new.worktree.main": "Main branch",
