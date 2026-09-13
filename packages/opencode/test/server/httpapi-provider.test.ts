@@ -21,6 +21,7 @@ const projectOptions = { config: { formatter: false, lsp: false } }
 const providerID = "test-oauth-parity"
 const oauthURL = "https://example.com/oauth"
 const oauthInstructions = "Finish OAuth"
+const oauthCode = "TEST-CODE"
 
 function providerListHasFetch(list: unknown) {
   if (!Array.isArray(list)) return false
@@ -125,6 +126,7 @@ function writeProviderAuthPlugin(dir: string) {
         `            url: "${oauthURL}",`,
         '            method: "code",',
         `            instructions: "${oauthInstructions}",`,
+        `            code: "${oauthCode}",`,
         "            callback: async () => ({ type: 'success', key: 'token' }),",
         "          }),",
         "        },",
@@ -304,6 +306,7 @@ describe("provider HttpApi", () => {
         url: oauthURL,
         method: "code",
         instructions: oauthInstructions,
+        code: oauthCode,
       })
     }),
     { ...projectOptions, init: writeProviderAuthPlugin },

@@ -1,4 +1,4 @@
-import type { IntegrationMethod, IntegrationOauthConnectOutput } from "@opencode-ai/client/promise"
+import type { IntegrationMethod } from "@opencode-ai/client/promise"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -30,6 +30,7 @@ import {
 import { createStore, produce } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { ExternalLink } from "@/components/external-link"
+import type { ServerOAuthAuthorization } from "@/utils/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -435,7 +436,7 @@ function ProviderConnection(props: {
   })
   const [store, setStore] = createStore({
     methodIndex: undefined as undefined | number,
-    authorization: undefined as undefined | IntegrationOauthConnectOutput["data"],
+    authorization: undefined as undefined | ServerOAuthAuthorization,
     promptInputs: undefined as undefined | Record<string, string>,
     state: "pending" as undefined | "pending" | "complete" | "error" | "prompt",
     error: undefined as string | undefined,
@@ -447,7 +448,7 @@ function ProviderConnection(props: {
     | { type: "auth.prompt" }
     | { type: "auth.inputs"; inputs: Record<string, string> }
     | { type: "auth.pending" }
-    | { type: "auth.complete"; authorization: IntegrationOauthConnectOutput["data"] }
+    | { type: "auth.complete"; authorization: ServerOAuthAuthorization }
     | { type: "auth.error"; error: string }
 
   function dispatch(action: Action) {
@@ -1045,13 +1046,8 @@ function ProviderConnection(props: {
   }
 
   function OAuthAutoView() {
-    const code = createMemo(() => {
-      const instructions = store.authorization?.instructions
-      if (instructions?.includes(":")) {
-        return instructions.split(":").pop()?.trim()
-      }
-      return instructions
-    })
+    const instructions = createMemo(() => store.authorization?.instructions.trim())
+    const code = createMemo(() => store.authorization?.code?.trim())
 
     onMount(() => {
       const poll = async () => {
@@ -1094,15 +1090,24 @@ function ProviderConnection(props: {
           <ExternalLink href={store.authorization!.url}>
             {language.t("provider.connect.oauth.auto.visit.link")}
           </ExternalLink>
-          {language.t("provider.connect.oauth.auto.visit.suffix", { provider: provider().name })}
+          {code()
+            ? language.t("provider.connect.oauth.auto.visit.suffix", { provider: provider().name })
+            : language.t("provider.connect.oauth.auto.browser", { provider: provider().name })}
         </div>
-        <TextField
-          label={language.t("provider.connect.oauth.auto.confirmationCode")}
-          class="font-mono"
-          value={code()}
-          readOnly
-          copyable
-        />
+        <Show when={!code() && instructions()}>
+          {(value) => <div class="text-14-regular text-text-base whitespace-pre-wrap">{value()}</div>}
+        </Show>
+        <Show when={code()}>
+          {(value) => (
+            <TextField
+              label={language.t("provider.connect.oauth.auto.confirmationCode")}
+              class="font-mono"
+              value={value()}
+              readOnly
+              copyable
+            />
+          )}
+        </Show>
         <div class="text-14-regular text-text-base flex items-center gap-4">
           <Spinner />
           <span>{language.t("provider.connect.status.waiting")}</span>

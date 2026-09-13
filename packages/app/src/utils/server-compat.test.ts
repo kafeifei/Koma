@@ -5,6 +5,7 @@ import { createCompatibleApi, sessionCapabilities } from "./server-compat"
 function setup(
   protocol: "v1" | "v2" | Promise<"v1" | "v2">,
   responses?: {
+    oauth?: { url: string; instructions: string; method: "auto" | "code"; code?: string }
     vcs?: { branch: string; default_branch: string }
     echoPermissionMode?: boolean
     lifecycleStatus?: number
@@ -19,6 +20,19 @@ function setup(
     async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init)
       requests.push(request)
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/oauth/authorize"))
+        return Response.json(responses?.oauth)
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/connect/oauth"))
+        return Response.json({
+          data: {
+            attemptID: "attempt_1",
+            url: responses?.oauth?.url,
+            instructions: responses?.oauth?.instructions,
+            ...(responses?.oauth?.code === undefined ? {} : { code: responses.oauth.code }),
+            mode: responses?.oauth?.method,
+            time: { created: 1, expires: 2 },
+          },
+        })
       if (request.method === "PATCH") {
         const body = (await request.clone().json()) as { permissionMode?: "default" | "auto" | "full" }
         return Response.json({
@@ -80,6 +94,28 @@ function setup(
 }
 
 describe("createCompatibleApi", () => {
+  for (const protocol of ["v1", "v2"] as const) {
+    for (const code of [undefined, "ABCD-1234"]) {
+      test(`${protocol} preserves explicit OAuth code ${code ?? "absence"} independently of instructions`, async () => {
+        const oauth = {
+          url: "https://example.com/authorize",
+          instructions: "Browser authorization: complete sign-in in your browser.",
+          method: "auto" as const,
+          ...(code === undefined ? {} : { code }),
+        }
+        const { api, requests } = setup(protocol, { oauth })
+        const result = await api.integration.oauth.connect({ integrationID: "openai", methodID: "0", inputs: {} })
+        expect(result.data.instructions).toBe(oauth.instructions)
+        expect(result.data.mode).toBe("auto")
+        expect(result.data.code).toBe(code)
+        expect(Object.hasOwn(result.data, "code")).toBe(code !== undefined)
+        expect(new URL(requests[0]!.url).pathname).toBe(
+          protocol === "v1" ? "/provider/openai/oauth/authorize" : "/api/integration/openai/connect/oauth",
+        )
+      })
+    }
+  }
+
   test("routes V1 archive through the legacy session update", async () => {
     const { api, requests } = setup("v1")
     await api.session.archive({ sessionID: "ses_1", directory: "/repo" })

@@ -509,6 +509,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
               attemptID: `${value.integrationID}:${method}`,
               url: result.data.url,
               instructions: result.data.instructions,
+              ...(result.data.code !== undefined ? { code: result.data.code } : {}),
               mode: result.data.method,
               time: { created: Date.now(), expires: Date.now() + 10 * 60 * 1000 },
             },

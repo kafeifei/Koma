@@ -57,7 +57,8 @@ function oauth(http: HttpClient.HttpClient) {
         return {
           mode: "auto" as const,
           url: verification.href,
-          instructions: `Enter code: ${device.user_code}`,
+          instructions: "Enter the confirmation code in your browser.",
+          code: device.user_code,
           callback: poll(http, defaultServer, device.device_code, Duration.seconds(device.interval)),
         }
       }),

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
 import { Agent } from "../src/agent"
 import { FileSystem } from "../src/filesystem"
+import { Integration } from "../src/integration"
 import { Model } from "../src/model"
 import { Project } from "../src/project"
 import { Pty } from "../src/pty"
@@ -12,6 +13,20 @@ import { SessionTodo } from "../src/session-todo"
 import { optional } from "../src/schema"
 
 describe("contract hygiene", () => {
+  test("OAuth confirmation codes round-trip separately from instructions and omit undefined", () => {
+    const value = {
+      attemptID: Integration.AttemptID.create(),
+      url: "https://example.com/authorize",
+      instructions: "Sign in: finish in your browser.",
+      mode: "auto" as const,
+      time: { created: 1, expires: 2 },
+    }
+    const encode = Schema.encodeSync(Integration.Attempt)
+    const decode = Schema.decodeUnknownSync(Integration.Attempt)
+    expect(encode(new Integration.Attempt({ ...value, code: undefined }))).toEqual(value)
+    expect(encode(decode({ ...value, code: "ABCD-1234" }))).toEqual({ ...value, code: "ABCD-1234" })
+  })
+
   test("optional properties preserve transformations and omit undefined while encoding", () => {
     const Value = Schema.Struct({ value: optional(Schema.FiniteFromString) })
     expect(Schema.decodeUnknownSync(Value)({ value: "1" })).toEqual({ value: 1 })
