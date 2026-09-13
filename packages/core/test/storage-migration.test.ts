@@ -159,6 +159,50 @@ describe("unified home migration", () => {
       expect(readlinkSync(join(options.root, "desktop/backend", name, "opencode"))).toBe(join(options.root, name))
     }
   })
+  test("deleting the migrated home allows a fresh profile with its remaining compatibility alias", () => {
+    const options = populated().options
+    migrate(options)
+    rmSync(options.root, { recursive: true })
+    expect(lstatSync(options.legacyRoot).isSymbolicLink()).toBe(true)
+    expect(existsSync(options.legacyRoot)).toBe(false)
+
+    // The backend may claim its instance in bin before initializing storage.
+    file(join(options.root, "bin/instance"), "owner")
+    expect(migrate(options)?.status).toBe("complete")
+    expect(JSON.parse(readFileSync(join(options.root, "storage.json"), "utf8")).source).toBeNull()
+    expect(readlinkSync(options.legacyRoot)).toBe(join(options.root, "desktop"))
+    expect(lstatSync(join(options.root, "desktop")).isDirectory()).toBe(true)
+    expect(existsSync(join(options.root, "data/opencode-lab.db"))).toBe(false)
+    expect(migrate(options)?.status).toBe("complete")
+  })
+  test("a remaining home alias does not permit adopting independent data or unrelated symlinks", () => {
+    const options = populated().options
+    migrate(options)
+    rmSync(join(options.root, "storage.json"))
+    expect(() => migrate(options)).toThrow("independent data")
+    expect(readFileSync(join(options.root, "data/opencode-lab.db"), "utf8")).toBe(
+      "backend/data/opencode/opencode-lab.db",
+    )
+
+    const other = fixture()
+    mkdirSync(join(other.legacyRoot, ".."), { recursive: true })
+    symlinkSync(join(other.root, "..", "unrelated"), other.legacyRoot)
+    expect(() => migrate(other)).toThrow("legacy home is not an owned directory")
+    expect(existsSync(other.root)).toBe(false)
+  })
+  test("a reset alias retains its identity through an ancestor directory symlink", () => {
+    const options = populated().options
+    migrate(options)
+    rmSync(options.root, { recursive: true })
+    rmSync(options.legacyRoot)
+    const parentAlias = join(options.root, "..", "home-alias")
+    symlinkSync(join(options.root, ".."), parentAlias)
+    const target = join(parentAlias, ".opencode", "desktop")
+    symlinkSync(target, options.legacyRoot)
+    expect(migrate(options)?.status).toBe("complete")
+    expect(readlinkSync(options.legacyRoot)).toBe(target)
+    expect(migrate(options)?.status).toBe("complete")
+  })
   test("independent destination fails before moving legacy data", () => {
     const options = populated().options
     file(join(options.root, "data/independent.db"), "independent")
@@ -369,6 +413,24 @@ describe("unified home migration", () => {
       ).toThrow("stop")
       expect(migrate(options)?.status).toBe("complete")
       expect(readlinkSync(join(options.root, "desktop/backend/data/opencode"))).toBe(join(options.root, "data"))
+    })
+  })
+  test("reset initialization with a retained home alias resumes every durable boundary", () => {
+    const boundaries: string[] = []
+    migrate(fixture(), (event) => boundaries.push(event.stage))
+    boundaries.forEach((_, index) => {
+      const options = populated().options
+      migrate(options)
+      rmSync(options.root, { recursive: true })
+      let count = 0
+      expect(() =>
+        migrate(options, () => {
+          if (count++ === index) throw new Error("stop")
+        }),
+      ).toThrow("stop")
+      expect(migrate(options)?.status).toBe("complete")
+      expect(readlinkSync(options.legacyRoot)).toBe(join(options.root, "desktop"))
+      expect(JSON.parse(readFileSync(join(options.root, "storage.json"), "utf8")).source).toBeNull()
     })
   })
   test("invalid transaction metadata cannot redirect filesystem operations", () => {

@@ -40,6 +40,14 @@ export async function prepareKomaDesktopHome(input: {
       input.setUserData(StoragePaths.resolve(root).desktop)
       return input.acquireLock()
     }
+    // A deleted home leaves the old desktop alias dangling. Bootstrap under the
+    // shared initialization lease before Electron tries to create its singleton
+    // directory through that alias. No legacy data is moved in this case.
+    if ((!metadata || metadata.source === null) && StorageMigration.isLegacyHomeAlias(paths)) {
+      StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: () => true })
+      input.setUserData(StoragePaths.resolve(root).desktop)
+      return input.acquireLock()
+    }
     input.setUserData(StorageMigration.unifiedHomeLockPath(paths))
     return Boolean(StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: input.acquireLock }))
   } finally {

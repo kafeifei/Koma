@@ -26,7 +26,7 @@ describe.skipIf(process.env.OPENCODE_ELECTRON_TEST !== "1")("Electron storage si
       import { app } from 'electron';
       import { mkdirSync, writeFileSync, renameSync } from 'node:fs';
       import { join } from 'node:path';
-      import { StorageMigration } from ${JSON.stringify(resolve(import.meta.dir, "../../../core/src/storage-migration.ts"))};
+      import { prepareKomaDesktopHome } from ${JSON.stringify(resolve(import.meta.dir, "./koma-environment.ts"))};
       const input = JSON.parse(process.env.OPENCODE_MIGRATION_FIXTURE);
       const sandbox = join(input.base, 'process-' + process.pid);
       mkdirSync(sandbox, { recursive: true });
@@ -49,14 +49,13 @@ describe.skipIf(process.env.OPENCODE_ELECTRON_TEST !== "1")("Electron storage si
           if (!acquired) app.exit(0);
           return;
         }
-        const lease = await StorageMigration.lock(input.root);
-        try {
-          const lockPath = StorageMigration.unifiedHomeLockPath(paths);
-          app.setPath('userData', lockPath);
-          const result = StorageMigration.prepareUnifiedHome({ ...paths, acquireLock: () => app.requestSingleInstanceLock() });
-          if (result) app.setPath('userData', result.desktop);
-          report({ acquired: !!result, lockPath, result, userData: app.getPath('userData') });
-        } finally { await lease.release(); }
+        let lockPath;
+        const acquired = await prepareKomaDesktopHome({
+          ...paths,
+          setUserData: path => { lockPath = path; app.setPath('userData', path); },
+          acquireLock: () => app.requestSingleInstanceLock(),
+        });
+        report({ acquired, lockPath, userData: app.getPath('userData') });
         if (input.mode !== 'migrate-holder') app.exit(0);
       }
       main().catch(error => { report({ error: error.message, stack: error.stack }); app.exit(1); });
@@ -85,6 +84,7 @@ describe.skipIf(process.env.OPENCODE_ELECTRON_TEST !== "1")("Electron storage si
       }
       const output = JSON.parse(readFileSync(result, "utf8"))
       if (output.error) throw new Error(JSON.stringify(output))
+      if (mode === "migrate") await child.exited
       return { child, output }
     }
     const root = join(base, "migration/.opencode")
@@ -105,6 +105,32 @@ describe.skipIf(process.env.OPENCODE_ELECTRON_TEST !== "1")("Electron storage si
     await migrated.child.exited
     expect(lstatSync(legacyRoot).isSymbolicLink()).toBe(true)
     expect(readFileSync(join(root, "desktop/settings/state.dat"), "utf8")).toBe("preserve")
+    expect((await run("migrate", root, legacyRoot)).output.acquired).toBe(true)
+
+    rmSync(root, { recursive: true })
+    expect(lstatSync(legacyRoot).isSymbolicLink()).toBe(true)
+    expect(existsSync(legacyRoot)).toBe(false)
+    const reset = await run("migrate-holder", root, legacyRoot)
+    expect(reset.output.acquired).toBe(true)
+    expect(reset.output.lockPath).toBe(join(root, "desktop"))
+    expect(JSON.parse(readFileSync(join(root, "storage.json"), "utf8")).source).toBeNull()
+    expect((await run("migrate", root, legacyRoot)).output.acquired).toBe(false)
+    reset.child.kill()
+    await reset.child.exited
+    expect((await run("migrate", root, legacyRoot)).output.acquired).toBe(true)
+
+    rmSync(root, { recursive: true })
+    expect(() =>
+      StorageMigration.prepareUnifiedHome({
+        root,
+        legacyRoot,
+        acquireLock: () => true,
+        checkpoint: ({ stage }) => {
+          if (stage === "manifest") throw new Error("interrupted reset")
+        },
+      }),
+    ).toThrow("interrupted reset")
+    expect(existsSync(join(root, "desktop"))).toBe(false)
     expect((await run("migrate", root, legacyRoot)).output.acquired).toBe(true)
 
     const freshRoot = join(base, "fresh/.opencode")
