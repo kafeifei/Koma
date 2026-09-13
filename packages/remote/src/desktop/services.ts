@@ -58,10 +58,21 @@ const action = z.discriminatedUnion("service", [
   z.object({ service: z.literal("web"), op: z.enum(["getState", "setEnabled"]), enabled: z.boolean().optional() }),
   z.object({
     service: z.literal("remote"),
-    op: z.enum(["getState", "signIn", "cancelSignIn", "signOut", "setEnabled", "rename", "refresh", "connect"]),
+    op: z.enum([
+      "getState",
+      "signIn",
+      "cancelSignIn",
+      "signOut",
+      "setEnabled",
+      "rename",
+      "refresh",
+      "connect",
+      "remove",
+    ]),
     enabled: z.boolean().optional(),
     name: z.string().trim().min(1).max(40).optional(),
     id: z.string().min(1).max(200).optional(),
+    ids: z.array(z.string().min(1).max(200)).min(1).max(100).optional(),
   }),
 ])
 
@@ -82,6 +93,10 @@ async function desktopServiceRequest(
   if (input.op === "connect") {
     if (!input.id) throw new Error("Missing device identifier")
     return host.remote.connect(input.id)
+  }
+  if (input.op === "remove") {
+    if (!input.ids) throw new Error("Missing device identifiers")
+    return host.remote.remove(input.ids)
   }
   return host.remote[input.op]()
 }

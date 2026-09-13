@@ -437,6 +437,9 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
   // providers, so use the raw input (cache included) plus raw output (reasoning included).
   const contextLimit = safe(finite(input.model.limit?.context ?? 0))
   const contextUsed = inputTokens + outputTokens
+  const hasContextUsage = [input.usage.inputTokens, input.usage.outputTokens].every(
+    (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+  )
   const costInfo =
     input.model.cost?.tiers
       ?.filter((item) => item.tier.type === "context" && contextTokens > item.tier.size)
@@ -462,7 +465,9 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
           ),
     tokens,
     context:
-      contextLimit > 0 ? { limit: contextLimit, used: contextUsed, ratio: contextUsed / contextLimit } : undefined,
+      contextLimit > 0 && hasContextUsage
+        ? { limit: contextLimit, used: contextUsed, ratio: contextUsed / contextLimit }
+        : undefined,
   }
 }
 

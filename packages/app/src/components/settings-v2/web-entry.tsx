@@ -1,5 +1,6 @@
 import { Show, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
+import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
@@ -33,16 +34,26 @@ export function WebEntrySetting(props: { entry: WebEntryPlatform }) {
             <span>{language.t("settings.webEntry.description")}</span>
             <Show when={store.state?.url}>
               {(url) => (
-                <a
-                  class="font-mono text-v2-text-text-strong underline select-text"
-                  href={url()}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    platform.openExternal(url())
-                  }}
-                >
-                  {url()}
-                </a>
+                <div class="settings-v2-remote-actions">
+                  <a
+                    class="font-mono text-v2-text-text-strong underline select-text"
+                    href={url()}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      platform.openExternal(url())
+                    }}
+                  >
+                    {url()}
+                  </a>
+                  <ButtonV2
+                    variant="ghost-muted"
+                    onClick={() =>
+                      void navigator.clipboard.writeText(url()).catch(() => setStore("state", "error", true))
+                    }
+                  >
+                    {language.t("settings.connections.copy")}
+                  </ButtonV2>
+                </div>
               )}
             </Show>
             <Show when={store.state?.error}>

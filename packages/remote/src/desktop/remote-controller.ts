@@ -1,4 +1,4 @@
-import type { RemoteAccessState } from "./types"
+import type { RemoteAccessState, RemoteCleanupResult } from "./types"
 import {
   GitHubAuthError,
   type GitHubCredential,
@@ -7,6 +7,7 @@ import {
   type waitGitHubLogin,
 } from "@opencode-ai/remote/github"
 import type { RemoteTunnelDevice } from "@opencode-ai/remote/tunnels"
+import type { RemoteRegistration, RemoteQuota, RemoteRemovalStatus } from "./remote-registrations"
 import type { RemoteHostRecord } from "./remote-host"
 
 type Account = Awaited<ReturnType<typeof getGitHubAccount>>
@@ -45,7 +46,13 @@ type Dependencies = {
   waitLogin: typeof waitGitHubLogin
   account(token: string): Promise<Account>
   refreshCredential(value: GitHubCredential): Promise<GitHubCredential>
-  list(token: () => Promise<string>): Promise<RemoteTunnelDevice[]>
+  list(token: () => Promise<string>): Promise<RemoteRegistration[]>
+  quota(token: () => Promise<string>): Promise<RemoteQuota | null>
+  remove(
+    token: () => Promise<string>,
+    id: string,
+    guard: { deviceID: string; currentID?: string; check(): void },
+  ): Promise<RemoteRemovalStatus>
   host(options: {
     token(): Promise<string>
     accountID: number
@@ -77,6 +84,8 @@ export function createRemoteController(deps: Dependencies) {
         : deps.deviceName,
     website: deps.website,
     devices: [],
+    devicesError: false,
+    quota: null,
     error: null,
   }
   let credential: GitHubCredential | undefined
@@ -164,13 +173,24 @@ export function createRemoteController(deps: Dependencies) {
   const list = async (generation: number) => {
     check(generation)
     if (!account) return state
-    const devices = await deps.list(token)
+    const [devices, quota] = await Promise.all([deps.list(token), deps.quota(token).catch(() => null)]).catch(
+      (error) => {
+        check(generation)
+        publish({ devicesError: true, quota: null })
+        throw error
+      },
+    )
     check(generation)
     return publish({
+      devicesError: false,
+      quota,
       devices: devices.map((device) => ({
         id: device.id,
         name: device.name,
-        current: device.id === currentID(),
+        current:
+          device.id === currentID() || device.deviceLabel === `opencode-device-${deps.deviceID.replaceAll("-", "")}`,
+        connectable: device.connectable !== false,
+        connected: clients.has(device.id),
         online: device.id === currentID() ? state.status === "online" : device.online,
       })),
     })
@@ -258,6 +278,8 @@ export function createRemoteController(deps: Dependencies) {
           deps.failed?.({ operation, category, ...failureDetails(error) })
         } catch {}
         publish({ error: category, status: state.enabled ? (host ? state.status : "offline") : "disabled" })
+        // A failed host start (including quota exhaustion) must not hide cleanup candidates.
+        if (account) await list(generation).catch(() => undefined)
       }
       return state
     })
@@ -310,7 +332,16 @@ export function createRemoteController(deps: Dependencies) {
         deps.settings.set("remoteEnabled", false)
         credential = undefined
         account = undefined
-        publish({ account: null, authorization: null, enabled: false, status: "disabled", devices: [], error: null })
+        publish({
+          account: null,
+          authorization: null,
+          enabled: false,
+          status: "disabled",
+          devices: [],
+          devicesError: false,
+          quota: null,
+          error: null,
+        })
       })
     },
     setEnabled: (enabled: boolean) => {
@@ -373,18 +404,86 @@ export function createRemoteController(deps: Dependencies) {
           const client = await deps.connect(token, id, signal, () => {
             if (disconnected) return
             disconnected = true
-            if (!signal.aborted) clients.delete(id)
+            if (!signal.aborted) {
+              clients.delete(id)
+              publish({
+                devices: state.devices.map((device) => (device.id === id ? { ...device, connected: false } : device)),
+              })
+            }
           })
           if (signal.aborted || disposed || generation !== authentication || disconnected) {
             await client.stop()
             throw new Error("Remote connection cancelled")
           }
           clients.set(id, client)
+          publish({
+            devices: state.devices.map((device) => (device.id === id ? { ...device, connected: true } : device)),
+          })
           return { url: client.url, name: client.name }
         })
         .catch(() => {
           throw new Error("Remote connection unavailable")
         })
+      pending = result.then(
+        () => undefined,
+        () => undefined,
+      )
+      return result
+    },
+    remove: (ids: string[]): Promise<RemoteCleanupResult> => {
+      if (
+        !Array.isArray(ids) ||
+        ids.length === 0 ||
+        ids.length > 100 ||
+        ids.some((id) => typeof id !== "string" || !id || id.length > 200)
+      ) {
+        return Promise.reject(new Error("Invalid remote devices"))
+      }
+      const selected = [...new Set(ids)]
+      const generation = revision
+      const auth = authentication
+      const checkRemoval = () => {
+        check(generation)
+        if (!account || authentication !== auth) throw new Error("Remote cleanup cancelled")
+      }
+      const result = pending.then(async () => {
+        const results: RemoteCleanupResult["results"] = []
+        for (const id of selected) {
+          let status: RemoteRemovalStatus = "failed"
+          try {
+            checkRemoval()
+            if (
+              id === currentID() ||
+              clients.has(id) ||
+              state.devices.some((device) => device.id === id && device.current)
+            ) {
+              status = "protected"
+            } else {
+              status = await deps.remove(
+                async () => {
+                  checkRemoval()
+                  return token()
+                },
+                id,
+                {
+                  deviceID: deps.deviceID,
+                  currentID: currentID(),
+                  check: checkRemoval,
+                },
+              )
+            }
+          } catch {}
+          results.push({ id, status })
+          if (!disposed && generation === revision && (status === "deleted" || status === "missing")) {
+            publish({
+              devices: state.devices.filter((device) => device.id !== id),
+              error: state.error === "capacity" ? null : state.error,
+            })
+          }
+        }
+        if (!disposed && generation === revision && account) await list(generation).catch(() => undefined)
+        return { state, results }
+      })
       pending = result.then(
         () => undefined,
         () => undefined,
@@ -411,6 +510,11 @@ function failureCategory(error: unknown): FailureCategory {
   if (error instanceof RemoteConfigurationError) return "configuration"
   if (error && typeof error === "object") {
     const response = property(error, "response")
+    if (response && typeof response === "object" && property(response, "status") === 429) {
+      const data = property(response, "data")
+      const detail = data && typeof data === "object" ? property(data, "detail") : undefined
+      if (typeof detail === "string" && detail.includes("TunnelsPerUserPerLocation")) return "capacity"
+    }
     if (response && typeof response === "object" && property(response, "status") === 403) {
       const data = property(response, "data")
       if (

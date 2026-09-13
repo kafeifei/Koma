@@ -12,13 +12,12 @@ import { SettingsKeybinds } from "../settings-keybinds"
 import { SettingsProvidersV2 } from "./providers"
 import { SettingsModelsV2 } from "./models"
 import "./settings-v2.css"
-import { SettingsServersV2 } from "./servers"
+import { SettingsConnectionsV2 } from "./connections"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { BuildInfo } from "../build-info"
-import { SettingsRemoteV2 } from "./remote"
 import { SettingsExperiments } from "../settings-experiments"
 
 export const DialogSettings: Component<{
@@ -32,7 +31,9 @@ export const DialogSettings: Component<{
   const tabs = useTabs()
   const serverSync = useServerSync()
   const serverSDK = useServerSDK()
-  const [tab, setTab] = createSignal(props.defaultValue ?? "general")
+  const initialTab =
+    props.defaultValue === "remote" || props.defaultValue === "servers" ? "connections" : props.defaultValue
+  const [tab, setTab] = createSignal(initialTab ?? "general")
   const directory = createMemo(() => {
     const route = layout.route()
     if (route.type === "home") {
@@ -76,21 +77,15 @@ export const DialogSettings: Component<{
                       <Icon name="keyboard" />
                       {language.t("settings.tab.shortcuts")}
                     </TabsV2.Trigger>
-                    <Show when={platform.remoteAccess}>
-                      <TabsV2.Trigger value="remote">
-                        <Icon name="window-cursor" />
-                        {language.t("settings.tab.remote")}
-                      </TabsV2.Trigger>
-                    </Show>
                   </div>
                 </div>
 
                 <div class="flex flex-col gap-1.5">
                   <TabsV2.SectionTitle>{language.t("settings.section.server")}</TabsV2.SectionTitle>
                   <div class="flex flex-col gap-1.5 w-full">
-                    <TabsV2.Trigger value="servers">
-                      <Icon name="server" />
-                      {language.t("status.popover.tab.servers")}
+                    <TabsV2.Trigger value="connections">
+                      <Icon name="link" />
+                      {language.t("settings.tab.connections")}
                     </TabsV2.Trigger>
                     <TabsV2.Trigger value="providers">
                       <Icon name="providers" />
@@ -137,15 +132,8 @@ export const DialogSettings: Component<{
         <TabsV2.Content value="shortcuts" class="settings-v2-panel">
           <SettingsKeybinds v2 />
         </TabsV2.Content>
-        <Show when={platform.remoteAccess}>
-          {(remoteAccess) => (
-            <TabsV2.Content value="remote" class="settings-v2-panel">
-              <SettingsRemoteV2 remoteAccess={remoteAccess()} />
-            </TabsV2.Content>
-          )}
-        </Show>
-        <TabsV2.Content value="servers" class="settings-v2-panel">
-          <SettingsServersV2 />
+        <TabsV2.Content value="connections" class="settings-v2-panel">
+          <SettingsConnectionsV2 initialSection={props.defaultValue} />
         </TabsV2.Content>
         <TabsV2.Content value="providers" class="settings-v2-panel">
           <SettingsProvidersV2 directory={directory} onBack={showProviders} />
