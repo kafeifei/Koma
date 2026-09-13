@@ -52,7 +52,7 @@ const execution = {
 } satisfies Pick<SessionExecution.Interface, "active">
 
 describe("lab shutdown state", () => {
-  it.live("sees durable input, Codex pending state, and a child lease, then returns idle after cleanup", () =>
+  it.live("sees durable input, Codex pending state, and a session lease but not a pty lease, then returns idle", () =>
     Effect.gen(function* () {
       const directory = yield* tmpdirScoped({ git: true })
       const projectID = ProjectV2.ID.make(`shutdown-${crypto.randomUUID()}`)
@@ -92,6 +92,15 @@ describe("lab shutdown state", () => {
       yield* lifecycle.acquire({ directory, sessionID })
       expect(yield* KomaShutdownState.read(input)).toBe(true)
       yield* lifecycle.release({ directory, sessionID })
+      expect(yield* KomaShutdownState.read(input)).toBe(false)
+
+      const ptyOwnerID = "pty:shutdown-test"
+      yield* lifecycle.acquire({ directory, sessionID: ptyOwnerID })
+      expect(yield* KomaShutdownState.read(input)).toBe(false)
+      yield* lifecycle.acquire({ directory, sessionID })
+      expect(yield* KomaShutdownState.read(input)).toBe(true)
+      yield* lifecycle.release({ directory, sessionID })
+      yield* lifecycle.release({ directory, sessionID: ptyOwnerID })
       expect(yield* KomaShutdownState.read(input)).toBe(false)
 
       yield* db

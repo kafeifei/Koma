@@ -42,7 +42,7 @@ export async function createCodexInteraction(
     const choices = decisions.map((decision, index) => ({
       id: `choice-${index}`,
       kind: decisionKind(decision),
-      ...(typeof decision === "object" ? { label: JSON.stringify(decision) } : {}),
+      ...decisionPresentation(decision),
     }))
     return {
       view: { ...base, kind: "command", choices },
@@ -201,6 +201,22 @@ function decisionKind(value: unknown): SessionExternal.Interaction["choices"][nu
   if (value === "decline") return "deny"
   if (value === "cancel") return "cancel"
   return "custom"
+}
+
+function decisionPresentation(value: unknown): { scope?: string; label?: string } {
+  if (!record(value)) return {}
+  if (record(value.acceptWithExecpolicyAmendment)) {
+    const prefix = value.acceptWithExecpolicyAmendment.execpolicy_amendment as string[]
+    return {
+      scope: "commandPrefix",
+      label: prefix.map((part) => (/^[a-zA-Z0-9_./,:=@%+-]+$/.test(part) ? part : JSON.stringify(part))).join(" "),
+    }
+  }
+  if (record(value.applyNetworkPolicyAmendment)) {
+    const rule = value.applyNetworkPolicyAmendment.network_policy_amendment as { host: string; action: string }
+    return { scope: rule.action === "allow" ? "networkAllow" : "networkDeny", label: rule.host }
+  }
+  return {}
 }
 
 function requireCommandDecision(value: unknown) {

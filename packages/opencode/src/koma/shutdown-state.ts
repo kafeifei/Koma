@@ -1,7 +1,8 @@
 import { SessionExecution } from "@opencode-ai/core/session/execution"
-import { SessionInputTable } from "@opencode-ai/core/session/sql"
+import { SessionInputTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionExternalBindingTable, SessionExternalDeliveryTable } from "@opencode-ai/core/session/external/sql"
 import { Database } from "@opencode-ai/core/database/database"
+import type { SessionID } from "@/session/schema"
 import { WorktreeLifecycle } from "@/worktree/lifecycle"
 import { eq, inArray, isNull } from "drizzle-orm"
 import { Effect } from "effect"
@@ -12,7 +13,7 @@ export * as KomaShutdownState from "./shutdown-state"
 export const read = Effect.fn("KomaShutdownState.read")(function* (input: {
   readonly database: Database.Interface
   readonly execution: Pick<SessionExecution.Interface, "active">
-  readonly lifecycle: WorktreeLifecycle.Interface
+  readonly lifecycle: Pick<WorktreeLifecycle.Interface, "leaseOwnerIDs">
 }) {
   const executionActive = (yield* input.execution.active).size > 0
   const pendingInput =
@@ -49,6 +50,22 @@ export const read = Effect.fn("KomaShutdownState.read")(function* (input: {
       .limit(1)
       .get()
       .pipe(Effect.orDie)) !== undefined
-  const leasedSession = yield* input.lifecycle.hasActiveLease
+  // Only session-owned leases block shutdown; PTY leases keep a shell alive without any running work.
+  const leaseOwners = yield* input.lifecycle.leaseOwnerIDs
+  const leasedSession =
+    leaseOwners.length > 0 &&
+    (yield* input.database.db
+      .select({ id: SessionTable.id })
+      .from(SessionTable)
+      .where(
+        inArray(
+          SessionTable.id,
+          // Non-session owners (pty:*) simply match no row.
+          leaseOwners.map((owner) => owner as SessionID),
+        ),
+      )
+      .limit(1)
+      .get()
+      .pipe(Effect.orDie)) !== undefined
   return executionActive || leasedSession || pendingInput || pendingBinding || uncertainBinding || pendingDelivery
 })

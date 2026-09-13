@@ -91,7 +91,9 @@ describe("createCodexInteraction", () => {
       target,
     )
 
-    expect(pending?.view.choices).toEqual([{ id: "choice-0", kind: "custom", label: JSON.stringify(decision) }])
+    expect(pending?.view.choices).toEqual([
+      { id: "choice-0", kind: "custom", scope: "networkAllow", label: "api.example.com" },
+    ])
     expect(pending?.reply({ revision: 1, choiceID: "choice-0" })).toEqual({ result: { decision } })
     await expect(
       createCodexInteraction(
@@ -104,6 +106,35 @@ describe("createCodexInteraction", () => {
         target,
       ),
     ).rejects.toThrow("Invalid native command approval decision")
+  })
+
+  test("presents a command prefix rule and replies with the exact native amendment", async () => {
+    const decision = {
+      acceptWithExecpolicyAmendment: {
+        execpolicy_amendment: ["sed", "-n", "300,345p", "macos/Sources/XDial/XDialApp.swift"],
+      },
+    }
+    const pending = await createCodexInteraction(
+      request("item/commandExecution/requestApproval", {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "item-1",
+        availableDecisions: ["accept", decision, "cancel"],
+      }),
+      target,
+    )
+    expect(pending?.view.choices).toEqual([
+      { id: "choice-0", kind: "allow" },
+      {
+        id: "choice-1",
+        kind: "custom",
+        scope: "commandPrefix",
+        label: "sed -n 300,345p macos/Sources/XDial/XDialApp.swift",
+      },
+      { id: "choice-2", kind: "cancel" },
+    ])
+    expect(pending?.reply({ revision: 1, choiceID: "choice-1" })).toEqual({ result: { decision } })
+    expect(pending?.reply({ revision: 1, choiceID: "choice-0" })).toEqual({ result: { decision: "accept" } })
   })
 
   test("offers file session approval only when Codex supplies a grant root", async () => {
