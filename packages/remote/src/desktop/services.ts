@@ -7,6 +7,7 @@ import { createRemoteAccess } from "./remote-access"
 import { createWebEntryController } from "./web-entry-controller"
 
 export function createDesktopHostServices(options: {
+  profile?: string
   directory: string
   renderer: string
   backend: Parameters<typeof createRemoteAccess>[0]["backend"]
@@ -35,6 +36,7 @@ export function createDesktopHostServices(options: {
   const web = createWebEntryController({ backend, root: renderer, settings, changed: () => {}, failed: console.error })
   const remote = createRemoteAccess({
     backend,
+    profile: options.profile,
     root: renderer,
     settings,
     clientOrigin: "tauri://localhost",
@@ -68,6 +70,7 @@ const action = z.discriminatedUnion("service", [
       "refresh",
       "connect",
       "remove",
+      "disconnect",
     ]),
     enabled: z.boolean().optional(),
     name: z.string().trim().min(1).max(40).optional(),
@@ -90,9 +93,9 @@ async function desktopServiceRequest(
     if (!input.name) throw new Error("Missing device name")
     return host.remote.rename(input.name)
   }
-  if (input.op === "connect") {
+  if (input.op === "connect" || input.op === "disconnect") {
     if (!input.id) throw new Error("Missing device identifier")
-    return host.remote.connect(input.id)
+    return host.remote[input.op](input.id)
   }
   if (input.op === "remove") {
     if (!input.ids) throw new Error("Missing device identifiers")

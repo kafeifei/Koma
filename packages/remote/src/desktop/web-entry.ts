@@ -338,6 +338,13 @@ function backendHeaders(headers: IncomingHttpHeaders, backendURL: URL, backend: 
   delete result.authorization
   result.host = backendURL.host
   if (headers.origin) result.origin = backend.origin ?? backendURL.origin
+  // The client gateway has already checked the browser origin. Fetch Metadata
+  // describes that browser-to-loopback hop, not the private relay request with
+  // its rewritten Host and Origin. Keeping "cross-site" rejects valid requests
+  // at the remote gateway, including event streams and WebSocket upgrades.
+  if (backend.connect) {
+    for (const key of Object.keys(result)) if (key.startsWith("sec-fetch-")) delete result[key]
+  }
   if (backend.password !== null) {
     result.authorization = `Basic ${Buffer.from(`${backend.username ?? ""}:${backend.password}`).toString("base64")}`
   }

@@ -10,7 +10,7 @@ import { getOwner } from "solid-js/web"
 import { QueryClient } from "@tanstack/solid-query"
 import type { ServerScope } from "@/utils/server-scope"
 import { Persist, persisted } from "@/utils/persist"
-import { createOpenedProjectResolver, dedupeOpenedProjects } from "./global-sync/utils"
+import { createOpenedProjectResolver, dedupeOpenedProjects, openedProjectMetadata } from "./global-sync/utils"
 
 export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext({
   name: "Global",
@@ -39,7 +39,7 @@ export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext(
 
     const serverCtxs = new Map<
       ServerConnection.Key,
-      { dispose: () => void; serverCtx: ReturnType<typeof createServerCtx> }
+      { dispose: () => void; serverCtx: ReturnType<typeof createServerCtx>; url: string; revision: number }
     >()
 
     const owner = getOwner()
@@ -47,10 +47,12 @@ export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext(
     const ensureServerCtx = (conn: ServerConnection.Any) => {
       const key = ServerConnection.key(conn)
       const existing = serverCtxs.get(key)
-      if (existing) return existing.serverCtx
+      const revision = server.revision(key)
+      if (existing && existing.url === conn.http.url && existing.revision === revision) return existing.serverCtx
+      existing?.dispose()
       const root = createRoot((dispose) => {
         const serverCtx = createServerCtx(conn, server.scope(key), server.projects.forServer(key), server.ready)
-        return { dispose, serverCtx }
+        return { dispose, serverCtx, url: conn.http.url, revision }
       }, owner as any)
       serverCtxs.set(key, root)
       return root.serverCtx
@@ -128,9 +130,7 @@ function createServerCtx(
     const [childStore] = sync.child(project.worktree, { bootstrap: false })
     const projectID = childStore.project
     const worktree = resolveProject()(project.worktree)
-    const metadata = projectID
-      ? sync.data.project.find((x) => x.id === projectID)
-      : sync.data.project.find((x) => pathKey(x.worktree) === pathKey(worktree))
+    const metadata = openedProjectMetadata(sync.data.project, worktree, projectID)
     const [projectStore] = worktree === project.worktree ? [childStore] : sync.child(worktree, { bootstrap: false })
 
     // Preserve local icon override from the canonical project's per-workspace localStorage cache.
@@ -153,8 +153,7 @@ function createServerCtx(
       .map((worktree) => enrich({ worktree, expanded: false }))
   })
 
-  const isLocal =
-    (conn?.type === "sidecar" && conn.variant === "base") || (conn?.type === "http" && isLocalHost(conn.http.url))
+  const isLocal = ServerConnection.local(conn)
 
   return {
     queryClient,

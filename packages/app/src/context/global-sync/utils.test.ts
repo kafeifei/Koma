@@ -12,6 +12,7 @@ import {
   normalizeAgentList,
   normalizePermissionRequest,
   normalizeProviderList,
+  openedProjectMetadata,
 } from "./utils"
 
 describe("normalizeAgentList", () => {
@@ -172,6 +173,23 @@ describe("createOpenedProjectResolver", () => {
     expect(cycle("/worktrees/a")).toBe("/worktrees/a")
     expect(cycle("/worktrees/b")).toBe("/worktrees/b")
   })
+})
+
+test("one checkout retains worktrees and identities from both sides of a Git history change", () => {
+  const time = { created: 1, updated: 1 }
+  const projects = [
+    { id: "old", worktree: "/app", sandboxes: ["/old-task", "/shared"], time },
+    { id: "new", worktree: "/app/", sandboxes: ["/new-task", "/shared/"], time, name: "Current" },
+    { id: "other", worktree: "/other", sandboxes: ["/unrelated"], time },
+  ]
+  const value = openedProjectMetadata(projects, "/app", "new")!
+  expect(value.id).toBe("new")
+  expect(value.name).toBe("Current")
+  expect(value.projectIDs).toEqual(["old", "new"])
+  expect(value.sandboxes).toEqual(["/old-task", "/shared/", "/new-task"])
+  expect(openedProjectMetadata(projects, "/app")?.sandboxes).toEqual(value.sandboxes)
+  expect(openedProjectMetadata(projects, "/app/nested", "new")).toBeUndefined()
+  expect(projects[0].sandboxes).toEqual(["/old-task", "/shared"])
 })
 
 test("dedupeOpenedProjects preserves first position and expanded state", () => {

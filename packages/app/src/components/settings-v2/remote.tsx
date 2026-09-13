@@ -140,7 +140,10 @@ export function RemoteConnectionSettings(props: { remoteAccess: RemoteAccessPlat
     setStore({ pending: `connect:${id}`, actionError: false })
     const result = await props.remoteAccess.connect(id).catch(() => undefined)
     if (lifecycle.disposed || request !== lifecycle.request) return
-    if (!result || !server.add({ type: "http", displayName: result.name, http: { url: result.url } })) {
+    if (
+      !result ||
+      !server.add({ type: "http", displayName: result.name, http: { url: result.url }, remote: result.remote })
+    ) {
       setStore({ pending: null, actionError: true })
       return
     }

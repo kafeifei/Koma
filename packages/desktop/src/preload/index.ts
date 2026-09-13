@@ -31,6 +31,7 @@ const api: ElectronAPI = {
     refresh: () => ipcRenderer.invoke("remote-access-refresh"),
     connect: (id) => ipcRenderer.invoke("remote-access-connect", id),
     remove: (ids) => ipcRenderer.invoke("remote-access-remove", ids),
+    disconnect: (id) => ipcRenderer.invoke("remote-access-disconnect", id),
     subscribe: (callback) => {
       const handler = (_: unknown, state: RemoteAccessState) => callback(state)
       ipcRenderer.on("remote-access-state", handler)

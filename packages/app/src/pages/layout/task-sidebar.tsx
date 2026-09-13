@@ -10,7 +10,7 @@ import { useGlobal, type ServerCtx } from "@/context/global"
 import { createHomeSessionQuery } from "@/context/global-sync/home-session-query"
 import { useLanguage } from "@/context/language"
 import { useLayout, type LocalProject } from "@/context/layout"
-import { ServerConnection, serverName } from "@/context/server"
+import { ServerConnection, serverName, useServer } from "@/context/server"
 import { tabHref, useTabs } from "@/context/tabs"
 import { createHomeController } from "@/pages/home/home-controller"
 import { createHomeProjectsController } from "@/pages/home/home-projects-controller"
@@ -33,6 +33,7 @@ import { mutateTask, type TaskLifecycleOperation } from "./task-lifecycle"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogWorktreeManager } from "@/components/dialog-worktree-manager"
 import "./task-sidebar.css"
+import { ServerConnectionError } from "@/components/server/server-connection-error"
 
 export function TaskSidebar(props: ParentProps<{ opened: boolean; onNavigate: () => void }>) {
   const global = useGlobal()
@@ -156,6 +157,25 @@ function TaskServer(props: {
   onNewTask: (project: LocalProject) => void
   onChooseProject: () => void
 }) {
+  const server = useServer()
+  const tabs = useTabs()
+  const [connection, setConnection] = createStore({ retrying: false })
+  const retry = async () => {
+    if (connection.retrying) return
+    setConnection("retrying", true)
+    try {
+      await server.reconnect(key())
+      await sessions.refetch()
+    } catch {
+      // Keep the existing error and deletion action available when reconnection fails.
+    } finally {
+      setConnection("retrying", false)
+    }
+  }
+  const remove = () => {
+    tabs.removeServer(key(), { preserveDrafts: true })
+    server.remove(key())
+  }
   const global = useGlobal()
   const layout = useLayout()
   const language = useLanguage()
@@ -237,12 +257,14 @@ function TaskServer(props: {
         </button>
       </div>
       <Show when={sessions.error()}>
-        <div data-slot="workspace-empty" role="alert">
-          {language.t("common.requestFailed")}
-          <button type="button" data-slot="workspace-action" onClick={() => void sessions.refetch()}>
-            {language.t("workspace.retry")}
-          </button>
-        </div>
+        <ServerConnectionError
+          message={language.t("common.requestFailed")}
+          retryLabel={language.t(connection.retrying ? "common.loading" : "workspace.retry")}
+          removeLabel={language.t("dialog.server.menu.delete")}
+          pending={connection.retrying}
+          onRetry={() => void retry()}
+          onRemove={props.conn.type === "http" ? remove : undefined}
+        />
       </Show>
       <Show when={sessions.loading()}>
         <div data-slot="workspace-empty" role="status">

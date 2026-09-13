@@ -360,6 +360,7 @@ const main = Effect.gen(function* () {
     failed: (error) => logger.error("web entry failed", error),
   })
   remoteAccess = createRemoteAccess({
+    profile: labRoot ? StoragePaths.resolve(labRoot).root : undefined,
     backend: () => Effect.runPromise(Deferred.await(serverReady)),
     root: runtimePath("renderer"),
     clientOrigin: process.env.ELECTRON_RENDERER_URL

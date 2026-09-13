@@ -348,7 +348,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         )
         if (index !== -1) removeTab(index)
       },
-      removeServer(key: ServerConnection.Key) {
+      removeServer(key: ServerConnection.Key, options?: { preserveDrafts?: boolean }) {
         updateClosed((stack) => stack.filter((entry) => entry.tab.server !== key))
         const drafts = store.flatMap((tab) =>
           tab.type === "draft" && tab.server === key && !isLegacyDraft(tab) ? [tab.draftID] : [],
@@ -358,8 +358,10 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         for (const key of removed) memory.remove(key)
         for (const key of removed) removeInfo(key)
         if (recent.key && removed.includes(recent.key)) setRecentKey(undefined)
-        for (const draftID of drafts) {
-          if (!isDirectoryInput(draftID)) removeDraftPersisted(draftID)
+        if (!options?.preserveDrafts) {
+          for (const draftID of drafts) {
+            if (!isDirectoryInput(draftID)) removeDraftPersisted(draftID)
+          }
         }
         if (server.key === key) navigate("/")
       },

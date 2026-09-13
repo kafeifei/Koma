@@ -38,6 +38,8 @@ type Dependencies = {
   }
   settings: { get(key: string): unknown; set(key: string, value: unknown): void }
   deviceID: string
+  isCurrent?(id: string): boolean
+  connections?(): RemoteAccessState["connections"]
   deviceName: string
   website: string | null
   changed(state: RemoteAccessState): void
@@ -103,10 +105,19 @@ export function createRemoteController(deps: Dependencies) {
   let pending = Promise.resolve()
   let timer: ReturnType<typeof setInterval> | undefined
   const clients = new Map<string, Connection & { url: string; name: string }>()
+  const connecting = new Map<string, AbortController>()
+  const connectionRevisions = new Map<string, number>()
+  const snapshot = (): RemoteAccessState => ({
+    ...state,
+    devices: state.devices.map((device) => ({ ...device, current: isCurrent(device.id) })),
+    clientID: deps.deviceID,
+    connections: deps.connections?.() ?? [],
+  })
   const publish = (patch: Partial<RemoteAccessState>) => {
     state = { ...state, ...patch }
-    if (!disposed) deps.changed(state)
-    return state
+    const next = snapshot()
+    if (!disposed) deps.changed(next)
+    return next
   }
   const check = (generation: number) => {
     if (disposed || generation !== revision) throw new Error("Remote operation cancelled")
@@ -138,6 +149,8 @@ export function createRemoteController(deps: Dependencies) {
     const record = account ? records()[String(account.id)] : undefined
     return record ? `${record.clusterId}/${record.tunnelId}` : undefined
   }
+  const isCurrent = (id: string) =>
+    id === currentID() || !!deps.isCurrent?.(id) || state.devices.some((device) => device.id === id && device.current)
   const haltHost = async () => {
     hosting?.abort()
     hosting = undefined
@@ -172,7 +185,7 @@ export function createRemoteController(deps: Dependencies) {
   }
   const list = async (generation: number) => {
     check(generation)
-    if (!account) return state
+    if (!account) return snapshot()
     const [devices, quota] = await Promise.all([deps.list(token), deps.quota(token).catch(() => null)]).catch(
       (error) => {
         check(generation)
@@ -187,8 +200,7 @@ export function createRemoteController(deps: Dependencies) {
       devices: devices.map((device) => ({
         id: device.id,
         name: device.name,
-        current:
-          device.id === currentID() || device.deviceLabel === `opencode-device-${deps.deviceID.replaceAll("-", "")}`,
+        current: isCurrent(device.id) || device.deviceLabel === `opencode-device-${deps.deviceID.replaceAll("-", "")}`,
         connectable: device.connectable !== false,
         connected: clients.has(device.id),
         online: device.id === currentID() ? state.status === "online" : device.online,
@@ -219,7 +231,7 @@ export function createRemoteController(deps: Dependencies) {
         publish({
           status,
           devices: state.devices.map((device) =>
-            device.current ? { ...device, online: status === "online" } : device,
+            device.id === currentID() ? { ...device, online: status === "online" } : device,
           ),
         })
         if (status === "offline") void haltHost()
@@ -268,11 +280,11 @@ export function createRemoteController(deps: Dependencies) {
   const run = (operation: FailureOperation, action: (generation: number) => Promise<unknown>) => {
     const generation = revision
     const result = pending.then(async () => {
-      if (disposed || generation !== revision) return state
+      if (disposed || generation !== revision) return snapshot()
       try {
         await action(generation)
       } catch (error) {
-        if (disposed || generation !== revision) return state
+        if (disposed || generation !== revision) return snapshot()
         const category = failureCategory(error)
         try {
           deps.failed?.({ operation, category, ...failureDetails(error) })
@@ -281,15 +293,15 @@ export function createRemoteController(deps: Dependencies) {
         // A failed host start (including quota exhaustion) must not hide cleanup candidates.
         if (account) await list(generation).catch(() => undefined)
       }
-      return state
+      return snapshot()
     })
     pending = result.then(() => undefined)
     return result
   }
   return {
-    getState: async () => state,
+    getState: async () => snapshot(),
     initialize: () => {
-      if (disposed) return Promise.resolve(state)
+      if (disposed) return Promise.resolve(snapshot())
       timer ??= setInterval(() => {
         void run("poll", async (generation) => {
           await restoreAccount(generation)
@@ -358,7 +370,7 @@ export function createRemoteController(deps: Dependencies) {
             enabled: false,
             status: "disabled",
             error: null,
-            devices: state.devices.map((device) => (device.current ? { ...device, online: false } : device)),
+            devices: state.devices.map((device) => (device.id === currentID() ? { ...device, online: false } : device)),
           })
           return
         }
@@ -393,33 +405,42 @@ export function createRemoteController(deps: Dependencies) {
       }),
     connect: (id: string) => {
       const generation = authentication
+      const connectionRevision = connectionRevisions.get(id) ?? 0
       const result = pending
         .then(async () => {
-          if (disposed || generation !== authentication) throw new Error("Remote connection cancelled")
-          if (!account || disposed || id === currentID()) throw new Error("Remote connection unavailable")
-          const existing = clients.get(id)
-          if (existing) return { url: existing.url, name: existing.name }
-          const signal = lifetime.signal
-          let disconnected = false
-          const client = await deps.connect(token, id, signal, () => {
-            if (disconnected) return
-            disconnected = true
-            if (!signal.aborted) {
-              clients.delete(id)
-              publish({
-                devices: state.devices.map((device) => (device.id === id ? { ...device, connected: false } : device)),
-              })
-            }
-          })
-          if (signal.aborted || disposed || generation !== authentication || disconnected) {
-            await client.stop()
+          if (disposed || generation !== authentication || connectionRevision !== (connectionRevisions.get(id) ?? 0)) {
             throw new Error("Remote connection cancelled")
           }
-          clients.set(id, client)
-          publish({
-            devices: state.devices.map((device) => (device.id === id ? { ...device, connected: true } : device)),
-          })
-          return { url: client.url, name: client.name }
+          if (!account || isCurrent(id)) throw new Error("Remote connection unavailable")
+          const existing = clients.get(id)
+          if (existing) return { url: existing.url, name: existing.name }
+          const controller = new AbortController()
+          connecting.set(id, controller)
+          const signal = AbortSignal.any([lifetime.signal, controller.signal])
+          let disconnected = false
+          try {
+            const client = await deps.connect(token, id, signal, () => {
+              if (disconnected) return
+              disconnected = true
+              if (!signal.aborted && connectionRevision === (connectionRevisions.get(id) ?? 0)) {
+                clients.delete(id)
+                publish({
+                  devices: state.devices.map((device) => (device.id === id ? { ...device, connected: false } : device)),
+                })
+              }
+            })
+            if (signal.aborted || disposed || generation !== authentication || disconnected || isCurrent(id)) {
+              await client.stop()
+              throw new Error("Remote connection cancelled")
+            }
+            clients.set(id, client)
+            publish({
+              devices: state.devices.map((device) => (device.id === id ? { ...device, connected: true } : device)),
+            })
+            return { url: client.url, name: client.name }
+          } finally {
+            if (connecting.get(id) === controller) connecting.delete(id)
+          }
         })
         .catch(() => {
           throw new Error("Remote connection unavailable")
@@ -453,7 +474,7 @@ export function createRemoteController(deps: Dependencies) {
           try {
             checkRemoval()
             if (
-              id === currentID() ||
+              isCurrent(id) ||
               clients.has(id) ||
               state.devices.some((device) => device.id === id && device.current)
             ) {
@@ -482,13 +503,22 @@ export function createRemoteController(deps: Dependencies) {
           }
         }
         if (!disposed && generation === revision && account) await list(generation).catch(() => undefined)
-        return { state, results }
+        return { state: snapshot(), results }
       })
       pending = result.then(
         () => undefined,
         () => undefined,
       )
       return result
+    },
+    disconnect: async (id: string) => {
+      // Cancellation is immediate, even while login, listing, or a relay dial is pending.
+      connectionRevisions.set(id, (connectionRevisions.get(id) ?? 0) + 1)
+      connecting.get(id)?.abort()
+      const client = clients.get(id)
+      clients.delete(id)
+      publish({ devices: state.devices.map((device) => (device.id === id ? { ...device, connected: false } : device)) })
+      await client?.stop()
     },
     stop: async () => {
       disposed = true

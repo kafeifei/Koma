@@ -8,7 +8,12 @@ import { useServerSDK } from "./server-sdk"
 import { RECENTLY_CLOSED_DISPLAY_LIMIT, ServerConnection, useServer } from "./server"
 import { usePlatform } from "./platform"
 import { Project } from "@opencode-ai/sdk/v2"
-import { createOpenedProjectResolver, dedupeOpenedProjects, normalizeProjectInfo } from "./global-sync/utils"
+import {
+  createOpenedProjectResolver,
+  dedupeOpenedProjects,
+  normalizeProjectInfo,
+  openedProjectMetadata,
+} from "./global-sync/utils"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { decode64 } from "@/utils/base64"
@@ -83,7 +88,7 @@ type TabHandoff = {
   at: number
 }
 
-export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
+export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean; projectIDs?: string[] }
 export type HomeProjectSelection = { server: ServerConnection.Key; directory?: string }
 
 export type ReviewDiffStyle = "unified" | "split"
@@ -474,9 +479,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       const [childStore] = serverSync().child(project.worktree, { bootstrap: false })
       const projectID = childStore.project
       const worktree = resolveProject()(project.worktree)
-      const metadata = projectID
-        ? serverSync().data.project.find((x) => x.id === projectID)
-        : serverSync().data.project.find((x) => pathKey(x.worktree) === pathKey(worktree))
+      const metadata = openedProjectMetadata(serverSync().data.project, worktree, projectID)
       const [projectStore] =
         worktree === project.worktree ? [childStore] : serverSync().child(worktree, { bootstrap: false })
 

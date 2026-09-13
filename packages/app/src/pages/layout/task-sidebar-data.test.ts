@@ -41,6 +41,17 @@ describe("task sidebar project groups", () => {
     expect(taskProjectGroups([projects[1]], saved, "", { knownProjects })[0].sessions).toEqual([])
   })
 
+  test("groups both historical project identities, including reclaimed archived worktrees", () => {
+    const known = [{ ...projects[0], projectIDs: ["app", "new-app"] }]
+    const old = session("old")
+    const current = { ...session("current", "/reclaimed"), projectID: "new-app" }
+    const groups = taskProjectGroups(known, [old, current])
+    expect(groups[0].sessions.map((item) => item.id).sort()).toEqual(["current", "old"])
+    expect(
+      taskProjectGroups(known, [{ ...current, time: { ...current.time, archived: 2 } }], "", { archived: true })[0]
+        .sessions,
+    ).toHaveLength(1)
+  })
   test("keeps reclaimed archived checkouts under their project and respects project removal", () => {
     const known = [{ id: "app", worktree: "/app", expanded: true, sandboxes: [] }]
     const directory = taskSessionProjectDirectory(session("archived", "/worktrees/reclaimed"), known)
