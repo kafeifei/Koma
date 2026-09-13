@@ -1,6 +1,12 @@
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
-import { PluginInput, PluginChange, PluginList, IntegrationList } from "@opencode-ai/schema/koma-extensions"
+import {
+  PluginInput,
+  PluginChange,
+  PluginList,
+  IntegrationList,
+  ExtensionCatalog,
+} from "@opencode-ai/schema/koma-extensions"
 import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
@@ -19,6 +25,16 @@ const id = { id: Schema.String }
 const name = { name: Schema.String }
 export const PluginsApi = HttpApi.make("koma-plugins").add(
   HttpApiGroup.make("koma-plugins").add(
+    HttpApiEndpoint.get("catalog", "/global/extensions/catalog", { success: ExtensionCatalog, error: ExtensionError }),
+    HttpApiEndpoint.post("refreshCatalog", "/global/extensions/catalog/refresh", {
+      success: ExtensionCatalog,
+      error: ExtensionError,
+    }),
+    HttpApiEndpoint.post("installCatalog", "/global/extensions/catalog/install", {
+      payload: Schema.Struct({ id: Schema.String }),
+      success: PluginList,
+      error: ExtensionError,
+    }),
     HttpApiEndpoint.get("list", "/global/extensions/plugins", { success: PluginList, error: ExtensionError }),
     HttpApiEndpoint.post("install", "/global/extensions/plugins", {
       payload: PluginInput,
@@ -32,6 +48,13 @@ export const PluginsApi = HttpApi.make("koma-plugins").add(
     }),
     HttpApiEndpoint.delete("remove", "/global/extensions/plugins/:id", {
       params: id,
+      success: PluginList,
+      error: ExtensionError,
+    }),
+    // File URLs contain slashes and colons. Keep their identity in JSON so
+    // native HTTP routers and proxies cannot normalize it as a request path.
+    HttpApiEndpoint.post("uninstall", "/global/extensions/plugins/remove", {
+      payload: Schema.Struct({ id: Schema.String }),
       success: PluginList,
       error: ExtensionError,
     }),

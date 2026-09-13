@@ -90,3 +90,111 @@
   font-size: 13px;
   margin-bottom: 12px;
 }
+
+.extension-views {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--v2-border-border-base);
+}
+.extension-views button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  color: var(--v2-text-text-muted);
+  cursor: pointer;
+}
+.extension-views button[aria-pressed="true"] {
+  color: var(--v2-text-text-base);
+  border-bottom-color: var(--v2-text-text-accent, currentColor);
+}
+.extension-views span,
+.extension-badge {
+  border-radius: 4px;
+  background: var(--v2-background-bg-layer-01);
+  padding: 2px 6px;
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.extension-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.extension-catalog-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-catalog-tools :is(input, select) {
+  min-width: 0;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: var(--v2-text-text-base);
+  background: var(--v2-background-bg-base);
+  font: inherit;
+  font-size: 13px;
+}
+.extension-catalog-tools input {
+  flex: 1 1 220px;
+}
+.extension-catalog-tools select {
+  max-width: 100%;
+}
+.extension-catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.extension-catalog-card {
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.extension-catalog-card h4 {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--v2-text-text-base);
+  font-size: 14px;
+  font-weight: 500;
+}
+.extension-catalog-card .extension-header {
+  align-items: flex-start;
+}
+.extension-catalog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-catalog-footer .extension-actions {
+  justify-content: flex-start;
+}
+.extension-views button:focus-visible,
+.extension-catalog-tools :is(input, select):focus-visible {
+  outline: 2px solid var(--v2-text-text-accent);
+  outline-offset: 2px;
+}
+
+.extension-catalog > .extension-header {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.extension-catalog > .extension-header > div {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.extension-catalog > .extension-header > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}

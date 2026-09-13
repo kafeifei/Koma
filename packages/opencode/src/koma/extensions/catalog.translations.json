@@ -1,0 +1,178 @@
+{
+  "https://github.com/H2Shami/opencode-helicone-session": {
+    "original": "Automatically inject Helicone session headers for request grouping",
+    "zh": "自动注入 Helicone 会话头信息，用于请求分组"
+  },
+  "https://github.com/nick-vi/opencode-type-inject": {
+    "original": "Auto-inject TypeScript/Svelte types into file reads with lookup tools",
+    "zh": "通过查找工具自动将 TypeScript/Svelte 类型注入到文件读取中"
+  },
+  "https://github.com/numman-ali/opencode-openai-codex-auth": {
+    "original": "Use your ChatGPT Plus/Pro subscription instead of API credits",
+    "zh": "使用您的 ChatGPT Plus/Pro 订阅替代 API 额度"
+  },
+  "https://github.com/jenslys/opencode-gemini-auth": {
+    "original": "Use your existing Gemini plan instead of API billing",
+    "zh": "使用您现有的 Gemini 套餐替代 API 计费"
+  },
+  "https://github.com/NoeFabris/opencode-antigravity-auth": {
+    "original": "Use Antigravity's free models instead of API billing",
+    "zh": "使用 Antigravity 的免费模型替代 API 计费"
+  },
+  "https://github.com/athal7/opencode-devcontainers": {
+    "original": "Multi-branch devcontainer isolation with shallow clones and auto-assigned ports",
+    "zh": "多分支开发容器隔离，支持浅克隆和自动分配端口"
+  },
+  "https://github.com/shekohex/opencode-google-antigravity-auth": {
+    "original": "Google Antigravity OAuth Plugin, with support for Google Search, and more robust API handling",
+    "zh": "Google Antigravity OAuth 插件，支持 Google 搜索及更强健的 API 处理"
+  },
+  "https://github.com/Tarquinen/opencode-dynamic-context-pruning": {
+    "original": "Optimize token usage by pruning obsolete tool outputs",
+    "zh": "通过修剪过时的工具输出来优化 Token 使用"
+  },
+  "https://github.com/inkdust2021/opencode-vibeguard": {
+    "original": "Redact secrets/PII into VibeGuard-style placeholders before LLM calls; restore locally",
+    "zh": "在调用 LLM 之前将机密/PII 替换为 VibeGuard 风格的占位符；并在本地恢复"
+  },
+  "https://github.com/ghoulr/opencode-websearch-cited.git": {
+    "original": "Add native websearch support for supported providers with Google grounded style",
+    "zh": "为受支持的提供商添加原生网页搜索支持，采用 Google grounded 风格"
+  },
+  "https://github.com/shekohex/opencode-pty.git": {
+    "original": "Enables AI agents to run background processes in a PTY, send interactive input to them.",
+    "zh": "使 AI 代理能够在 PTY 中运行后台进程，并向其发送交互式输入"
+  },
+  "https://github.com/JRedeker/opencode-shell-strategy": {
+    "original": "Instructions for non-interactive shell commands - prevents hangs from TTY-dependent operations",
+    "zh": "非交互式 shell 命令指令——防止依赖 TTY 的操作导致挂起"
+  },
+  "https://github.com/angristan/opencode-wakatime": {
+    "original": "Track OpenCode usage with Wakatime",
+    "zh": "使用 Wakatime 追踪 OpenCode 的使用情况"
+  },
+  "https://github.com/franlol/opencode-md-table-formatter/tree/main": {
+    "original": "Clean up markdown tables produced by LLMs",
+    "zh": "清理 LLM 生成的 Markdown 表格"
+  },
+  "https://github.com/morphllm/opencode-morph-plugin": {
+    "original": "Fast Apply editing, WarpGrep codebase search, and context compaction via Morph",
+    "zh": "通过 Morph 提供 Fast Apply 编辑、WarpGrep 代码搜索和上下文压缩"
+  },
+  "https://github.com/code-yeongyu/oh-my-opencode": {
+    "original": "Background agents, pre-built LSP/AST/MCP tools, curated agents, Claude Code compatible",
+    "zh": "后台代理、预构建的 LSP/AST/MCP 工具、精选代理，兼容 Claude Code"
+  },
+  "https://github.com/panta82/opencode-notificator": {
+    "original": "Desktop notifications and sound alerts for OpenCode sessions",
+    "zh": "OpenCode 会话的桌面通知和声音提醒"
+  },
+  "https://github.com/mohak34/opencode-notifier": {
+    "original": "Desktop notifications and sound alerts for permission, completion, and error events",
+    "zh": "针对权限请求、任务完成和错误事件的桌面通知与声音提醒"
+  },
+  "https://github.com/24601/opencode-zellij-namer": {
+    "original": "AI-powered automatic Zellij session naming based on OpenCode context",
+    "zh": "基于 OpenCode 上下文的 AI 驱动自动 Zellij 会话命名"
+  },
+  "https://github.com/zenobi-us/opencode-skillful": {
+    "original": "Allow OpenCode agents to lazy load prompts on demand with skill discovery and injection",
+    "zh": "允许 OpenCode 代理通过技能发现和注入按需延迟加载提示词"
+  },
+  "https://github.com/supermemoryai/opencode-supermemory": {
+    "original": "Persistent memory across sessions using Supermemory",
+    "zh": "使用 Supermemory 实现跨会话的持久记忆"
+  },
+  "https://github.com/backnotprop/plannotator/tree/main/apps/opencode-plugin": {
+    "original": "Interactive plan review with visual annotation and private/offline sharing",
+    "zh": "支持可视化标注和私有/离线分享的交互式计划审查"
+  },
+  "https://github.com/spoons-and-mirrors/subtask2": {
+    "original": "Extend opencode /commands into a powerful orchestration system with granular flow control",
+    "zh": "将 OpenCode /commands 扩展为具有精细流程控制的强大编排系统"
+  },
+  "https://github.com/different-ai/opencode-scheduler": {
+    "original": "Schedule recurring jobs using launchd (Mac) or systemd (Linux) with cron syntax",
+    "zh": "使用 cron 语法通过 launchd (Mac) 或 systemd (Linux) 调度周期性任务"
+  },
+  "https://github.com/vtemian/micode": {
+    "original": "Structured Brainstorm → Plan → Implement workflow with session continuity",
+    "zh": "结构化的头脑风暴 → 计划 → 实现工作流，支持会话连续性"
+  },
+  "https://github.com/vtemian/octto": {
+    "original": "Interactive browser UI for AI brainstorming with multi-question forms",
+    "zh": "用于 AI 头脑风暴的交互式浏览器 UI，支持多问题表单"
+  },
+  "https://github.com/kdcokenny/opencode-background-agents": {
+    "original": "Claude Code-style background agents with async delegation and context persistence",
+    "zh": "Claude Code 风格的后台代理，支持异步委托和上下文持久化"
+  },
+  "https://github.com/kdcokenny/opencode-notify": {
+    "original": "Native OS notifications for OpenCode – know when tasks complete",
+    "zh": "OpenCode 的原生操作系统通知——随时了解任务完成情况"
+  },
+  "https://github.com/kdcokenny/opencode-workspace": {
+    "original": "Bundled multi-agent orchestration harness – 16 components, one install",
+    "zh": "捆绑式多代理编排套件——16 个组件，一次安装"
+  },
+  "https://github.com/kdcokenny/opencode-worktree": {
+    "original": "Zero-friction git worktrees for OpenCode",
+    "zh": "OpenCode 的零摩擦 git worktree 管理"
+  },
+  "https://github.com/stolinski/opencode-sentry-monitor": {
+    "original": "Trace and debug your AI agents with Sentry AI Monitoring",
+    "zh": "使用 Sentry AI Monitoring 追踪和调试您的 AI 代理"
+  },
+  "https://github.com/remorses/kimaki": {
+    "original": "Discord bot to control OpenCode sessions, built on the SDK",
+    "zh": "用于控制 OpenCode 会话的 Discord 机器人，基于 SDK 构建"
+  },
+  "https://github.com/NickvanDyke/opencode.nvim": {
+    "original": "Neovim plugin for editor-aware prompts, built on the API",
+    "zh": "Neovim 插件，提供编辑器感知的提示词，基于 API 构建"
+  },
+  "https://github.com/hosenur/portal": {
+    "original": "Mobile-first web UI for OpenCode over Tailscale/VPN",
+    "zh": "通过 Tailscale/VPN 使用的移动优先 OpenCode Web UI"
+  },
+  "https://github.com/zenobi-us/opencode-plugin-template": {
+    "original": "Template for building OpenCode plugins",
+    "zh": "用于构建 OpenCode 插件的模板"
+  },
+  "https://github.com/sudo-tee/opencode.nvim": {
+    "original": "Neovim frontend for opencode - a terminal-based AI coding agent",
+    "zh": "OpenCode 的 Neovim 前端——基于终端的 AI 编码代理"
+  },
+  "https://github.com/ben-vargas/ai-sdk-provider-opencode-sdk": {
+    "original": "Vercel AI SDK provider for using OpenCode via @opencode-ai/sdk",
+    "zh": "Vercel AI SDK 提供商，用于通过 @opencode-ai/sdk 使用 OpenCode"
+  },
+  "https://github.com/btriapitsyn/openchamber": {
+    "original": "Web / Desktop App and VS Code Extension for OpenCode",
+    "zh": "OpenCode 的 Web / 桌面应用和 VS Code 扩展"
+  },
+  "https://github.com/mtymek/opencode-obsidian": {
+    "original": "Obsidian plugin that embeds OpenCode in Obsidian's UI",
+    "zh": "将 OpenCode 嵌入 Obsidian UI 的 Obsidian 插件"
+  },
+  "https://github.com/different-ai/openwork": {
+    "original": "An open-source alternative to Claude Cowork, powered by OpenCode",
+    "zh": "Claude Cowork 的开源替代方案，由 OpenCode 驱动"
+  },
+  "https://github.com/kdcokenny/ocx": {
+    "original": "OpenCode extension manager with portable, isolated profiles.",
+    "zh": "OpenCode 扩展管理器，支持可移植的隔离配置"
+  },
+  "https://github.com/NeuralNomadsAI/CodeNomad": {
+    "original": "Desktop, Web, Mobile and Remote Client App for OpenCode",
+    "zh": "OpenCode 的桌面、Web、移动和远程客户端应用"
+  },
+  "https://github.com/Cluster444/agentic": {
+    "original": "Modular AI agents and commands for structured development",
+    "zh": "用于结构化开发的模块化 AI 代理和命令"
+  },
+  "https://github.com/darrenhinde/opencode-agents": {
+    "original": "Configs, prompts, agents, and plugins for enhanced workflows",
+    "zh": "用于增强工作流的配置、提示词、代理和插件"
+  }
+}

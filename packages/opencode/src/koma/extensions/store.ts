@@ -9,6 +9,9 @@ import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
 const Plugin = Schema.Struct({
   id: Schema.String,
   spec: Schema.String,
+  catalogID: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  resourceKind: Schema.optional(Schema.Literals(["plugin", "instructions"])),
   version: Schema.optional(Schema.String),
   enabled: Schema.Boolean,
   options: Schema.Record(Schema.String, Schema.Unknown),

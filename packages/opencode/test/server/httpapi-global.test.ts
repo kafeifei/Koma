@@ -44,6 +44,36 @@ const apiLayer = HttpRouter.serve(
 const it = testEffect(apiLayer)
 
 describe("global HttpApi", () => {
+  it.live("accepts a local file plugin identity in the uninstall payload", () =>
+    Effect.gen(function* () {
+      const response = yield* HttpClientRequest.post("/global/extensions/plugins/remove").pipe(
+        HttpClientRequest.bodyJsonUnsafe({ id: "file:///tmp/plugin with spaces/index.ts" }),
+        HttpClient.execute,
+      )
+      expect(response.status).toBe(400)
+      expect(yield* response.json).toMatchObject({ message: "Managed plugin not found." })
+    }),
+  )
+  it.live("serves the official resource directory without requiring a project", () =>
+    Effect.gen(function* () {
+      const response = yield* HttpClientRequest.get("/global/extensions/catalog").pipe(HttpClient.execute)
+      expect(response.status).toBe(200)
+      const body = yield* response.json
+      expect(body).toMatchObject({ entries: expect.any(Array), fetchedAt: expect.any(String) })
+    }),
+  )
+
+  it.live("catalog installation rejects unknown resources without installing an arbitrary package", () =>
+    Effect.gen(function* () {
+      const response = yield* HttpClientRequest.post("/global/extensions/catalog/install").pipe(
+        HttpClientRequest.bodyJsonUnsafe({ id: "plugin:https://example.com/untrusted" }),
+        HttpClient.execute,
+      )
+      expect(response.status).toBe(400)
+      expect(yield* response.json).toMatchObject({ message: expect.stringContaining("not available") })
+    }),
+  )
+
   it.live("upgrades to the requested version", () =>
     Effect.gen(function* () {
       const response = yield* HttpClientRequest.post(GlobalPaths.upgrade).pipe(

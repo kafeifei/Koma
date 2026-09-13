@@ -84,7 +84,10 @@ export async function listPlugins(): Promise<PluginInfo[]> {
     .sort((a, b) => a.id.localeCompare(b.id))
 }
 
-export async function installPlugin(input: { spec: string; options: Record<string, unknown> }) {
+export async function installPlugin(
+  input: { spec: string; options: Record<string, unknown> },
+  resource?: Pick<Plugin, "catalogID" | "name" | "resourceKind">,
+) {
   let spec = input.spec.trim()
   if (!spec || spec.length > 500) throw new Error("Enter an npm package or an absolute local plugin path.")
   if (path.isAbsolute(spec)) spec = pathToFileURL(spec).href
@@ -101,6 +104,7 @@ export async function installPlugin(input: { spec: string; options: Record<strin
   const version = resolved.value.pkg?.json.version
   if (resolved.value.source === "npm" && typeof version === "string") spec = `${identity(spec)}@${version}`
   const plugin: Plugin = {
+    ...resource,
     id: identity(spec),
     spec,
     options: input.options,
@@ -108,6 +112,9 @@ export async function installPlugin(input: { spec: string; options: Record<strin
     ...(typeof version === "string" ? { version } : {}),
   }
   await updateStore((store) => {
+    if (resource?.catalogID && store.plugins.some((p) => p.catalogID === resource.catalogID)) {
+      throw new Error("Resource is already installed.")
+    }
     if (store.plugins.some((p) => p.id === plugin.id)) throw new Error("Plugin is already installed.")
     if ([...runtimes.values()].some((r) => r.get(plugin.id)?.managed === false)) {
       throw new Error("This plugin is managed by an existing configuration file.")

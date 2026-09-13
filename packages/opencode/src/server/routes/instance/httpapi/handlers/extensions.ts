@@ -8,6 +8,8 @@ import { InstanceState } from "@/effect/instance-state"
 import { Config } from "@/config/config"
 import { MCP } from "@/mcp"
 import { SessionStatus } from "@/session/status"
+import { catalog } from "@/koma/extensions/catalog"
+import { installCatalogEntry } from "@/koma/extensions/install"
 import type { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
 import { COMPUTER_USE_SERVER } from "@opencode-ai/core/koma-computer-use-types"
 
@@ -19,6 +21,14 @@ const attempt = <A>(run: () => Promise<A>) =>
 
 export const pluginHandlers = HttpApiBuilder.group(RootHttpApi, "koma-plugins", (handlers) =>
   handlers
+    .handle("catalog", () => attempt(() => catalog.get()))
+    .handle("refreshCatalog", () => attempt(() => catalog.refresh()))
+    .handle("installCatalog", ({ payload }) =>
+      attempt(async () => {
+        await installCatalogEntry(payload.id)
+        return listPlugins()
+      }),
+    )
     .handle("list", () => attempt(listPlugins))
     .handle("install", ({ payload }) =>
       attempt(async () => {
@@ -29,6 +39,12 @@ export const pluginHandlers = HttpApiBuilder.group(RootHttpApi, "koma-plugins", 
     .handle("change", ({ payload }) =>
       attempt(async () => {
         await changePlugin(payload.id, payload)
+        return listPlugins()
+      }),
+    )
+    .handle("uninstall", ({ payload }) =>
+      attempt(async () => {
+        await changePlugin(payload.id)
         return listPlugins()
       }),
     )

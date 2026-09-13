@@ -1,4 +1,4 @@
-import type { PluginInfo, PluginInput, IntegrationInfo } from "@opencode-ai/schema/koma-extensions"
+import type { PluginInfo, PluginInput, IntegrationInfo, ExtensionCatalog } from "@opencode-ai/schema/koma-extensions"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { OpenCode, type OpenCodeClient } from "@opencode-ai/client/promise"
 import type { ServerConnection } from "@/context/server"
@@ -111,6 +111,14 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
   return {
     ...client,
     extensions: {
+      installCatalog: (id: string) =>
+        request("/global/extensions/catalog/install", { method: "POST", body: JSON.stringify({ id }) }).then(
+          (r) => r.json() as Promise<PluginInfo[]>,
+        ),
+      catalog: (refresh = false) =>
+        request(`/global/extensions/catalog${refresh ? "/refresh" : ""}`, { method: refresh ? "POST" : "GET" }).then(
+          (r) => r.json() as Promise<ExtensionCatalog>,
+        ),
       plugins: () =>
         request("/global/extensions/plugins", { method: "GET" }).then((r) => r.json() as Promise<PluginInfo[]>),
       install: (value: PluginInput) =>
@@ -122,7 +130,7 @@ export function createApiForServer(input: { server: ServerConnection.HttpBase; f
           (r) => r.json() as Promise<PluginInfo[]>,
         ),
       uninstall: (id: string) =>
-        request(`/global/extensions/plugins/${encodeURIComponent(id)}`, { method: "DELETE" }).then(
+        request("/global/extensions/plugins/remove", { method: "POST", body: JSON.stringify({ id }) }).then(
           (r) => r.json() as Promise<PluginInfo[]>,
         ),
       integrations: (directory: string) =>

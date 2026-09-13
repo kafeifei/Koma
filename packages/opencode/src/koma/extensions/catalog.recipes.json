@@ -1,0 +1,648 @@
+{
+  "https://github.com/daytona/integrations/tree/main/packages/opencode-plugin": {
+    "type": "npm",
+    "spec": "@daytona/opencode",
+    "verifiedAt": "2026-09-13",
+    "note": "Requires a Daytona account and API key. Configure the plugin before creating sandboxes.",
+    "noteZh": "需配置 Daytona 账号及 API Key 后才能创建沙箱。"
+  },
+  "https://github.com/H2Shami/opencode-helicone-session": {
+    "type": "npm",
+    "spec": "opencode-helicone-session",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/nick-vi/opencode-type-inject": {
+    "type": "npm",
+    "spec": "@nick-vi/opencode-type-inject",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/jenslys/opencode-gemini-auth": {
+    "type": "npm",
+    "spec": "opencode-gemini-auth",
+    "verifiedAt": "2026-09-13",
+    "note": "Requires a supported Google account and provider authentication.",
+    "noteZh": "需使用上游仍支持的 Google 账号，并在服务商中完成认证。"
+  },
+  "https://github.com/NoeFabris/opencode-antigravity-auth": {
+    "type": "npm",
+    "spec": "opencode-antigravity-auth",
+    "verifiedAt": "2026-09-13",
+    "note": "Complete Google authentication and model configuration after installation.",
+    "noteZh": "安装后还需完成 Google 认证与模型配置。"
+  },
+  "https://github.com/athal7/opencode-devcontainers": {
+    "type": "npm",
+    "spec": "opencode-devcontainers",
+    "verifiedAt": "2026-09-13",
+    "note": "Container features require Docker and the devcontainer CLI on the backend machine.",
+    "noteZh": "容器功能需要后端设备安装 Docker 和 devcontainer CLI。"
+  },
+  "https://github.com/shekohex/opencode-google-antigravity-auth": {
+    "type": "npm",
+    "spec": "opencode-google-antigravity-auth",
+    "verifiedAt": "2026-09-13",
+    "note": "Complete Google authentication and model configuration after installation.",
+    "noteZh": "安装后还需完成 Google 认证与模型配置。"
+  },
+  "https://github.com/Tarquinen/opencode-dynamic-context-pruning": {
+    "type": "npm",
+    "spec": "@tarquinen/opencode-dcp",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/inkdust2021/opencode-vibeguard": {
+    "type": "npm",
+    "spec": "opencode-vibeguard",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/ghoulr/opencode-websearch-cited.git": {
+    "type": "npm",
+    "spec": "opencode-websearch-cited",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/shekohex/opencode-pty.git": {
+    "type": "npm",
+    "spec": "opencode-pty",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/angristan/opencode-wakatime": {
+    "type": "npm",
+    "spec": "opencode-wakatime",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/franlol/opencode-md-table-formatter/tree/main": {
+    "type": "npm",
+    "spec": "@franlol/opencode-md-table-formatter",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/morphllm/opencode-morph-plugin": {
+    "type": "npm",
+    "spec": "@morphllm/opencode-morph-plugin",
+    "verifiedAt": "2026-09-13",
+    "note": "Configure the Morph API key in plugin options or the backend environment.",
+    "noteZh": "需在插件选项或后端环境中配置 Morph API Key。"
+  },
+  "https://github.com/code-yeongyu/oh-my-opencode": {
+    "type": "npm",
+    "spec": "oh-my-opencode",
+    "verifiedAt": "2026-09-13",
+    "note": "Installs the plugin; customize its agents and model configuration using the project guide.",
+    "noteZh": "安装插件后可按项目说明配置其 Agent 和模型。"
+  },
+  "https://github.com/mohak34/opencode-notifier": {
+    "type": "npm",
+    "spec": "@mohak34/opencode-notifier",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/24601/opencode-zellij-namer": {
+    "type": "npm",
+    "spec": "opencode-zellij-namer",
+    "verifiedAt": "2026-09-13",
+    "note": "Renames Zellij terminal sessions; only useful when the backend runs inside Zellij.",
+    "noteZh": "用于重命名 Zellij 终端会话，仅在后端运行于 Zellij 中时生效。"
+  },
+  "https://github.com/zenobi-us/opencode-skillful": {
+    "type": "npm",
+    "spec": "@zenobius/opencode-skillful",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/supermemoryai/opencode-supermemory": {
+    "type": "npm",
+    "spec": "opencode-supermemory",
+    "verifiedAt": "2026-09-13",
+    "note": "Requires a Supermemory API key.",
+    "noteZh": "需配置 Supermemory API Key。"
+  },
+  "https://github.com/backnotprop/plannotator/tree/main/apps/opencode-plugin": {
+    "type": "npm",
+    "spec": "@plannotator/opencode",
+    "verifiedAt": "2026-09-13",
+    "note": "Its plan review opens in a browser; additional CLI setup is described in the project guide.",
+    "noteZh": "计划审阅在浏览器中打开，配套 CLI 的配置见项目说明。"
+  },
+  "https://github.com/spoons-and-mirrors/subtask2": {
+    "type": "npm",
+    "spec": "@spoons-and-mirrors/subtask2",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/different-ai/opencode-scheduler": {
+    "type": "npm",
+    "spec": "opencode-scheduler",
+    "verifiedAt": "2026-09-13",
+    "note": "Scheduled jobs use launchd or systemd and need an OpenCode CLI. Removing the plugin does not delete existing OS jobs.",
+    "noteZh": "定时任务依赖 launchd 或 systemd 及 OpenCode CLI；卸载插件不会删除已创建的系统任务。"
+  },
+  "https://github.com/derekbar90/opencode-conductor": {
+    "type": "npm",
+    "spec": "opencode-conductor-plugin",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/vtemian/micode": {
+    "type": "npm",
+    "spec": "micode",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/vtemian/octto": {
+    "type": "npm",
+    "spec": "octto",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/stolinski/opencode-sentry-monitor": {
+    "type": "npm",
+    "spec": "opencode-sentry-monitor",
+    "verifiedAt": "2026-09-13",
+    "note": "Requires a Sentry DSN in the plugin configuration.",
+    "noteZh": "需在插件配置中设置 Sentry DSN。"
+  },
+  "https://github.com/jfrog/opencode-jfrog-plugin": {
+    "type": "npm",
+    "spec": "@jfrog/opencode-jfrog-plugin",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/willytop8/OpenCode-goal-plugin": {
+    "type": "npm",
+    "spec": "opencode-goal-plugin",
+    "verifiedAt": "2026-09-13",
+    "note": "Configure the /goal command as described in the project guide.",
+    "noteZh": "使用 /goal 前需按项目说明配置该命令。"
+  },
+  "https://github.com/numman-ali/opencode-openai-codex-auth": {
+    "type": "builtin",
+    "note": "Codex authentication is included in Koma. Configure it in Providers.",
+    "noteZh": "Koma 已内置 Codex 认证，可在服务商设置中配置。"
+  },
+  "https://github.com/kdcokenny/opencode-workspace": {
+    "type": "external",
+    "note": "A complete OCX profile that replaces agent workflows and permissions. Set up and launch it through OCX. Individual plugins below can be installed in Koma.",
+    "noteZh": "完整的 OCX 工作环境，会调整 Agent、权限和工具配置。需通过 OCX 配置并启动；其中的后台代理、通知和 Worktree 插件可在 Koma 单独安装。"
+  },
+  "https://github.com/JRedeker/opencode-shell-strategy": {
+    "type": "files",
+    "version": "1303f24df164",
+    "verifiedAt": "2026-09-13",
+    "entry": null,
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-shell-strategy/1303f24df1649202834e052f1d66560ed186e413/LICENSE",
+        "sha256": "bf6b724f45adbbfb906b400b03d6de9c6f298abf5e0a76cb58693f8b4ee244cb"
+      },
+      {
+        "path": "shell_strategy.md",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-shell-strategy/1303f24df1649202834e052f1d66560ed186e413/shell_strategy.md",
+        "sha256": "466414b1ae43ba17159fea12cd1142f2badd00f12a163aaa3f5c7c74ebe9773c"
+      }
+    ],
+    "dependencies": {},
+    "instructions": ["shell_strategy.md"]
+  },
+  "https://github.com/JRedeker/opencode-morph-fast-apply": {
+    "type": "files",
+    "version": "7f347df7d17f",
+    "verifiedAt": "2026-09-13",
+    "entry": "index.ts",
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/LICENSE",
+        "sha256": "bf6b724f45adbbfb906b400b03d6de9c6f298abf5e0a76cb58693f8b4ee244cb"
+      },
+      {
+        "path": "impl.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/impl.ts",
+        "sha256": "4bd6c08e983025ab927b567dc8f47de44989b9a33d0cb6f75f8a46505109e907"
+      },
+      {
+        "path": "index.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/index.ts",
+        "sha256": "5433a6e23ac3b87e6fd23cc7372d089d395f752941355ce97747a9b11c782346"
+      },
+      {
+        "path": "instructions/morph-tools.md",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/instructions/morph-tools.md",
+        "sha256": "50656a429cb12e8b430e9b8b04d0b237ef33ddafe484c5560382cb1dee2b9c33"
+      },
+      {
+        "path": "src/adv-capability.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/adv-capability.ts",
+        "sha256": "b283e9b946cdc1cc9014a03448c26b6cc6e33e42fa4a035cda04f1463e9121c4"
+      },
+      {
+        "path": "src/constants.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/constants.ts",
+        "sha256": "1ce57b6acb6e83538358d322208c73d7fc6a94512ecfcdb27cd6bba77dff901e"
+      },
+      {
+        "path": "src/diff.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/diff.ts",
+        "sha256": "51ccc7b2e20d7088b12a5a4451987b961096d9cdb954fa48a7c8300e0a060282"
+      },
+      {
+        "path": "src/execute.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/execute.ts",
+        "sha256": "c608d83b4a8c237734c001dc6e18cc0af088a13c6990efb99f689640b5bc2cca"
+      },
+      {
+        "path": "src/imports.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/imports.ts",
+        "sha256": "b8b69324d0ad92265d882f0e2e507fdc25da387c8cab961c9672cdd993d60f97"
+      },
+      {
+        "path": "src/normalize.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/normalize.ts",
+        "sha256": "ad27a9a0e00e9950361ffb253bf9d52af015ef9a930635b1de73106912c73a8c"
+      },
+      {
+        "path": "src/path-confinement.ts",
+        "url": "https://raw.githubusercontent.com/JRedeker/opencode-morph-fast-apply/7f347df7d17f13f1f24083de9ae4b9b2d173d1fb/src/path-confinement.ts",
+        "sha256": "a6c878ae953e4504ac89d35f46e7ed5e1979533d4fa49ac41af19868c7f2d9cc"
+      }
+    ],
+    "dependencies": {
+      "@opencode-ai/plugin": "1.18.30",
+      "diff": "8.0.2"
+    },
+    "instructions": ["instructions/morph-tools.md"],
+    "defaultExport": true,
+    "note": "Includes Morph tool instructions. Configure a Morph API key before use.",
+    "noteZh": "一并导入 Morph 工具规则，使用前需配置 Morph API Key。"
+  },
+  "https://github.com/panta82/opencode-notificator": {
+    "type": "files",
+    "version": "7b252f4c0a06",
+    "verifiedAt": "2026-09-13",
+    "entry": "notificator.js",
+    "files": [
+      {
+        "path": "notificator-sounds/ding1.mp3",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator-sounds/ding1.mp3",
+        "sha256": "6db963414fbeefa4031d2099d5bc758ca1e3c22b8e171b949eb0f0335c175f53"
+      },
+      {
+        "path": "notificator-sounds/ding2.mp3",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator-sounds/ding2.mp3",
+        "sha256": "1c0ea64cddcf3fb9dc98d4c070c114c3a84c11e589f58bdbfa19a2deb60c8196"
+      },
+      {
+        "path": "notificator-sounds/ding3.mp3",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator-sounds/ding3.mp3",
+        "sha256": "421705f7822705620531f7884d93db408a8c679e810bac185e0cf6897b55d9a6"
+      },
+      {
+        "path": "notificator-sounds/ding4.mp3",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator-sounds/ding4.mp3",
+        "sha256": "412e0b6a57651cb953926bf8f7ef9e603a8c1b378c8b67799c017ff6b0ecd985"
+      },
+      {
+        "path": "notificator-sounds/ding5.mp3",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator-sounds/ding5.mp3",
+        "sha256": "4eb0c2f2d72af66c471fa740938bfce25e4a7144d3aa47616388fa50a88a883a"
+      },
+      {
+        "path": "notificator-sounds/ding6.mp3",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator-sounds/ding6.mp3",
+        "sha256": "2471aac761484adb8c2485954016b93af907d14a4d03afdcffe0a5749f489bb0"
+      },
+      {
+        "path": "notificator.js",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator.js",
+        "sha256": "fedfc37fde6122d3f36689277a936d2bf6d40cc1a91a260f2921e390b31dedf9"
+      },
+      {
+        "path": "notificator.jsonc",
+        "url": "https://raw.githubusercontent.com/panta82/opencode-notificator/7b252f4c0a06b63d27c02f5ae074a8e8f61c5a5b/notificator.jsonc",
+        "sha256": "a05c095e83d42742e4d174833ee4eade73ef47e80babf088516c7565a06c6844"
+      }
+    ],
+    "dependencies": {},
+    "defaultExport": false
+  },
+  "https://github.com/firecrawl/opencode-firecrawl": {
+    "type": "files",
+    "version": "a5a7939005ad",
+    "verifiedAt": "2026-09-13",
+    "entry": "index.ts",
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/firecrawl/opencode-firecrawl/a5a7939005ad67b0a7a03f495aa224f6e9d2bb20/LICENSE",
+        "sha256": "706c5ad9aabb6b482b1a33d88b9394a77e1f8756924cb0e300c98bbc53a0db9b"
+      },
+      {
+        "path": "index.ts",
+        "url": "https://raw.githubusercontent.com/firecrawl/opencode-firecrawl/a5a7939005ad67b0a7a03f495aa224f6e9d2bb20/index.ts",
+        "sha256": "cfa85b45ca7ac37cc77bd20c22b8524a9871fbedec79fdccb23988fde62b58ff"
+      },
+      {
+        "path": "skills/firecrawl-cli/SKILL.md",
+        "url": "https://raw.githubusercontent.com/firecrawl/opencode-firecrawl/a5a7939005ad67b0a7a03f495aa224f6e9d2bb20/skills/firecrawl-cli/SKILL.md",
+        "sha256": "81ff9c215408294af9c656f54da0c567133f884addf55a83d10b0a9605bdaf04"
+      },
+      {
+        "path": "skills/firecrawl-cli/rules/install.md",
+        "url": "https://raw.githubusercontent.com/firecrawl/opencode-firecrawl/a5a7939005ad67b0a7a03f495aa224f6e9d2bb20/skills/firecrawl-cli/rules/install.md",
+        "sha256": "3630af5db9d137777fd8a6939aa0fe707aebf3f3a6e46276688621c061d9794c"
+      }
+    ],
+    "dependencies": {},
+    "defaultExport": true,
+    "note": "Includes Firecrawl skills and setup instructions. Firecrawl CLI and authentication are required for use.",
+    "noteZh": "一并安装 Firecrawl 技能和配置说明，使用时需具备 Firecrawl CLI 并完成认证。"
+  },
+  "https://github.com/tavily-ai/opencode-tavily": {
+    "type": "files",
+    "version": "e7c648ce8799",
+    "verifiedAt": "2026-09-13",
+    "entry": "index.ts",
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/tavily-ai/opencode-tavily/e7c648ce87992b3b36253499ee085195cc724b15/LICENSE",
+        "sha256": "7e2da5cbce47e322ee57967a1e1a610f8e9473af0bf4a2abb2f0734ee9aeedeb"
+      },
+      {
+        "path": "index.ts",
+        "url": "https://raw.githubusercontent.com/tavily-ai/opencode-tavily/e7c648ce87992b3b36253499ee085195cc724b15/index.ts",
+        "sha256": "78ab4fbc44cb94980a07d7b38b334ad9b160b395b89123c6309f507fae35b882"
+      },
+      {
+        "path": "skills/tavily/SKILL.md",
+        "url": "https://raw.githubusercontent.com/tavily-ai/opencode-tavily/e7c648ce87992b3b36253499ee085195cc724b15/skills/tavily/SKILL.md",
+        "sha256": "afeab8c9f2e04a868ed61f7e3072a4dca6b4944a2b764684cc76368330beddec"
+      },
+      {
+        "path": "skills/tavily/rules/install.md",
+        "url": "https://raw.githubusercontent.com/tavily-ai/opencode-tavily/e7c648ce87992b3b36253499ee085195cc724b15/skills/tavily/rules/install.md",
+        "sha256": "23682aad7887b1745d6af770023e6ac01df2cda53a5c100f0ad9c381e9a33ddb"
+      }
+    ],
+    "dependencies": {},
+    "defaultExport": true,
+    "note": "Includes Tavily skills and setup instructions. Tavily CLI and authentication are required for use.",
+    "noteZh": "一并安装 Tavily 技能和配置说明，使用时需具备 Tavily CLI 并完成认证。"
+  },
+  "https://github.com/kdcokenny/opencode-background-agents": {
+    "type": "files",
+    "version": "636dc2dbd10a",
+    "verifiedAt": "2026-09-13",
+    "entry": "plugins/background-agents.ts",
+    "files": [
+      {
+        "path": "plugins/background-agents.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/background-agents.ts",
+        "sha256": "0319945c773d75bdd02f98131e1c833b592c8ffa8be654c770203a29a52254bf"
+      },
+      {
+        "path": "plugins/kdco-primitives/cmux.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/cmux.ts",
+        "sha256": "58d066e118a3ca75b1541d65b586ed3b846b42860ac08cfe302232a6a5ceac7b"
+      },
+      {
+        "path": "plugins/kdco-primitives/get-project-id.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/get-project-id.ts",
+        "sha256": "2bdcb8e839171e8a9ddff36f7b9c28c90fae972cb395cec38f8d3e85cfd66ad9"
+      },
+      {
+        "path": "plugins/kdco-primitives/index.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/index.ts",
+        "sha256": "2c7a1609f214b7e1bd427ef5d14f615dbfee7b021962b7b28f4cc7c83c701578"
+      },
+      {
+        "path": "plugins/kdco-primitives/log-warn.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/log-warn.ts",
+        "sha256": "7ed7eb195fd4d67cbee8057ae35593b92693e1e5e84012fcf5402a14df071311"
+      },
+      {
+        "path": "plugins/kdco-primitives/mutex.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/mutex.ts",
+        "sha256": "4caacfd38bb4b971c356ed9dbfb4dcc10634a83a39c51e724852325d84be941e"
+      },
+      {
+        "path": "plugins/kdco-primitives/shell.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/shell.ts",
+        "sha256": "9941f4f642c10f04795304a7657111b2cd10ec066b08f0e0866ae87de5160669"
+      },
+      {
+        "path": "plugins/kdco-primitives/temp.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/temp.ts",
+        "sha256": "b66983f2a747d87fb84dcdaa3ed88e5da2e8e46c8151e98f74e76755148f7e08"
+      },
+      {
+        "path": "plugins/kdco-primitives/terminal-detect.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/terminal-detect.ts",
+        "sha256": "523435085e8fc31883a6a702e70fd9ba82c5d799026d0f04be890c84dbab6b41"
+      },
+      {
+        "path": "plugins/kdco-primitives/types.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/types.ts",
+        "sha256": "4471c8d97b16e06906f3446e89e01c4a436130a42e5fa6c31f107e63f3b42666"
+      },
+      {
+        "path": "plugins/kdco-primitives/with-timeout.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/with-timeout.ts",
+        "sha256": "3c582e3e89f5d0de8230122ef0fea2066b3ebff3d77579515cef251628439527"
+      }
+    ],
+    "dependencies": {
+      "@opencode-ai/plugin": "1.18.30",
+      "unique-names-generator": "4.7.1"
+    },
+    "config": {
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "defaultExport": true,
+    "note": "Installs the OCX source and its dependencies. Adds asynchronous delegation tools.",
+    "noteZh": "自动安装 OCX 插件源码和依赖，提供异步任务委派工具。"
+  },
+  "https://github.com/kdcokenny/opencode-notify": {
+    "type": "files",
+    "version": "636dc2dbd10a",
+    "verifiedAt": "2026-09-13",
+    "entry": "plugins/notify.ts",
+    "files": [
+      {
+        "path": "plugins/kdco-primitives/cmux.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/cmux.ts",
+        "sha256": "58d066e118a3ca75b1541d65b586ed3b846b42860ac08cfe302232a6a5ceac7b"
+      },
+      {
+        "path": "plugins/kdco-primitives/get-project-id.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/get-project-id.ts",
+        "sha256": "2bdcb8e839171e8a9ddff36f7b9c28c90fae972cb395cec38f8d3e85cfd66ad9"
+      },
+      {
+        "path": "plugins/kdco-primitives/index.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/index.ts",
+        "sha256": "2c7a1609f214b7e1bd427ef5d14f615dbfee7b021962b7b28f4cc7c83c701578"
+      },
+      {
+        "path": "plugins/kdco-primitives/log-warn.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/log-warn.ts",
+        "sha256": "7ed7eb195fd4d67cbee8057ae35593b92693e1e5e84012fcf5402a14df071311"
+      },
+      {
+        "path": "plugins/kdco-primitives/mutex.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/mutex.ts",
+        "sha256": "4caacfd38bb4b971c356ed9dbfb4dcc10634a83a39c51e724852325d84be941e"
+      },
+      {
+        "path": "plugins/kdco-primitives/shell.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/shell.ts",
+        "sha256": "9941f4f642c10f04795304a7657111b2cd10ec066b08f0e0866ae87de5160669"
+      },
+      {
+        "path": "plugins/kdco-primitives/temp.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/temp.ts",
+        "sha256": "b66983f2a747d87fb84dcdaa3ed88e5da2e8e46c8151e98f74e76755148f7e08"
+      },
+      {
+        "path": "plugins/kdco-primitives/terminal-detect.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/terminal-detect.ts",
+        "sha256": "523435085e8fc31883a6a702e70fd9ba82c5d799026d0f04be890c84dbab6b41"
+      },
+      {
+        "path": "plugins/kdco-primitives/types.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/types.ts",
+        "sha256": "4471c8d97b16e06906f3446e89e01c4a436130a42e5fa6c31f107e63f3b42666"
+      },
+      {
+        "path": "plugins/kdco-primitives/with-timeout.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/with-timeout.ts",
+        "sha256": "3c582e3e89f5d0de8230122ef0fea2066b3ebff3d77579515cef251628439527"
+      },
+      {
+        "path": "plugins/notify.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/notify.ts",
+        "sha256": "4ef3f353565c306cfcfe2b3008a5c74a0c5c8ea0a8a2d3440b2cb15642d64172"
+      },
+      {
+        "path": "plugins/notify/backend.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/notify/backend.ts",
+        "sha256": "f2c9218ff6ceb4a19c67158e26275773a02e80260a21741fbcc603bc4e3e0662"
+      },
+      {
+        "path": "plugins/notify/cmux.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/notify/cmux.ts",
+        "sha256": "be18c871fc705084363a225f1ce133a51c16ea5ca7915154f03d481188c01a71"
+      },
+      {
+        "path": "plugins/notify/status.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/notify/status.ts",
+        "sha256": "15135b94e74cbe8c97ed46fd6d6051f1bffaa39986ec58ca1e2887271eb0c671"
+      },
+      {
+        "path": "plugins/notify/title.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/notify/title.ts",
+        "sha256": "2909871433a30ae49aad240068f9d350ebe90333dda799a45d022be6d2fd1559"
+      }
+    ],
+    "dependencies": {
+      "@opencode-ai/plugin": "1.18.30",
+      "node-notifier": "10.0.1",
+      "detect-terminal": "2.0.0"
+    },
+    "defaultExport": true
+  },
+  "https://github.com/kdcokenny/opencode-worktree": {
+    "type": "files",
+    "version": "636dc2dbd10a",
+    "verifiedAt": "2026-09-13",
+    "entry": "plugins/worktree.ts",
+    "files": [
+      {
+        "path": "plugins/kdco-primitives/cmux.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/cmux.ts",
+        "sha256": "58d066e118a3ca75b1541d65b586ed3b846b42860ac08cfe302232a6a5ceac7b"
+      },
+      {
+        "path": "plugins/kdco-primitives/get-project-id.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/get-project-id.ts",
+        "sha256": "2bdcb8e839171e8a9ddff36f7b9c28c90fae972cb395cec38f8d3e85cfd66ad9"
+      },
+      {
+        "path": "plugins/kdco-primitives/index.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/index.ts",
+        "sha256": "2c7a1609f214b7e1bd427ef5d14f615dbfee7b021962b7b28f4cc7c83c701578"
+      },
+      {
+        "path": "plugins/kdco-primitives/log-warn.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/log-warn.ts",
+        "sha256": "7ed7eb195fd4d67cbee8057ae35593b92693e1e5e84012fcf5402a14df071311"
+      },
+      {
+        "path": "plugins/kdco-primitives/mutex.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/mutex.ts",
+        "sha256": "4caacfd38bb4b971c356ed9dbfb4dcc10634a83a39c51e724852325d84be941e"
+      },
+      {
+        "path": "plugins/kdco-primitives/shell.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/shell.ts",
+        "sha256": "9941f4f642c10f04795304a7657111b2cd10ec066b08f0e0866ae87de5160669"
+      },
+      {
+        "path": "plugins/kdco-primitives/temp.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/temp.ts",
+        "sha256": "b66983f2a747d87fb84dcdaa3ed88e5da2e8e46c8151e98f74e76755148f7e08"
+      },
+      {
+        "path": "plugins/kdco-primitives/terminal-detect.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/terminal-detect.ts",
+        "sha256": "523435085e8fc31883a6a702e70fd9ba82c5d799026d0f04be890c84dbab6b41"
+      },
+      {
+        "path": "plugins/kdco-primitives/types.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/types.ts",
+        "sha256": "4471c8d97b16e06906f3446e89e01c4a436130a42e5fa6c31f107e63f3b42666"
+      },
+      {
+        "path": "plugins/kdco-primitives/with-timeout.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/kdco-primitives/with-timeout.ts",
+        "sha256": "3c582e3e89f5d0de8230122ef0fea2066b3ebff3d77579515cef251628439527"
+      },
+      {
+        "path": "plugins/worktree.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/worktree.ts",
+        "sha256": "5961cdf971c88ba36a53973fa2bc7b5aa1a1369d425703b578143ed75891a0e4"
+      },
+      {
+        "path": "plugins/worktree/launch-context.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/worktree/launch-context.ts",
+        "sha256": "48c7151fd7ea0bd141e40c7a0e8a685d804bd8ab8aaba1dfed00ec2ebae13b48"
+      },
+      {
+        "path": "plugins/worktree/state.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/worktree/state.ts",
+        "sha256": "4bcf9b53a8389938f59ae43e15387e9f90ca970c2ccfb4d7fd78513aebcd2eb7"
+      },
+      {
+        "path": "plugins/worktree/terminal.ts",
+        "url": "https://raw.githubusercontent.com/kdcokenny/ocx/636dc2dbd10a780ef9f4b7a0bbf175aacd742e8c/workers/kdco-registry/files/plugins/worktree/terminal.ts",
+        "sha256": "42d25da12f908c74edaae7845074a757868c83a0401e1c5b6d888359a0db92f0"
+      }
+    ],
+    "dependencies": {
+      "@opencode-ai/plugin": "1.18.30",
+      "jsonc-parser": "3.3.1",
+      "zod": "4.3.5"
+    },
+    "defaultExport": true,
+    "note": "Creates worktrees and opens terminal sessions. The terminal workflow is separate from Koma task creation.",
+    "noteZh": "创建 Worktree 并打开终端会话，插件的终端流程与 Koma 的新建任务入口分别工作。"
+  },
+  "https://github.com/Opencode-DCP/opencode-dynamic-context-pruning": {
+    "type": "npm",
+    "spec": "@tarquinen/opencode-dcp",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/ghoulr/opencode-websearch-cited": {
+    "type": "npm",
+    "spec": "opencode-websearch-cited",
+    "verifiedAt": "2026-09-13"
+  },
+  "https://github.com/shekohex/opencode-pty": {
+    "type": "npm",
+    "spec": "opencode-pty",
+    "verifiedAt": "2026-09-13"
+  }
+}
