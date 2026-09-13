@@ -144,7 +144,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   )
 
   return (
-    <Show when={params.id && usage() !== undefined}>
+    <Show when={params.id}>
       <div
         class="flex items-center"
         onPointerEnter={() => setInspecting(true)}
