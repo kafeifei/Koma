@@ -8,7 +8,7 @@ import type { ClientRequest } from "./protocol/generated/ClientRequest.js"
 import type { InitializeParams } from "./protocol/generated/InitializeParams.js"
 import type { InitializeResponse } from "./protocol/generated/InitializeResponse.js"
 
-export const CODEX_APP_SERVER_VERSION = "0.153.4"
+export const CODEX_APP_SERVER_VERSION = "0.154.0"
 
 type MethodOf<T> = T extends { method: infer Method extends string } ? Method : never
 type RequestFor<Method extends ClientRequestMethod> = Extract<ClientRequest, { method: Method }>

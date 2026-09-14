@@ -24,7 +24,7 @@ const thread = {
   status: { type: "idle" },
   path: null,
   cwd: "/workspace",
-  cliVersion: "0.153.4",
+  cliVersion: "0.154.0",
   source: "appServer",
   canAcceptDirectInput: true,
   threadSource: null,

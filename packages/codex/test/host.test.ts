@@ -51,6 +51,7 @@ afterAll(() =>
 function thread(): v2.Thread {
   return {
     id: "native-thread",
+    environments: null,
     extra: null,
     sessionId: "native-session",
     forkedFromId: null,
@@ -70,7 +71,8 @@ function thread(): v2.Thread {
     status: { type: "idle" },
     path: null,
     cwd: directory,
-    cliVersion: "0.153.4",
+    cliVersion: "0.154.0",
+    originator: null,
     source: "appServer",
     canAcceptDirectInput: true,
     threadSource: null,
@@ -78,6 +80,7 @@ function thread(): v2.Thread {
     agentRole: null,
     gitInfo: null,
     name: null,
+    daybreakEnabled: null,
     turns: [],
   }
 }

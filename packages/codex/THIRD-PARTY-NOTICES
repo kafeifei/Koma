@@ -1,11 +1,11 @@
-Third-party notices accompanying the official Codex 0.153.4 macOS runtime.
+Third-party notices accompanying the official Codex 0.154.0 macOS runtime.
 Koma redistributes the official runtime archive without modifying its contents.
 The main Codex license and upstream NOTICE are shipped as separate files.
 
 Zsh provenance and the OpenAI patch are recorded in:
-https://github.com/openai/codex/blob/rust-v0.153.4/scripts/codex_package/codex-zsh
-https://github.com/openai/codex/blob/rust-v0.153.4/.github/workflows/rust-release-zsh.yml
-https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/shell-escalation/patches/zsh-exec-wrapper.patch
+https://github.com/openai/codex/blob/rust-v0.154.0/scripts/codex_package/codex-zsh
+https://github.com/openai/codex/blob/rust-v0.154.0/.github/workflows/rust-release-zsh.yml
+https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/shell-escalation/patches/zsh-exec-wrapper.patch
 
 
 ========================================================================
@@ -83,7 +83,7 @@ maintenance, support, updates, enhancements, or modifications.
 ========================================================================
 
 WezTerm components vendored by Codex
-Source: https://github.com/openai/codex/blob/rust-v0.153.4/third_party/wezterm/LICENSE
+Source: https://github.com/openai/codex/blob/rust-v0.154.0/third_party/wezterm/LICENSE
 
 MIT License
 

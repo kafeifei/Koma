@@ -34,7 +34,7 @@ test("the runtime package matches the generated protocol version", () => {
 
 test.skipIf(process.platform === "win32")("a newer first PATH entry does not hide a compatible CLI", async () => {
   const input = await fixture()
-  const newer = await binary(input.home, "new", "0.154.0")
+  const newer = await binary(input.home, "new", "0.155.0")
   const compatible = await binary(input.home, "compatible", CODEX_APP_SERVER_VERSION)
   input.environment.PATH = [path.dirname(newer), path.dirname(compatible)].join(path.delimiter)
   expect(await resolveCodexBinary(input)).toBe(compatible)
@@ -44,14 +44,14 @@ test.skipIf(process.platform === "win32")(
   "an incompatible explicit override fails without silently using PATH",
   async () => {
     const input = await fixture()
-    const configured = await binary(input.home, "new", "0.154.0")
+    const configured = await binary(input.home, "new", "0.155.0")
     const compatible = await binary(input.home, "compatible", CODEX_APP_SERVER_VERSION)
     await expect(
       resolveCodexBinary({
         ...input,
         environment: { OPENCODE_CODEX_BINARY: configured, PATH: path.dirname(compatible) },
       }),
-    ).rejects.toThrow("Unsupported Codex binary 0.154.0")
+    ).rejects.toThrow("Unsupported Codex binary 0.155.0")
   },
 )
 
@@ -68,7 +68,7 @@ test.skipIf(!process.env.CODEX_RUNTIME_TEST_ARCHIVE)(
     await copyFile(process.env.CODEX_RUNTIME_TEST_ARCHIVE!, path.join(input.home, CODEX_RUNTIME_ARCHIVE))
     const link = path.join(input.home, "koma-link")
     await symlink(input.executable, link)
-    const newer = await binary(input.home, "system-cli", "0.154.0")
+    const newer = await binary(input.home, "system-cli", "0.155.0")
     const [first, second] = await Promise.all([
       resolveCodexBinary({ ...input, executable: link, environment: { PATH: path.dirname(newer) } }),
       resolveCodexBinary(input),

@@ -4,7 +4,7 @@ import path from "node:path"
 import type { v2 } from "../../src/protocol/generated/index"
 
 if (process.argv.includes("--version")) {
-  process.stdout.write("codex-cli 0.153.4\n")
+  process.stdout.write("codex-cli 0.154.0\n")
   process.exit(0)
 }
 const home = process.env.CODEX_HOME!

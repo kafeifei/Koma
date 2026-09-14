@@ -40,7 +40,7 @@ Lab 持久接收、原生 RPC 接收和原生历史确认是三个边界。`acce
 
 同一原生 home 的多个后端通过仅监听 loopback、使用私有随机凭据的 Host 登记协调写入归属。普通历史读取和重试不停止原持有者；写锁冲突时，用户可选择“停止并接管”。原持有者暂停尚未投递的输入，停止目标回合，等待原生工具完成后交出同一 thread。旧窗口保留历史，并停止自动接入；再次控制须显式接管。未知投递和暂停队列不随接管重发。
 
-固定的 Codex 0.153.4 在取消订阅后保留 writer 30 分钟；接管使用原生 archive/unarchive 卸载已停止的 thread，Koma Session 的归档状态不变。先持久记录该 thread 与原先未归档的后代，再恢复这些精确 ID；原先已归档的后代保持归档。恢复途中失败保留记录，显式接管重试完成恢复。仍在执行的后代须先停止，不能通过归档父任务隐式停止它们。
+固定的 Codex 0.154.0 在取消订阅后保留 writer 30 分钟；接管使用原生 archive/unarchive 卸载已停止的 thread，Koma Session 的归档状态不变。先持久记录该 thread 与原先未归档的后代，再恢复这些精确 ID；原先已归档的后代保持归档。恢复途中失败保留记录，显式接管重试完成恢复。仍在执行的后代须先停止，不能通过归档父任务隐式停止它们。
 
 两个后端均须支持此协议。旧后端或不可达的持有者不会被杀进程、删除锁文件或复制历史绕过；升级后需由用户重新启动对应应用。
 
@@ -54,7 +54,7 @@ Lab 持久接收、原生 RPC 接收和原生历史确认是三个边界。`acce
 
 ## 原生边界
 
-运行时固定为 [0.153.4](codex-version.txt)，由 transport 启动前核对。桌面构建携带官方完整运行时包及固定 SHA-256，随不可变 Koma CLI 一起保存；首次使用在当前 profile 的缓存中原子解包，空 profile 无需另行安装 Codex。`OPENCODE_CODEX_BINARY` 是显式开发覆盖，仍须匹配版本；没有随包运行时的源码开发只选择 PATH 中版本匹配的 CLI，不修改系统 Codex。[能力基线](src/capabilities.ts) 记录该版本的实际限制：新 thread 显式使用 paginated history 以保留原生 ID 和内层工具；legacy 历史会缺失内层工具、重建 ID，不能证明执行结束。`turn/interrupt` 可能早于内层命令退出，持久执行占用须等明确完成证据才释放。原生 queue 向空闲 thread 添加输入会立即执行，不承担 Lab 的暂停队列。
+运行时固定为 [0.154.0](codex-version.txt)，由 transport 启动前核对。桌面构建携带官方完整运行时包及固定 SHA-256，随不可变 Koma CLI 一起保存；首次使用在当前 profile 的缓存中原子解包，空 profile 无需另行安装 Codex。`OPENCODE_CODEX_BINARY` 是显式开发覆盖，仍须匹配版本；没有随包运行时的源码开发只选择 PATH 中版本匹配的 CLI，不修改系统 Codex。[能力基线](src/capabilities.ts) 记录该版本的实际限制：新 thread 显式使用 paginated history 以保留原生 ID 和内层工具；legacy 历史会缺失内层工具、重建 ID，不能证明执行结束。`turn/interrupt` 可能早于内层命令退出，持久执行占用须等明确完成证据才释放。原生 queue 向空闲 thread 添加输入会立即执行，不承担 Lab 的暂停队列。
 
 原生 plan 只有实时通知，没有重连回放源；Host 启用 `update_plan` 工具，未改写原生配置文件或强制启用可选子代理工具。
 
@@ -62,4 +62,4 @@ Lab 持久接收、原生 RPC 接收和原生历史确认是三个边界。`acce
 
 ## 许可
 
-集成代码沿用仓库 MIT 许可。生成协议来自 OpenAI Codex 0.153.4，保留 Apache-2.0 声明及随附 [LICENSE](src/protocol/LICENSE)、[NOTICE](src/protocol/NOTICE)。
+集成代码沿用仓库 MIT 许可。生成协议来自 OpenAI Codex 0.154.0，保留 Apache-2.0 声明及随附 [LICENSE](src/protocol/LICENSE)、[NOTICE](src/protocol/NOTICE)。
