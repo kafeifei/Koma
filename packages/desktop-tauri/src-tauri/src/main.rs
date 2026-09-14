@@ -601,7 +601,13 @@ fn freeze_runtime(
         fs::create_dir_all(&temporary)?;
         fs::copy(binary, temporary.join("koma"))?;
         let resources = renderer.parent().ok_or("Missing desktop host resources")?;
-        for name in ["node", "host.cjs", "node-LICENSE"] {
+        for name in [
+            "node",
+            "host.cjs",
+            "node-LICENSE",
+            "koma-codex-runtime.tar.gz",
+            "koma-codex-LICENSE",
+        ] {
             fs::copy(resources.join(name), temporary.join(name))?;
         }
         copy_tree(&renderer, &temporary.join("web"))?;

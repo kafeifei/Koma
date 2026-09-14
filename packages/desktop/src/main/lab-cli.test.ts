@@ -9,6 +9,7 @@ import {
   readFile,
   readdir,
   readlink,
+  realpath,
   rm,
   stat,
   symlink,
@@ -20,6 +21,31 @@ import { installKomaCli } from "./koma-cli"
 
 const name = process.platform === "win32" ? "koma.exe" : "koma"
 const identity = (content: string) => join(".koma", createHash("sha256").update(content).digest("hex"), name)
+
+test("publishes the bundled Codex archive with its CLI and preserves it after the app is replaced", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "koma-cli-codex-"))
+  try {
+    const source = join(directory, "candidate")
+    const archive = join(directory, "koma-codex-runtime.tar.gz")
+    await writeFile(source, "first CLI")
+    await writeFile(archive, "first runtime")
+    const link = await installKomaCli({ source, root: join(directory, "home") })
+    const first = await realpath(link)
+    await writeFile(source, "second CLI")
+    await writeFile(archive, "second runtime")
+    await installKomaCli({ source, root: join(directory, "home") })
+    const current = await realpath(link)
+    expect(await readFile(join(first, "..", "koma-codex-runtime.tar.gz"), "utf8")).toBe("first runtime")
+    expect(await readFile(join(current, "..", "koma-codex-runtime.tar.gz"), "utf8")).toBe("second runtime")
+    await writeFile(archive, "unexpected replacement")
+    await expect(installKomaCli({ source, root: join(directory, "home") })).rejects.toThrow(
+      "runtime resource does not match",
+    )
+    expect(await readFile(join(current, "..", "koma-codex-runtime.tar.gz"), "utf8")).toBe("second runtime")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test("release and Debug shell commands install and upgrade independently", async () => {
   const directory = await mkdtemp(join(tmpdir(), "koma-cli-coexistence-"))

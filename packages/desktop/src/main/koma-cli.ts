@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { createReadStream } from "node:fs"
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readlink, rename, rm, symlink, unlink } from "node:fs/promises"
-import { join, resolve, sep } from "node:path"
+import { dirname, join, resolve, sep } from "node:path"
 import { StoragePaths } from "@opencode-ai/core/storage-paths"
 import { StorageMigration } from "@opencode-ai/core/storage-migration"
 
@@ -31,6 +31,17 @@ export async function installKomaCli(input: {
     await checkDirectory(version)
     const existing = await entry(binary)
     if (existing) await checkBinary(binary, hash)
+    const companions: { source: string; name: string; hash: string }[] = []
+    for (const name of ["koma-codex-runtime.tar.gz", "koma-codex-LICENSE"]) {
+      const source = join(dirname(input.source), name)
+      const value = await entry(source)
+      if (!value) continue
+      if (!value.isFile()) throw new Error(`CLI runtime resource is not a regular file: ${source}`)
+      const hash = await digest(source)
+      if (existing && (await digest(join(version, name)).catch(() => undefined)) !== hash)
+        throw new Error(`Installed CLI runtime resource does not match its source: ${name}`)
+      companions.push({ source, name, hash })
+    }
     await mkdir(managed, { recursive: true, mode: 0o700 })
     const staging = await mkdtemp(join(directory, ".install-"))
     let created: { ino: number; dev: number } | undefined
@@ -42,6 +53,12 @@ export async function installKomaCli(input: {
         if ((await digest(candidate)) !== hash)
           throw new Error(`CLI source changed during installation: ${input.source}`)
         if (process.platform !== "win32") await chmod(candidate, 0o555)
+        for (const resource of companions) {
+          const destination = join(staging, "version", resource.name)
+          await copyFile(resource.source, destination)
+          if ((await digest(destination)) !== resource.hash)
+            throw new Error(`CLI runtime resource changed during installation: ${resource.name}`)
+        }
         // Never rewrite a published version: already running processes retain their original executable.
         if (await entry(version)) throw new Error(`CLI version directory already exists: ${version}`)
         await rename(join(staging, "version"), version)

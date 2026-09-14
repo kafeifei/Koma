@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process"
 import { getCurrentCli } from "./utils"
 import pkg from "../package.json"
 import { komaBuildInputs } from "./koma-build-inputs"
+import { prepareCodexRuntime } from "./prepare-codex-runtime"
 
 // Both desktop hosts package this one artifact. Reuse only if the source,
 // build version, Bun runtime and binary digest still match.
@@ -13,6 +14,7 @@ const target = getCurrentCli()
 if (target.os !== process.platform || target.cpu !== process.arch)
   throw new Error("Local Koma CLI packaging requires the native platform and architecture")
 const repository = join(import.meta.dir, "../../..")
+await prepareCodexRuntime(repository)
 const git = (args: string[]) => execFileSync("git", args, { cwd: repository })
 const version = process.env.OPENCODE_VERSION ?? pkg.version
 const release = process.env.KOMA_RELEASE === "1"

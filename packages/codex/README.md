@@ -54,7 +54,7 @@ Lab 持久接收、原生 RPC 接收和原生历史确认是三个边界。`acce
 
 ## 原生边界
 
-运行时固定为 [0.153.4](codex-version.txt)，由 transport 启动前核对。[能力基线](src/capabilities.ts) 记录该版本的实际限制：新 thread 显式使用 paginated history 以保留原生 ID 和内层工具；legacy 历史会缺失内层工具、重建 ID，不能证明执行结束。`turn/interrupt` 可能早于内层命令退出，持久执行占用须等明确完成证据才释放。原生 queue 向空闲 thread 添加输入会立即执行，不承担 Lab 的暂停队列。
+运行时固定为 [0.153.4](codex-version.txt)，由 transport 启动前核对。桌面构建携带官方完整运行时包及固定 SHA-256，随不可变 Koma CLI 一起保存；首次使用在当前 profile 的缓存中原子解包，空 profile 无需另行安装 Codex。`OPENCODE_CODEX_BINARY` 是显式开发覆盖，仍须匹配版本；没有随包运行时的源码开发只选择 PATH 中版本匹配的 CLI，不修改系统 Codex。[能力基线](src/capabilities.ts) 记录该版本的实际限制：新 thread 显式使用 paginated history 以保留原生 ID 和内层工具；legacy 历史会缺失内层工具、重建 ID，不能证明执行结束。`turn/interrupt` 可能早于内层命令退出，持久执行占用须等明确完成证据才释放。原生 queue 向空闲 thread 添加输入会立即执行，不承担 Lab 的暂停队列。
 
 原生 plan 只有实时通知，没有重连回放源；Host 启用 `update_plan` 工具，未改写原生配置文件或强制启用可选子代理工具。
 

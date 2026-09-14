@@ -39,7 +39,7 @@ test("keeps the Lab app independent from production", async () => {
 
   expect(config.productName).toBe("Koma Debug")
   expect(config.directories?.output).toBe("dist-debug")
-  expect(config.protocols).toEqual({ name: "Koma Debug", schemes: ["koma"] })
+  expect(config.protocols).toEqual({ name: "Koma Debug", schemes: ["koma-debug"] })
   expect(config.publish).toBeUndefined()
   expect(config.mac?.identity).toBeUndefined()
   expect(config.mac?.forceCodeSigning).toBe(true)
@@ -110,6 +110,11 @@ test("Koma packages only its shared CLI without the unused upstream v2 executabl
   try {
     const { default: config } = await import("./electron-builder.config.ts?koma=single-cli")
     expect(config.extraResources).toContainEqual({ from: "resources/", to: "", filter: ["koma", "koma.exe"] })
+    expect(config.extraResources).toContainEqual({
+      from: "resources/",
+      to: "",
+      filter: ["koma-codex-runtime.tar.gz", "koma-codex-LICENSE"],
+    })
     expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["opencode-cli*"] })
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_CHANNEL

@@ -59,6 +59,9 @@ const getBase = (appId: string): Configuration => ({
   ],
   extraResources: [
     ...(channel === "lab" ? [{ from: "resources/", to: "", filter: ["koma", "koma.exe"] }] : []),
+    ...(channel === "lab"
+      ? [{ from: "resources/", to: "", filter: ["koma-codex-runtime.tar.gz", "koma-codex-LICENSE"] }]
+      : []),
     // Koma uses its own CLI. Only the upstream development channel uses the legacy v2 CLI.
     ...(channel === "dev"
       ? [

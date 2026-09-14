@@ -1,8 +1,7 @@
 export * as CodexHost from "./host"
 
 import { createHash, randomUUID } from "node:crypto"
-import { access, mkdir, realpath } from "node:fs/promises"
-import { constants } from "node:fs"
+import { mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -51,6 +50,7 @@ import { CodexWorktreeAccess } from "./worktree-access"
 import { CodexProviders } from "./providers"
 import { providerCredentials } from "./provider-credentials"
 import { codexStorage } from "./storage"
+import { resolveCodexBinary } from "./binary"
 import { writerHandoff, isWriterConflict, type WriterHandoff } from "./writer-handoff"
 import { unloadWriter, hasWriterRecovery } from "./writer-unload"
 import { snapshotUpdate, toolOutputAppend } from "./snapshot-update"
@@ -509,7 +509,7 @@ const layer = Layer.effect(
         await mkdir(home, { recursive: true })
         if (!state.manager)
           state.manager = new CodexRuntimeManager({
-            binaryPath: await resolveBinary(global.home),
+            binaryPath: await resolveCodexBinary({ home: global.home, cache: global.cache }),
             codexHome: home,
             cwd: home,
             runtimeScope,
@@ -2745,30 +2745,6 @@ function errorMessage(error: unknown) {
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-async function resolveBinary(home: string) {
-  const configured = process.env.OPENCODE_CODEX_BINARY
-  const candidates = configured
-    ? [configured]
-    : [
-        ...(process.env.PATH ?? "")
-          .split(path.delimiter)
-          .filter(Boolean)
-          .map((directory) => path.join(directory, "codex")),
-        path.join(home, ".local", "bin", "codex"),
-      ]
-  for (const candidate of candidates) {
-    if (!path.isAbsolute(candidate)) continue
-    if (
-      await access(candidate, constants.X_OK).then(
-        () => true,
-        () => false,
-      )
-    )
-      return candidate
-  }
-  throw new HostError({ code: "unavailable", message: `Codex ${CODEX_APP_SERVER_VERSION} executable was not found` })
 }
 
 function changedMessages(before: readonly Message[], after: readonly Message[]) {
