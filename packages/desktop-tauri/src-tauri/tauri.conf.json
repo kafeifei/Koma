@@ -37,7 +37,9 @@
       "binaries/host.cjs": "host.cjs",
       "binaries/node-LICENSE": "node-LICENSE",
       "binaries/koma-codex-runtime.tar.gz": "koma-codex-runtime.tar.gz",
-      "binaries/koma-codex-LICENSE": "koma-codex-LICENSE"
+      "binaries/koma-codex-LICENSE": "koma-codex-LICENSE",
+      "binaries/koma-codex-NOTICE": "koma-codex-NOTICE",
+      "binaries/koma-codex-THIRD-PARTY-NOTICES": "koma-codex-THIRD-PARTY-NOTICES"
     },
     "macOS": {
       "minimumSystemVersion": "12.0",

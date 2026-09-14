@@ -47,7 +47,12 @@ await mkdir(binaries, { recursive: true })
 const binary = join(binaries, "koma-aarch64-apple-darwin")
 const source = join(repository, "packages/desktop/resources/koma")
 await copyFile(source, binary)
-for (const name of ["koma-codex-runtime.tar.gz", "koma-codex-LICENSE"])
+for (const name of [
+  "koma-codex-runtime.tar.gz",
+  "koma-codex-LICENSE",
+  "koma-codex-NOTICE",
+  "koma-codex-THIRD-PARTY-NOTICES",
+])
   await copyFile(join(repository, "packages/desktop/resources", name), join(binaries, name))
 await chmod(binary, 0o755)
 if (!Buffer.from(await Bun.file(source).arrayBuffer()).equals(Buffer.from(await Bun.file(binary).arrayBuffer())))

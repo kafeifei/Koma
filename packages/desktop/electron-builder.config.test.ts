@@ -113,7 +113,12 @@ test("Koma packages only its shared CLI without the unused upstream v2 executabl
     expect(config.extraResources).toContainEqual({
       from: "resources/",
       to: "",
-      filter: ["koma-codex-runtime.tar.gz", "koma-codex-LICENSE"],
+      filter: [
+        "koma-codex-runtime.tar.gz",
+        "koma-codex-LICENSE",
+        "koma-codex-NOTICE",
+        "koma-codex-THIRD-PARTY-NOTICES",
+      ],
     })
     expect(config.extraResources).not.toContainEqual({ from: "resources/", to: "", filter: ["opencode-cli*"] })
   } finally {

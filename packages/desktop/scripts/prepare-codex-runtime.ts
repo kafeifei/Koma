@@ -33,6 +33,11 @@ export async function prepareCodexRuntime(repository: string) {
   await mkdir(resources, { recursive: true })
   await copyFile(archive, join(resources, CODEX_RUNTIME_ARCHIVE))
   await copyFile(join(repository, "packages/codex/src/protocol/LICENSE"), join(resources, "koma-codex-LICENSE"))
+  await copyFile(join(repository, "packages/codex/src/protocol/NOTICE"), join(resources, "koma-codex-NOTICE"))
+  await copyFile(
+    join(repository, "packages/codex/THIRD-PARTY-NOTICES"),
+    join(resources, "koma-codex-THIRD-PARTY-NOTICES"),
+  )
   console.log(`Prepared verified Codex runtime (${pkg.target}, ${pkg.sha256.slice(0, 12)})`)
 }
 

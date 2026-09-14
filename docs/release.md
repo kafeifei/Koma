@@ -30,6 +30,8 @@ Koma 的 Electron 包只携带共享 Koma CLI，不再附带未使用的上游 v
 
 Electron 与 Tauri 还携带与协议匹配的官方 Codex 完整运行时归档，下载地址和 SHA-256 固定在 `packages/codex/src/runtime-package.ts`。构建时校验归档与 CLI 版本；安装及运行快照必须同时保留该归档，后台在当前 profile 缓存内原子解包。验证空 profile 且 PATH 中存在更新版 Codex 时仍使用随包版本，不依赖或修改用户全局 CLI。
 
+应用的 Resources 同时携带 `koma-codex-LICENSE`、`koma-codex-NOTICE` 和 `koma-codex-THIRD-PARTY-NOTICES`。后者保存 macOS 运行时随附 ripgrep、Zsh，以及上游列明的 Ratatui、WezTerm 组件的许可原文与来源；更新运行时版本时一并核对这些声明。许可文件保留在应用资源中，不改写官方运行时归档。
+
 两个宿主共用发行版调试开关策略。Koma 固定使用当前工作台布局，已有配置中的旧布局偏好自动归一，不显示上游新旧界面迁移开关和过期提示。
 
 “连接 → 远程隧道”设置始终显示 `https://koma-remote.vercel.app/` 网站入口，Electron 与 Tauri 由共享服务提供同一个默认值；`OPENCODE_REMOTE_WEBSITE` 仍可覆盖。网站托管 GitHub 登录、会话与设备目录 API，实际工作台流量仍走 Microsoft Dev Tunnels；当前网站不能整体部署到仅提供静态托管的 GitHub Pages。
