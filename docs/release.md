@@ -41,7 +41,7 @@ Electron 与 Tauri 还携带与协议匹配的官方 Codex 完整运行时归档
 - 对候选 App 执行 `codesign --verify --deep --strict`、`xcrun stapler validate` 和 `spctl --assess --type execute`。
 - 使用独立 `OPENCODE_HOME` 验证启动、项目与任务操作、OpenCode 和原生 Codex 的代表性流程；对比现有版本，保留原用户数据与运行进程。
 - 检查两个 ZIP 内的 App 版本、签名和构建 commit，并验证同包 CLI 的版本与内容一致，生成 SHA-256 校验文件。
-- 将 `main` 推送到 `kafeifei/Koma`，确认远端 commit 与产物一致，再创建 `v<version>` 标签和 GitHub prerelease。上传经验证的两个 ZIP 和校验文件。
+- 将 `main` 推送到 `kafeifei/Koma`，确认远端 commit 与产物一致，再创建 `koma-v<version>` 标签和 GitHub prerelease。上传经验证的两个 ZIP 和校验文件；`koma-v` 前缀用于避免与保留的上游历史标签冲突。
 
 GitHub 仓库的 Release 与 Git 标签分开管理。清理上游 Release 不删除上游历史标签，也不改写上游提交历史。
 
