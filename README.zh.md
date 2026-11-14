@@ -1,5 +1,9 @@
 # Koma
 
+> **本项目已于 2026-11-14 停止维护。** 后续不再提供功能更新、缺陷修复或安全更新。
+>
+> 同类项目仅继续维护 [Vgent](https://github.com/kafeifei/Vgent)。本仓库保留供历史查阅，欢迎遵循现有 MIT 许可证 fork。
+
 基于 [OpenCode](https://github.com/anomalyco/opencode) 的桌面 Agent 工作台，探索类似 Codex 的项目、任务与工作区协作方式。与 Fumie 研究相同的人与 Agent 协作问题，当前支持原生 Codex 接入和共享本地后端。独立 fork，非 OpenCode 官方产品。
 
 - [下载 macOS beta](https://github.com/kafeifei/Koma/releases)
