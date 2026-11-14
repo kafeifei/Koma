@@ -1,5 +1,11 @@
 # Koma
 
+> **Maintenance ended on 2026-11-14.** This project no longer receives feature updates, bug fixes, or security updates.
+>
+> Development in this category continues only in [Vgent](https://github.com/kafeifei/Vgent). This repository is retained for historical reference.
+
+Forks under the existing MIT license are welcome.
+
 A desktop Agent workbench built on [OpenCode](https://github.com/anomalyco/opencode), exploring a Codex-like workflow around projects, tasks, and workspaces. Like Fumie, Koma explores how people and agents work together, with native Codex integration and a shared local backend. This is an independent fork, not an official OpenCode product.
 
 - [Download the macOS beta](https://github.com/kafeifei/Koma/releases)
