@@ -9,12 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
-dist-lab
 dist-ssr
 *.local
-
-# Temporary bundled config exists while build metadata reads git status.
-electron.vite.config.[0-9]*.mjs
 
 # Editor directories and files
 .vscode/*
@@ -29,15 +25,5 @@ electron.vite.config.[0-9]*.mjs
 out/
 
 resources/opencode-cli*
-resources/opencode-lab*
 resources/icons
 resources/*.metainfo.xml
-
-/dist-release/
-
-/dist-debug/
-resources/koma
-resources/koma.exe
-
-resources/koma.build.json
-resources/koma-codex-*

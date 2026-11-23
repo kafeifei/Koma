@@ -1,5 +1,0 @@
-{
-  "extends": "@tsconfig/bun/tsconfig.json",
-  "compilerOptions": { "rootDir": "." },
-  "include": ["src", "test"]
-}

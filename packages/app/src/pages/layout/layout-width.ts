@@ -1,1 +1,0 @@
-export const WORKSPACE_PANEL_MIN_WIDTH = 248

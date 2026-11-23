@@ -6,17 +6,7 @@ subtask: true
 
 commit and push
 
-Koma product changes belong on main or a feature branch based on main. Never commit or push product changes to dev; it mirrors upstream only. See docs/branches.md.
-
-make sure it includes a prefix like
-docs:
-tui:
-core:
-ci:
-ignore:
-wip:
-
-For anything in the packages/web use the docs: prefix.
+Use `type(scope): summary` with one of these types: `feat`, `fix`, `docs`, `chore`, `refactor`, or `test`. The scope is optional.
 
 prefer to explain WHY something was done from an end user perspective instead of
 WHAT was done.

@@ -1,19 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "7c515073-1ad2-423a-b660-969b90ec8ea0",
-  "prevIds": [
-    "06ecd7e6-36bc-4565-9ca5-abddde45bab3"
-  ],
+  "id": "6fdb1fc8-74cd-4f15-8faa-e109d3030da9",
+  "prevIds": ["74cace2e-430e-4672-bf3b-eba14ae0c399"],
   "ddl": [
-    {
-      "name": "workspace",
-      "entityType": "tables"
-    },
-    {
-      "name": "data_migration",
-      "entityType": "tables"
-    },
     {
       "name": "account_state",
       "entityType": "tables"
@@ -24,6 +14,10 @@
     },
     {
       "name": "control_account",
+      "entityType": "tables"
+    },
+    {
+      "name": "automation",
       "entityType": "tables"
     },
     {
@@ -39,6 +33,18 @@
       "entityType": "tables"
     },
     {
+      "name": "job",
+      "entityType": "tables"
+    },
+    {
+      "name": "kv",
+      "entityType": "tables"
+    },
+    {
+      "name": "machine",
+      "entityType": "tables"
+    },
+    {
       "name": "permission",
       "entityType": "tables"
     },
@@ -51,31 +57,27 @@
       "entityType": "tables"
     },
     {
-      "name": "session_external_binding",
+      "name": "blob_ref",
       "entityType": "tables"
     },
     {
-      "name": "session_external_delivery",
+      "name": "blob",
       "entityType": "tables"
     },
     {
-      "name": "session_external_tombstone",
+      "name": "instruction_blob",
       "entityType": "tables"
     },
     {
-      "name": "message",
+      "name": "instruction_entry",
       "entityType": "tables"
     },
     {
-      "name": "part",
+      "name": "instruction_state",
       "entityType": "tables"
     },
     {
-      "name": "session_context_epoch",
-      "entityType": "tables"
-    },
-    {
-      "name": "session_input",
+      "name": "session_inbox",
       "entityType": "tables"
     },
     {
@@ -83,116 +85,20 @@
       "entityType": "tables"
     },
     {
-      "name": "session",
+      "name": "session_part",
       "entityType": "tables"
     },
     {
-      "name": "todo",
+      "name": "session_v2",
       "entityType": "tables"
     },
     {
-      "name": "session_share",
+      "name": "workspace",
       "entityType": "tables"
     },
     {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "type",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "''",
-      "generated": null,
-      "name": "name",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "branch",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "directory",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "extra",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_used",
-      "entityType": "columns",
-      "table": "workspace"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "name",
-      "entityType": "columns",
-      "table": "data_migration"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_completed",
-      "entityType": "columns",
-      "table": "data_migration"
+      "name": "worktree",
+      "entityType": "tables"
     },
     {
       "type": "integer",
@@ -392,6 +298,226 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "directory",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "trigger",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tz",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "action",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'active'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "next_due_at",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "run_count",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "failures",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_run_at",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_message_id",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_outcome",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_output",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "retry_at",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "event_position",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "automation"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
       "table": "credential"
     },
     {
@@ -535,6 +661,16 @@
       "table": "event"
     },
     {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "created",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
@@ -553,6 +689,196 @@
       "name": "data",
       "entityType": "columns",
       "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "notification_id",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "child_session_id",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "output",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "recovery",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "job"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "kv"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "kv"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "kv"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "kv"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "machine"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "machine"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "machine"
     },
     {
       "type": "text",
@@ -765,6 +1091,26 @@
       "table": "project"
     },
     {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "time_active",
+      "entityType": "columns",
+      "table": "project"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_archived",
+      "entityType": "columns",
+      "table": "project"
+    },
+    {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
@@ -786,383 +1132,13 @@
     },
     {
       "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "session_id",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "runtime_scope",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "native_thread_id",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "state",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "generation",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "false",
-      "generated": null,
-      "name": "queue_paused",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "false",
-      "generated": null,
-      "name": "execution_pending",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "deletion_state",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "deletion_generation",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "deletion_error",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "'{}'",
-      "generated": null,
-      "name": "settings",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "1",
-      "generated": null,
-      "name": "projection_version",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_updated",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "error",
-      "entityType": "columns",
-      "table": "session_external_binding"
-    },
-    {
-      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "session_id",
       "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "request_id",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "sequence",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "create_scope",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "create_fingerprint",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "fingerprint",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "payload",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "delivery",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "state",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "generation",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "native_turn_id",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "native_item_id",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "error",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_created",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_updated",
-      "entityType": "columns",
-      "table": "session_external_delivery"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "runtime_scope",
-      "entityType": "columns",
-      "table": "session_external_tombstone"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "native_thread_id",
-      "entityType": "columns",
-      "table": "session_external_tombstone"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_confirmed",
-      "entityType": "columns",
-      "table": "session_external_tombstone"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "message"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "session_id",
-      "entityType": "columns",
-      "table": "message"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_created",
-      "entityType": "columns",
-      "table": "message"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_updated",
-      "entityType": "columns",
-      "table": "message"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "data",
-      "entityType": "columns",
-      "table": "message"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "part"
+      "table": "blob_ref"
     },
     {
       "type": "text",
@@ -1172,7 +1148,7 @@
       "generated": null,
       "name": "message_id",
       "entityType": "columns",
-      "table": "part"
+      "table": "blob_ref"
     },
     {
       "type": "text",
@@ -1180,9 +1156,79 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "session_id",
+      "name": "hash",
       "entityType": "columns",
-      "table": "part"
+      "table": "blob_ref"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "seq",
+      "entityType": "columns",
+      "table": "blob_ref"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "hash",
+      "entityType": "columns",
+      "table": "blob"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mime",
+      "entityType": "columns",
+      "table": "blob"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "bytes",
+      "entityType": "columns",
+      "table": "blob"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "width",
+      "entityType": "columns",
+      "table": "blob"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "height",
+      "entityType": "columns",
+      "table": "blob"
+    },
+    {
+      "type": "blob",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "blob"
     },
     {
       "type": "integer",
@@ -1192,7 +1238,77 @@
       "generated": null,
       "name": "time_created",
       "entityType": "columns",
-      "table": "part"
+      "table": "blob"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "hash",
+      "entityType": "columns",
+      "table": "instruction_blob"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "instruction_blob"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "instruction_entry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "instruction_entry"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "instruction_entry"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "removed",
+      "entityType": "columns",
+      "table": "instruction_entry"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "instruction_entry"
     },
     {
       "type": "integer",
@@ -1202,17 +1318,7 @@
       "generated": null,
       "name": "time_updated",
       "entityType": "columns",
-      "table": "part"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "data",
-      "entityType": "columns",
-      "table": "part"
+      "table": "instruction_entry"
     },
     {
       "type": "text",
@@ -1222,27 +1328,7 @@
       "generated": null,
       "name": "session_id",
       "entityType": "columns",
-      "table": "session_context_epoch"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "baseline",
-      "entityType": "columns",
-      "table": "session_context_epoch"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "snapshot",
-      "entityType": "columns",
-      "table": "session_context_epoch"
+      "table": "instruction_state"
     },
     {
       "type": "integer",
@@ -1250,9 +1336,39 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "baseline_seq",
+      "name": "epoch_start",
       "entityType": "columns",
-      "table": "session_context_epoch"
+      "table": "instruction_state"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "through_seq",
+      "entityType": "columns",
+      "table": "instruction_state"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "initial_values",
+      "entityType": "columns",
+      "table": "instruction_state"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "current_values",
+      "entityType": "columns",
+      "table": "instruction_state"
     },
     {
       "type": "text",
@@ -1262,7 +1378,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "type": "text",
@@ -1272,7 +1388,7 @@
       "generated": null,
       "name": "session_id",
       "entityType": "columns",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "type": "text",
@@ -1280,9 +1396,19 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "prompt",
+      "name": "type",
       "entityType": "columns",
-      "table": "session_input"
+      "table": "session_inbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "session_inbox"
     },
     {
       "type": "text",
@@ -1292,7 +1418,7 @@
       "generated": null,
       "name": "delivery",
       "entityType": "columns",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "type": "integer",
@@ -1300,19 +1426,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "admitted_seq",
+      "name": "enqueued_seq",
       "entityType": "columns",
-      "table": "session_input"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "promoted_seq",
-      "entityType": "columns",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "type": "integer",
@@ -1322,7 +1438,7 @@
       "generated": null,
       "name": "time_created",
       "entityType": "columns",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "type": "text",
@@ -1396,23 +1512,93 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "message_id",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ordinal",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "call_id",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "session_part"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "session"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "'opencode'",
-      "generated": null,
-      "name": "engine",
-      "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1422,7 +1608,7 @@
       "generated": null,
       "name": "project_id",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1432,7 +1618,7 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1442,7 +1628,27 @@
       "generated": null,
       "name": "parent_id",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fork_session_id",
+      "entityType": "columns",
+      "table": "session_v2"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fork_boundary",
+      "entityType": "columns",
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1452,7 +1658,7 @@
       "generated": null,
       "name": "slug",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1462,7 +1668,7 @@
       "generated": null,
       "name": "directory",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1472,17 +1678,17 @@
       "generated": null,
       "name": "path",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
-      "notNull": true,
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "title",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1492,7 +1698,7 @@
       "generated": null,
       "name": "version",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1502,7 +1708,7 @@
       "generated": null,
       "name": "share_url",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1512,7 +1718,7 @@
       "generated": null,
       "name": "summary_additions",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1522,7 +1728,7 @@
       "generated": null,
       "name": "summary_deletions",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1532,7 +1738,7 @@
       "generated": null,
       "name": "summary_files",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1542,7 +1748,7 @@
       "generated": null,
       "name": "summary_diffs",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1552,7 +1758,7 @@
       "generated": null,
       "name": "metadata",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "real",
@@ -1562,7 +1768,7 @@
       "generated": null,
       "name": "cost",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1572,7 +1778,7 @@
       "generated": null,
       "name": "tokens_input",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1582,7 +1788,7 @@
       "generated": null,
       "name": "tokens_output",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1592,7 +1798,7 @@
       "generated": null,
       "name": "tokens_reasoning",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1602,7 +1808,7 @@
       "generated": null,
       "name": "tokens_cache_read",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1612,7 +1818,7 @@
       "generated": null,
       "name": "tokens_cache_write",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1622,7 +1828,7 @@
       "generated": null,
       "name": "revert",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1632,17 +1838,7 @@
       "generated": null,
       "name": "permission",
       "entityType": "columns",
-      "table": "session"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "permission_mode",
-      "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1652,7 +1848,7 @@
       "generated": null,
       "name": "agent",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1662,7 +1858,7 @@
       "generated": null,
       "name": "model",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1672,7 +1868,7 @@
       "generated": null,
       "name": "time_created",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1682,7 +1878,47 @@
       "generated": null,
       "name": "time_updated",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_busy",
+      "entityType": "columns",
+      "table": "session_v2"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_idle",
+      "entityType": "columns",
+      "table": "session_v2"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_viewed",
+      "entityType": "columns",
+      "table": "session_v2"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "idle_outcome",
+      "entityType": "columns",
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1692,7 +1928,7 @@
       "generated": null,
       "name": "time_compacting",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "type": "integer",
@@ -1702,77 +1938,27 @@
       "generated": null,
       "name": "time_archived",
       "entityType": "columns",
-      "table": "session"
+      "table": "session_v2"
     },
     {
-      "type": "text",
-      "notNull": true,
+      "type": "integer",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "session_id",
+      "name": "time_suspended",
       "entityType": "columns",
-      "table": "todo"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "content",
-      "entityType": "columns",
-      "table": "todo"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "status",
-      "entityType": "columns",
-      "table": "todo"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "priority",
-      "entityType": "columns",
-      "table": "todo"
+      "table": "session_v2"
     },
     {
       "type": "integer",
       "notNull": true,
       "autoincrement": false,
-      "default": null,
+      "default": "0",
       "generated": null,
-      "name": "position",
+      "name": "resume_attempts",
       "entityType": "columns",
-      "table": "todo"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_created",
-      "entityType": "columns",
-      "table": "todo"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_updated",
-      "entityType": "columns",
-      "table": "todo"
+      "table": "session_v2"
     },
     {
       "type": "text",
@@ -1780,19 +1966,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "session_id",
-      "entityType": "columns",
-      "table": "session_share"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "session_share"
+      "table": "workspace"
     },
     {
       "type": "text",
@@ -1800,9 +1976,39 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "secret",
+      "name": "provider",
       "entityType": "columns",
-      "table": "session_share"
+      "table": "workspace"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "binding",
+      "entityType": "columns",
+      "table": "workspace"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "workspace"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_used_at",
+      "entityType": "columns",
+      "table": "workspace"
     },
     {
       "type": "text",
@@ -1810,9 +2016,29 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "url",
+      "name": "project_id",
       "entityType": "columns",
-      "table": "session_share"
+      "table": "worktree"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "directory",
+      "entityType": "columns",
+      "table": "worktree"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "strategy",
+      "entityType": "columns",
+      "table": "worktree"
     },
     {
       "type": "integer",
@@ -1822,41 +2048,12 @@
       "generated": null,
       "name": "time_created",
       "entityType": "columns",
-      "table": "session_share"
+      "table": "worktree"
     },
     {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_updated",
-      "entityType": "columns",
-      "table": "session_share"
-    },
-    {
-      "columns": [
-        "project_id"
-      ],
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_workspace_project_id_project_id_fk",
-      "entityType": "fks",
-      "table": "workspace"
-    },
-    {
-      "columns": [
-        "active_account_id"
-      ],
+      "columns": ["active_account_id"],
       "tableTo": "account",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -1865,13 +2062,9 @@
       "table": "account_state"
     },
     {
-      "columns": [
-        "aggregate_id"
-      ],
+      "columns": ["aggregate_id"],
       "tableTo": "event_sequence",
-      "columnsTo": [
-        "aggregate_id"
-      ],
+      "columnsTo": ["aggregate_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1880,13 +2073,9 @@
       "table": "event"
     },
     {
-      "columns": [
-        "project_id"
-      ],
+      "columns": ["project_id"],
       "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1895,13 +2084,9 @@
       "table": "permission"
     },
     {
-      "columns": [
-        "project_id"
-      ],
+      "columns": ["project_id"],
       "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1910,209 +2095,278 @@
       "table": "project_directory"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["session_id"],
+      "tableTo": "session_v2",
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_session_external_binding_session_id_session_id_fk",
+      "name": "fk_blob_ref_session_id_session_v2_id_fk",
       "entityType": "fks",
-      "table": "session_external_binding"
+      "table": "blob_ref"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["hash"],
+      "tableTo": "blob",
+      "columnsTo": ["hash"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_session_external_delivery_session_id_session_id_fk",
+      "name": "fk_blob_ref_hash_blob_hash_fk",
       "entityType": "fks",
-      "table": "session_external_delivery"
+      "table": "blob_ref"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["session_id"],
+      "tableTo": "session_v2",
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_message_session_id_session_id_fk",
+      "name": "fk_instruction_entry_session_id_session_v2_id_fk",
       "entityType": "fks",
-      "table": "message"
+      "table": "instruction_entry"
     },
     {
-      "columns": [
-        "message_id"
-      ],
-      "tableTo": "message",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["session_id"],
+      "tableTo": "session_v2",
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_part_message_id_message_id_fk",
+      "name": "fk_instruction_state_session_id_session_v2_id_fk",
       "entityType": "fks",
-      "table": "part"
+      "table": "instruction_state"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["session_id"],
+      "tableTo": "session_v2",
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_session_context_epoch_session_id_session_id_fk",
+      "name": "fk_session_inbox_session_id_session_v2_id_fk",
       "entityType": "fks",
-      "table": "session_context_epoch"
+      "table": "session_inbox"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["session_id"],
+      "tableTo": "session_v2",
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_session_input_session_id_session_id_fk",
-      "entityType": "fks",
-      "table": "session_input"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_session_message_session_id_session_id_fk",
+      "name": "fk_session_message_session_id_session_v2_id_fk",
       "entityType": "fks",
       "table": "session_message"
     },
     {
-      "columns": [
-        "project_id"
-      ],
+      "columns": ["message_id"],
+      "tableTo": "session_message",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_session_part_message_id_session_message_id_fk",
+      "entityType": "fks",
+      "table": "session_part"
+    },
+    {
+      "columns": ["session_id"],
+      "tableTo": "session_v2",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_session_part_session_id_session_v2_id_fk",
+      "entityType": "fks",
+      "table": "session_part"
+    },
+    {
+      "columns": ["project_id"],
       "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_session_project_id_project_id_fk",
+      "name": "fk_session_v2_project_id_project_id_fk",
       "entityType": "fks",
-      "table": "session"
+      "table": "session_v2"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
+      "columns": ["project_id"],
+      "tableTo": "project",
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_todo_session_id_session_id_fk",
+      "name": "fk_worktree_project_id_project_id_fk",
       "entityType": "fks",
-      "table": "todo"
+      "table": "worktree"
     },
     {
-      "columns": [
-        "session_id"
-      ],
-      "tableTo": "session",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_session_share_session_id_session_id_fk",
-      "entityType": "fks",
-      "table": "session_share"
-    },
-    {
-      "columns": [
-        "email",
-        "url"
-      ],
+      "columns": ["email", "url"],
       "nameExplicit": false,
       "name": "control_account_pk",
       "entityType": "pks",
       "table": "control_account"
     },
     {
-      "columns": [
-        "project_id",
-        "directory"
-      ],
+      "columns": ["project_id", "directory"],
       "nameExplicit": false,
       "name": "project_directory_pk",
       "entityType": "pks",
       "table": "project_directory"
     },
     {
-      "columns": [
-        "session_id",
-        "request_id"
-      ],
+      "columns": ["session_id", "message_id", "hash"],
       "nameExplicit": false,
-      "name": "session_external_delivery_pk",
+      "name": "blob_ref_pk",
       "entityType": "pks",
-      "table": "session_external_delivery"
+      "table": "blob_ref"
     },
     {
-      "columns": [
-        "runtime_scope",
-        "native_thread_id"
-      ],
+      "columns": ["session_id", "key"],
       "nameExplicit": false,
-      "name": "session_external_tombstone_pk",
+      "name": "instruction_entry_pk",
       "entityType": "pks",
-      "table": "session_external_tombstone"
+      "table": "instruction_entry"
     },
     {
-      "columns": [
-        "session_id",
-        "position"
-      ],
+      "columns": ["message_id", "ordinal"],
       "nameExplicit": false,
-      "name": "todo_pk",
+      "name": "session_part_pk",
       "entityType": "pks",
-      "table": "todo"
+      "table": "session_part"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["project_id", "directory"],
+      "nameExplicit": false,
+      "name": "worktree_pk",
+      "entityType": "pks",
+      "table": "worktree"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "account_state_pk",
+      "table": "account_state",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "account_pk",
+      "table": "account",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "automation_pk",
+      "table": "automation",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "credential_pk",
+      "table": "credential",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["aggregate_id"],
+      "nameExplicit": false,
+      "name": "event_sequence_pk",
+      "table": "event_sequence",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "event_pk",
+      "table": "event",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["notification_id"],
+      "nameExplicit": false,
+      "name": "job_pk",
+      "table": "job",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["key"],
+      "nameExplicit": false,
+      "name": "kv_pk",
+      "table": "kv",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "machine_pk",
+      "table": "machine",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "permission_pk",
+      "table": "permission",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "project_pk",
+      "table": "project",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["hash"],
+      "nameExplicit": false,
+      "name": "blob_pk",
+      "table": "blob",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["hash"],
+      "nameExplicit": false,
+      "name": "instruction_blob_pk",
+      "table": "instruction_blob",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["session_id"],
+      "nameExplicit": false,
+      "name": "instruction_state_pk",
+      "table": "instruction_state",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "session_inbox_pk",
+      "table": "session_inbox",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "session_message_pk",
+      "table": "session_message",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "session_v2_pk",
+      "table": "session_v2",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workspace_pk",
       "table": "workspace",
@@ -2120,147 +2374,45 @@
     },
     {
       "columns": [
-        "name"
+        {
+          "value": "project_id",
+          "isExpression": false
+        }
       ],
-      "nameExplicit": false,
-      "name": "data_migration_pk",
-      "table": "data_migration",
-      "entityType": "pks"
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "automation_project_idx",
+      "entityType": "indexes",
+      "table": "automation"
     },
     {
       "columns": [
-        "id"
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
       ],
-      "nameExplicit": false,
-      "name": "account_state_pk",
-      "table": "account_state",
-      "entityType": "pks"
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "automation_session_idx",
+      "entityType": "indexes",
+      "table": "automation"
     },
     {
       "columns": [
-        "id"
+        {
+          "value": "next_due_at",
+          "isExpression": false
+        }
       ],
-      "nameExplicit": false,
-      "name": "account_pk",
-      "table": "account",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "credential_pk",
-      "table": "credential",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "aggregate_id"
-      ],
-      "nameExplicit": false,
-      "name": "event_sequence_pk",
-      "table": "event_sequence",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "event_pk",
-      "table": "event",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "permission_pk",
-      "table": "permission",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "project_pk",
-      "table": "project",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_external_binding_pk",
-      "table": "session_external_binding",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "message_pk",
-      "table": "message",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "part_pk",
-      "table": "part",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_context_epoch_pk",
-      "table": "session_context_epoch",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "session_input_pk",
-      "table": "session_input",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "session_message_pk",
-      "table": "session_message",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "session_pk",
-      "table": "session",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_share_pk",
-      "table": "session_share",
-      "entityType": "pks"
+      "isUnique": false,
+      "where": "\"automation\".\"status\" = 'active'",
+      "origin": "manual",
+      "name": "automation_active_idx",
+      "entityType": "indexes",
+      "table": "automation"
     },
     {
       "columns": [
@@ -2305,6 +2457,62 @@
     {
       "columns": [
         {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "job_session_idx",
+      "entityType": "indexes",
+      "table": "job"
+    },
+    {
+      "columns": [
+        {
+          "value": "child_session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "job_child_session_idx",
+      "entityType": "indexes",
+      "table": "job"
+    },
+    {
+      "columns": [
+        {
+          "value": "id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "job_id_idx",
+      "entityType": "indexes",
+      "table": "job"
+    },
+    {
+      "columns": [
+        {
+          "value": "key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "machine_key_idx",
+      "entityType": "indexes",
+      "table": "machine"
+    },
+    {
+      "columns": [
+        {
           "value": "project_id",
           "isExpression": false
         },
@@ -2327,52 +2535,16 @@
     {
       "columns": [
         {
-          "value": "runtime_scope",
-          "isExpression": false
-        },
-        {
-          "value": "native_thread_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "origin": "manual",
-      "name": "session_external_binding_native_idx",
-      "entityType": "indexes",
-      "table": "session_external_binding"
-    },
-    {
-      "columns": [
-        {
-          "value": "runtime_scope",
+          "value": "hash",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "session_external_binding_scope_idx",
+      "name": "blob_ref_hash_idx",
       "entityType": "indexes",
-      "table": "session_external_binding"
-    },
-    {
-      "columns": [
-        {
-          "value": "create_scope",
-          "isExpression": false
-        },
-        {
-          "value": "request_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "origin": "manual",
-      "name": "session_external_delivery_create_idx",
-      "entityType": "indexes",
-      "table": "session_external_delivery"
+      "table": "blob_ref"
     },
     {
       "columns": [
@@ -2381,101 +2553,21 @@
           "isExpression": false
         },
         {
-          "value": "sequence",
-          "isExpression": false
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "origin": "manual",
-      "name": "session_external_delivery_sequence_idx",
-      "entityType": "indexes",
-      "table": "session_external_delivery"
-    },
-    {
-      "columns": [
-        {
-          "value": "session_id",
-          "isExpression": false
-        },
-        {
-          "value": "state",
-          "isExpression": false
-        },
-        {
-          "value": "sequence",
+          "value": "seq",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "session_external_delivery_pending_idx",
+      "name": "blob_ref_session_seq_idx",
       "entityType": "indexes",
-      "table": "session_external_delivery"
+      "table": "blob_ref"
     },
     {
       "columns": [
         {
           "value": "session_id",
-          "isExpression": false
-        },
-        {
-          "value": "time_created",
-          "isExpression": false
-        },
-        {
-          "value": "id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "message_session_time_created_id_idx",
-      "entityType": "indexes",
-      "table": "message"
-    },
-    {
-      "columns": [
-        {
-          "value": "message_id",
-          "isExpression": false
-        },
-        {
-          "value": "id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "part_message_id_id_idx",
-      "entityType": "indexes",
-      "table": "part"
-    },
-    {
-      "columns": [
-        {
-          "value": "session_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "part_session_idx",
-      "entityType": "indexes",
-      "table": "part"
-    },
-    {
-      "columns": [
-        {
-          "value": "session_id",
-          "isExpression": false
-        },
-        {
-          "value": "promoted_seq",
           "isExpression": false
         },
         {
@@ -2483,16 +2575,16 @@
           "isExpression": false
         },
         {
-          "value": "admitted_seq",
+          "value": "enqueued_seq",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "session_input_session_pending_delivery_seq_idx",
+      "name": "session_inbox_session_delivery_seq_idx",
       "entityType": "indexes",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "columns": [
@@ -2501,34 +2593,16 @@
           "isExpression": false
         },
         {
-          "value": "admitted_seq",
+          "value": "enqueued_seq",
           "isExpression": false
         }
       ],
       "isUnique": true,
       "where": null,
       "origin": "manual",
-      "name": "session_input_session_admitted_seq_idx",
+      "name": "session_inbox_session_enqueued_seq_idx",
       "entityType": "indexes",
-      "table": "session_input"
-    },
-    {
-      "columns": [
-        {
-          "value": "session_id",
-          "isExpression": false
-        },
-        {
-          "value": "promoted_seq",
-          "isExpression": false
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "origin": "manual",
-      "name": "session_input_session_promoted_seq_idx",
-      "entityType": "indexes",
-      "table": "session_input"
+      "table": "session_inbox"
     },
     {
       "columns": [
@@ -2609,6 +2683,28 @@
     {
       "columns": [
         {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "message_id",
+          "isExpression": false
+        },
+        {
+          "value": "ordinal",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_part_session_message_idx",
+      "entityType": "indexes",
+      "table": "session_part"
+    },
+    {
+      "columns": [
+        {
           "value": "project_id",
           "isExpression": false
         }
@@ -2616,9 +2712,9 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "session_project_idx",
+      "name": "session_v2_project_idx",
       "entityType": "indexes",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "columns": [
@@ -2630,9 +2726,9 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "session_workspace_idx",
+      "name": "session_v2_workspace_idx",
       "entityType": "indexes",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "columns": [
@@ -2644,23 +2740,23 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "session_parent_idx",
+      "name": "session_v2_parent_idx",
       "entityType": "indexes",
-      "table": "session"
+      "table": "session_v2"
     },
     {
       "columns": [
         {
-          "value": "session_id",
+          "value": "time_suspended",
           "isExpression": false
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"session_v2\".\"time_suspended\" is not null",
       "origin": "manual",
-      "name": "todo_session_idx",
+      "name": "session_v2_time_suspended_idx",
       "entityType": "indexes",
-      "table": "todo"
+      "table": "session_v2"
     }
   ],
   "renames": []
