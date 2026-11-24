@@ -1,11 +1,12 @@
 import { Schema } from "effect"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useQueries } from "@tanstack/solid-query"
+import { useQueries, useQueryClient } from "@tanstack/solid-query"
 import type { SessionInfo } from "@opencode/client/promise"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
+import { Menu } from "@opencode/ui/menu"
 import { displayName } from "@opencode/ui/project-avatar"
 import { homeSessionsQuery } from "@/home/sessions/queries"
 import { useLanguage } from "@/runtime/i18n/language"
@@ -15,12 +16,16 @@ import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { useGlobal, type ServerCtx } from "@/runtime/server/runtime"
 import type { Project } from "@/runtime/server/types"
 import { projectSettingsKey, useSettings } from "@/settings/model"
+import { errorMessage } from "@/shell/layout/helpers"
 import { sessionStatus } from "@/shell/layout/project-avatar-state"
 import { ProjectIcon } from "@/shell/layout/project-icon"
+import { showToast } from "@/shell/notifications/toast"
 import { getCompactTime } from "@/shell/time"
 import { createProjectSessionActions } from "@/shell/tabs/project-sessions"
 import { tabKey, useTabs, type SessionTab, type Tab } from "@/shell/tabs/tabs"
+import { PinMenuItems, PinnedArea, usePins } from "./pinned-area"
 import { ProjectSessionRow } from "./project-session-row"
+import { notifySessionTabsRemoved } from "./session-events"
 import { isSidebarSessionActivity, mergeSidebarSessions } from "./sidebar-sessions"
 import type { TabStripLeading, TabStripSection } from "./tab-strip"
 import { SidebarViewMenu } from "./sidebar-view-menu"
@@ -100,6 +105,8 @@ export type SidebarStripGrouping = {
   tabMenu?: (tab: SessionTab) => JSX.Element
   tabMuted?: (tab: SessionTab) => boolean
   leading?: TabStripLeading
+  /** Koma: open tabs the strip leaves out, because the pinned area above it shows them. */
+  hidden?: (tab: Tab) => boolean
 }
 
 /** The "Customize" vertical sidebar: open tabs and recent sessions from every server, grouped, sorted and filtered. */
@@ -119,6 +126,19 @@ export function SidebarCustomized(props: {
   const tabs = useTabs()
 
   const actions = createProjectSessionActions()
+
+  const queryClient = useQueryClient()
+
+  // Koma: pinned sessions sit in the pinned area above the groups, and every row's menu can pin and archive.
+  const pins = usePins()
+
+  // Built once: the strip renders it inside its scroll, and pinned sessions share the ⌘1–9 numbers with the tabs.
+  const pinnedArea = <PinnedArea orientation="vertical" divider />
+
+  const pinnedLeading = (): TabStripLeading | undefined =>
+    pins.state.items.length === 0
+      ? undefined
+      : { content: pinnedArea, keys: pins.keys(), unread: pins.unread, navigate: pins.openKey }
 
   createSidebarActivityListener()
 
@@ -266,6 +286,8 @@ export function SidebarCustomized(props: {
         const key = sessionRowKey(server, session.id)
 
         if (openKeys.has(key)) return []
+
+        if (pins.pinned({ server: ServerConnection.Key.make(server), sessionId: session.id })) return []
         const project = ctx.projects.forSession(session)
 
         return [
@@ -367,6 +389,50 @@ export function SidebarCustomized(props: {
     })
   }
 
+  // Koma: archiving takes the session out of every list and closes its tab; Archived at the foot of the sidebar
+  // brings it back.
+  const archive = (server: string, session: SessionInfo) => {
+    const conn = connOf(server)
+    const ctx = ctxOf(server)
+
+    if (!conn || !ctx) return
+
+    void ctx.sdk.api.session
+      .update({ sessionID: session.id, archived: true })
+      .then(() => {
+        for (const queryKey of ["home-sessions", "inbox-sessions", "inbox-archived-sessions"]) {
+          void queryClient.invalidateQueries({ queryKey: [queryKey, conn], exact: true })
+        }
+
+        notifySessionTabsRemoved({
+          server: ServerConnection.Key.make(server),
+          directory: session.location.directory,
+          sessionIDs: [session.id],
+        })
+      })
+      .catch((cause) =>
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(cause, language.t("common.requestFailed")),
+        }),
+      )
+  }
+
+  const rowMenu = (server: string, session: SessionInfo) => (
+    <>
+      <PinMenuItems pin={{ server: ServerConnection.Key.make(server), sessionId: session.id }} />
+      <Menu.Item data-action="sidebar-session-archive" onSelect={() => archive(server, session)}>
+        {language.t("common.archive")}
+      </Menu.Item>
+    </>
+  )
+
+  const tabMenu = (tab: SessionTab) => {
+    const session = ctxOf(tab.server)?.data.session.get(tab.sessionId)
+
+    return session ? rowMenu(tab.server, session) : undefined
+  }
+
   // Rows outside a project group carry their project's avatar, as open tabs always do; subagents follow their parent.
   const avatarOf = (row: Row, group: SidebarGroup<Row> | undefined) => {
     if (group?.kind === "project" || row.parentKey || !row.projectID) return
@@ -397,6 +463,7 @@ export function SidebarCustomized(props: {
             label={showLabel(value().row, group())}
             depth={rowProps.flat ? 0 : depthOf(value().row, rowByKey())}
             project={avatarOf(value().row, group())}
+            menuItems={() => rowMenu(ServerConnection.key(value().conn), value().session)}
             onOpen={() => openSession(value().row)}
           />
         )}
@@ -713,7 +780,14 @@ export function SidebarCustomized(props: {
         />
       </div>
       <div class="flex min-h-0 flex-1 flex-col pt-1">
-        {props.children({ sections: sections(), tabFooter, tabLabel })}
+        {props.children({
+          sections: sections(),
+          tabFooter,
+          tabLabel,
+          tabMenu,
+          leading: pinnedLeading(),
+          hidden: pins.holds,
+        })}
         <Show when={filterCount() > 0 && !visibleRows().some((row) => !row.active)}>
           <div class="px-2 py-2 text-12-regular text-v2-text-text-faint">
             {language.t("sidebar.view.noMatch")}{" "}

@@ -384,6 +384,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                 tabMenu={grouped?.tabMenu}
                 tabMuted={grouped?.tabMuted}
                 leading={grouped?.leading}
+                hidden={grouped?.hidden}
                 tabs={tabsStore}
                 currentTab={currentTab()}
                 onNavigate={(tab, el) => {
@@ -1037,7 +1038,23 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                       class="mt-2 flex w-full shrink-0 flex-col gap-[3px]"
                                     >
                                       <TitlebarItems items={titlebarItems} vertical />
-                                      <Show when={projectNavigation()}>{settingsButton()}</Show>
+                                      <Show when={projectNavigation()}>
+                                        {/* Koma: archived sessions are found, and restored, from here. */}
+                                        <SidebarAction
+                                          action="vertical-tabs-archived"
+                                          icon="archive"
+                                          label={language.t("sidebar.inbox.section.archived")}
+                                          keybind={[]}
+                                          onClick={async () => {
+                                            const { DialogSessionSearch } = await import(
+                                              "@/shell/commands/session-search"
+                                            )
+
+                                            void dialog.show(() => <DialogSessionSearch archived />)
+                                          }}
+                                        />
+                                        {settingsButton()}
+                                      </Show>
                                     </div>
                                   </Show>
                                 </Portal>

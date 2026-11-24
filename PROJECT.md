@@ -12,7 +12,8 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | --- | --- |
 | 默认布局：侧边栏按项目列出会话 | `packages/app/src/settings/model.tsx` |
 | 会话行显示最近更新时间（5m、3h、2d） | `packages/app/src/shell/titlebar/sidebar-customized.tsx`、`packages/app/src/shell/time.ts` |
-| 设置入口在侧边栏底部 | `packages/app/src/shell/titlebar/titlebar.tsx` |
+| 设置和「已归档」入口在侧边栏底部 | `packages/app/src/shell/titlebar/titlebar.tsx` |
+| 会话菜单里的归档和置顶，侧边栏顶部的置顶区 | `packages/app/src/shell/titlebar/sidebar-customized.tsx`、`packages/app/src/shell/titlebar/pinned-area.tsx` |
 | 对话区右侧的面板图标栏 | `packages/app/src/session/panel-rail.tsx`、`packages/app/src/session/screen.tsx` |
 | 旧式 OpenAI 登录过期时提示重新连接 | `packages/core/src/plugin/provider/openai.ts` |
 | 配置里的 OpenAI 兼容提供商从自己的 `/models` 读取模型清单，设置页可手动刷新 | `packages/core/src/plugin/provider/openai-compatible-discovery.ts`、`packages/schema/src/provider-discovery.ts`、`packages/app/src/settings/models/refresh-button.tsx` |
@@ -68,7 +69,8 @@ git merge upstream/dev
 
 2026 年 9 月的 Koma 0.1.x 基于 OpenCode 1.18，保存在 `koma-1.x` 分支。2026-11-23 重启时上游已整体换成 2.x，旧 Koma 的大部分功能上游已经自带，所以这次以上游 2.x 为底重新开始，没有搬的部分及原因：
 
-- 任务侧栏、归档、置顶、模型与服务商设置、后台子代理、本地网页入口：上游已有。
+- 模型与服务商设置、后台子代理、本地网页入口：上游已有。
+- 任务侧栏：上游有按项目分组的侧栏，但归档、置顶没有接到这个布局里，已由 Koma 补上（见上表）。和旧版仍不同的地方：搜索是弹窗而不是侧栏里的输入框；已归档是弹窗而不是侧栏内的视图；置顶的会话集中在顶部的置顶区，不是留在项目组里排前；项目行没有菜单（移除项目在「设置 → 项目」）；菜单没有字母快捷键。
 - 原生 Codex 宿主、Remote 隧道与设备目录、Tauri 版：按"全部沿用上游"的方向放弃。上游用 Claude Agent 和 ChatGPT 登录接入模型，用配对码和隧道做远程访问。
 - Worktree 归档快照、权限三档、扩展目录、Computer Use：属于后端，暂不做。
 - `~/.koma` 里的旧数据没有迁移，原样留在磁盘上。

@@ -75,7 +75,9 @@ export const { use: usePins, provider: PinsProvider } = createSimpleContext({
 
     // Pins outside the loaded sessions load one at a time; a pin whose session is gone is dropped.
     createEffect(() => {
-      if (!ready() || !settings.appearance.navigationPrototype()) return
+      // Koma: the project sidebar (Customize) shows the pinned area too, so its pins load as the prototype's do.
+      if (!ready() || !(settings.appearance.navigationPrototype() || settings.general.sidebarOrganize() === "customize"))
+        return
       const missing = (ref: PinRef) => !!ctxOf(ref)?.data.session.missing(ref.sessionId)
 
       apply((current) => prunePins(current, missing))
