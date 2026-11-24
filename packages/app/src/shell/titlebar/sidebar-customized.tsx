@@ -28,6 +28,7 @@ import { createSessionArchiver } from "./session-archive"
 import { createMenuLetterKeys } from "./menu-keys"
 import { isSidebarSessionActivity, mergeSidebarSessions } from "./sidebar-sessions"
 import type { TabStripLeading, TabStripSection } from "./tab-strip"
+import type { TabRowAction } from "./tab-nav"
 import { SidebarViewMenu } from "./sidebar-view-menu"
 import {
   SIDEBAR_GROUPINGS,
@@ -104,6 +105,8 @@ export type SidebarStripGrouping = {
   tabLabel?: (tab: Tab) => string | undefined
   tabMenu?: (tab: SessionTab) => JSX.Element
   tabMuted?: (tab: SessionTab) => boolean
+  /** Koma: what an open tab's hover button does instead of closing it. */
+  tabAction?: (tab: SessionTab) => TabRowAction | undefined
   leading?: TabStripLeading
   /** Koma: open tabs the strip leaves out, because the pinned area above it shows them. */
   hidden?: (tab: Tab) => boolean
@@ -235,7 +238,9 @@ export function SidebarCustomized(props: {
   const state = (): SidebarViewState => ({
     grouping: grouping(),
     ordering: view.ordering,
-    show: view.show,
+    // Koma: every session stays listed under its project, as in a task list. Upstream can show open tabs only, where
+    // closing a tab takes the session out of the sidebar.
+    show: { ...view.show, recent: true },
     filters: local.filters,
     // Koma: a search shows its matches wherever they are, so every group opens.
     collapsed: searching() ? {} : view.collapsed,
@@ -473,6 +478,17 @@ export function SidebarCustomized(props: {
     return session ? rowMenu(tab.server, session) : undefined
   }
 
+  // Koma: a row's hover button archives the session, as in old Koma. Closing a tab would only move the session down
+  // the list, which reads as the session going missing.
+  const archiveAction = (server: string, session: SessionInfo): TabRowAction | undefined =>
+    session.parentID ? undefined : { icon: "archive", label: language.t("common.archive"), run: () => archive(server, session) }
+
+  const tabAction = (tab: SessionTab) => {
+    const session = ctxOf(tab.server)?.data.session.get(tab.sessionId)
+
+    return session ? archiveAction(tab.server, session) : undefined
+  }
+
   // Rows outside a project group carry their project's avatar, as open tabs always do; subagents follow their parent.
   const avatarOf = (row: Row, group: SidebarGroup<Row> | undefined) => {
     if (group?.kind === "project" || row.parentKey || !row.projectID) return
@@ -504,6 +520,7 @@ export function SidebarCustomized(props: {
             depth={rowProps.flat ? 0 : depthOf(value().row, rowByKey())}
             project={avatarOf(value().row, group())}
             menuItems={() => rowMenu(ServerConnection.key(value().conn), value().session)}
+            action={archiveAction(ServerConnection.key(value().conn), value().session)}
             onOpen={() => openSession(value().row)}
           />
         )}
@@ -857,6 +874,7 @@ export function SidebarCustomized(props: {
           onGrouping={(value) => setView("grouping", value)}
           onOrdering={(value) => setView("ordering", value)}
           onShow={(key, value) => setView("show", key, value)}
+          showKeys={["subagents", "serverLabels"]}
           onFilter={toggleFilter}
           onResetFilters={() => setLocal("filters", { status: [], server: [], project: [] })}
           onMarkRead={markAllRead}
@@ -875,6 +893,7 @@ export function SidebarCustomized(props: {
           tabFooter,
           tabLabel,
           tabMenu,
+          tabAction,
           leading: pinnedLeading(),
           hidden: pins.holds,
         })}

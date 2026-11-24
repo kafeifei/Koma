@@ -26,6 +26,8 @@ export function SidebarViewMenu(props: {
   onGrouping: (value: SidebarGrouping) => void
   onOrdering: (value: SidebarOrdering) => void
   onShow: (key: SidebarShowKey, value: boolean) => void
+  /** Koma: the show toggles to offer; all of them when left out. */
+  showKeys?: readonly SidebarShowKey[]
   onFilter: (kind: SidebarFilterKind, value: string, on: boolean) => void
   onResetFilters: () => void
   onMarkRead: () => void
@@ -107,7 +109,7 @@ export function SidebarViewMenu(props: {
             <SubTrigger label={language.t("sidebar.view.show")} />
             <Menu.Portal>
               <Menu.SubContent class="w-max min-w-[172px]">
-                <For each={SIDEBAR_SHOW_KEYS}>
+                <For each={props.showKeys ?? SIDEBAR_SHOW_KEYS}>
                   {(key) => (
                     <Menu.CheckboxItem checked={props.state.show[key]} onChange={(value) => props.onShow(key, value)}>
                       {language.t(`sidebar.view.show.${key}`)}

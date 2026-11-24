@@ -21,7 +21,7 @@ import { RestrictToElement } from "@dnd-kit/dom/modifiers"
 import { arrayMove } from "@/runtime/array-move"
 import { tabHref, tabKey, type SessionTab, type Tab } from "@/shell/tabs/tabs"
 import { ServerConnection } from "@/runtime/server/registry"
-import { DraftTabItem, TabNavItem, type TabCloseActions } from "@/shell/titlebar/tab-nav"
+import { DraftTabItem, TabNavItem, type TabCloseActions, type TabRowAction } from "@/shell/titlebar/tab-nav"
 import { useGlobal, useServerCtx, type ServerCtx } from "@/runtime/server/runtime"
 import { useLanguage } from "@/runtime/i18n/language"
 import { useCommand } from "@/shell/commands/command"
@@ -75,6 +75,7 @@ const hiddenTabView: SessionTabView = {
 
 function SessionTabSlot(
   props: TabCloseActions & {
+    action?: TabRowAction
     tab: SessionTab
     id: string
     index: number
@@ -167,6 +168,7 @@ function SessionTabSlot(
         fallbackDirectory={props.fallbackDirectory}
         muted={props.muted}
         menuItems={props.menuItems}
+        action={props.action}
         onDelete={props.onDelete}
         onNavigate={() => props.onNavigate(ref)}
         onClose={props.onClose}
@@ -184,6 +186,7 @@ function SessionTabSlot(
 
 function SessionTabEntry(
   props: TabCloseActions & {
+    action?: TabRowAction
     tab: SessionTab
     currentTab?: Tab
     id: string
@@ -355,6 +358,7 @@ function SessionTabEntry(
         fallbackDirectory={props.view.fallbackDirectory}
         muted={props.muted}
         menuItems={props.menuItems}
+        action={props.action}
         customDrag={props.customDrag}
         dragSource={props.dragSource}
         offsetY={props.offsetY}
@@ -672,6 +676,8 @@ export function TitlebarTabStrip(props: {
   tabMenu?: (tab: SessionTab) => JSX.Element
   /** Vertical only: whether a session tab is muted, which swaps its unread dot for a muted mark. */
   tabMuted?: (tab: SessionTab) => boolean
+  /** Koma, vertical only: what a session tab's hover button does instead of closing it. */
+  tabAction?: (tab: SessionTab) => TabRowAction | undefined
   /** Rows that share the tabs' shortcuts and are numbered first (e.g. pinned sessions). Side tabs only render `content`. */
   leading?: TabStripLeading
   /** Open tabs shown elsewhere (e.g. pinned), kept in the tab order but not rendered here. */
@@ -924,6 +930,7 @@ export function TitlebarTabStrip(props: {
           shortcut={shortcut(visibleIndex())}
           muted={vertical() ? props.tabMuted?.(tab) : undefined}
           menuItems={vertical() && props.tabMenu ? () => props.tabMenu?.(tab) : undefined}
+          action={vertical() ? props.tabAction?.(tab) : undefined}
           customDrag={!!customDrag()}
           dragSource={customDrag()?.isDraggingTab(id)}
           offsetY={customDrag()?.tabTransformY(id)}

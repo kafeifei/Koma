@@ -39,6 +39,9 @@ export type TabCloseActions = {
   onCloseAfter?: () => void
 }
 
+/** Koma: what a session row's hover button does in place of closing its tab, such as archiving the session. */
+export type TabRowAction = { icon: string; label: string; run: () => void }
+
 function TabCloseMenuItems(props: TabCloseActions & { orientation?: "horizontal" | "vertical" }) {
   const language = useLanguage()
 
@@ -95,6 +98,8 @@ export function TabNavItem(
     hidden?: boolean
     orientation?: "horizontal" | "vertical"
     contextMenuExtra?: () => JSX.Element
+    /** Koma: replaces the close button. Middle-click and the menu still close the tab. */
+    action?: TabRowAction
   },
 ) {
   const language = useLanguage()
@@ -596,9 +601,15 @@ export function TabNavItem(
               event.preventDefault()
               event.stopPropagation()
             }}
-            onClick={closeTab}
-            icon={<Icon name="close" />}
-            aria-label={language.t("common.closeTab")}
+            onClick={(event) => {
+              if (!props.action) return closeTab(event)
+              event.preventDefault()
+              event.stopPropagation()
+              props.action.run()
+            }}
+            icon={<Icon name={props.action?.icon ?? "close"} />}
+            aria-label={props.action?.label ?? language.t("common.closeTab")}
+            title={props.action?.label}
           />
         </Show>
       </div>

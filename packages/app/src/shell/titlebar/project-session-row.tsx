@@ -5,6 +5,8 @@ import { ActivityRing } from "@opencode/ui/activity-ring"
 import { Button } from "@opencode/ui/button"
 import { useDialog, useDialogLayer } from "@opencode/ui/context/dialog"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
+import { Icon } from "@opencode/ui/icon"
+import { IconButton } from "@opencode/ui/icon-button"
 import { Loader } from "@opencode/ui/loader"
 import { Menu } from "@opencode/ui/menu"
 import { TextInput } from "@opencode/ui/text-input"
@@ -20,6 +22,7 @@ import { createSessionExporter } from "@/session/commands/export-session"
 import { createSessionRenamer } from "@/session/commands/rename-session"
 import { SessionReadMenuItem } from "@/session/session-read-menu-item"
 import { notifySessionTabsRemoved } from "./session-events"
+import type { TabRowAction } from "./tab-nav"
 import {
   createSessionRenameDialogState,
   selectSessionRenameDialogView,
@@ -47,6 +50,8 @@ export function ProjectSessionRow(props: {
   muted?: boolean
   /** Menu items shown above the row's own. */
   menuItems?: () => JSX.Element
+  /** Koma: a hover button at the row's end, such as archiving the session. */
+  action?: TabRowAction
   onOpen: () => void
 }) {
   const language = useLanguage()
@@ -127,7 +132,9 @@ export function ProjectSessionRow(props: {
     )
   }
 
+  // Koma: the row is a button, so its hover action sits beside it rather than inside it.
   return (
+    <div class="group/session-row relative">
     <Menu.Context modal={false}>
       <Menu.Context.Trigger
         as="button"
@@ -234,6 +241,24 @@ export function ProjectSessionRow(props: {
         </Menu.Context.Content>
       </Menu.Context.Portal>
     </Menu.Context>
+    <Show when={props.action}>
+      {(action) => (
+        <IconButton
+          size="small"
+          variant="ghost-muted"
+          class="hover-reveal absolute end-1 top-1/2 z-10 -translate-y-1/2 group-hover/session-row:opacity-100 focus-visible:opacity-100"
+          icon={<Icon name={action().icon} />}
+          aria-label={action().label}
+          title={action().label}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            action().run()
+          }}
+        />
+      )}
+    </Show>
+    </div>
   )
 }
 

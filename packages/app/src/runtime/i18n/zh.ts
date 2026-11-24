@@ -403,6 +403,8 @@ export const dict = {
 
   "sidebar.settings": "设置",
   "sidebar.project.settings": "项目设置",
+  "sidebar.session.archived": "已归档：{{title}}",
+  "sidebar.session.archived.undo": "撤销",
   "tabs.groups.new": "新建分组",
   "tabs.groups.addToGroup": "添加到分组",
   "tabs.groups.removeFromGroup": "移出分组",

@@ -382,6 +382,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                 tabFooter={grouped?.tabFooter}
                 tabLabel={grouped?.tabLabel}
                 tabMenu={grouped?.tabMenu}
+                tabAction={grouped?.tabAction}
                 tabMuted={grouped?.tabMuted}
                 leading={grouped?.leading}
                 hidden={grouped?.hidden}

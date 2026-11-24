@@ -17,6 +17,7 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | 侧边栏里的搜索框（按标题过滤各项目下的会话） | `packages/app/src/shell/titlebar/sidebar-customized.tsx` |
 | 项目行右键菜单：新建会话、项目设置 | `packages/app/src/shell/titlebar/sidebar-customized.tsx` |
 | 会话菜单的字母快捷键（P 置顶、R 重命名、A 归档、D 删除），置顶行也能归档 | `packages/app/src/shell/titlebar/menu-keys.ts`、`packages/app/src/shell/titlebar/session-archive.ts` |
+| 每个会话都留在项目列表里（去掉「最近会话」开关）；行尾悬停按钮是「归档」而不是关闭标签页，归档后提示里可「撤销」 | `packages/app/src/shell/titlebar/sidebar-customized.tsx`、`tab-nav.tsx`、`tab-strip.tsx`、`project-session-row.tsx`、`session-archive.ts` |
 | 对话区右侧的面板图标栏 | `packages/app/src/session/panel-rail.tsx`、`packages/app/src/session/screen.tsx` |
 | 旧式 OpenAI 登录过期时提示重新连接 | `packages/core/src/plugin/provider/openai.ts` |
 | 开关远程访问时先保存设置再停服务（否则桌面端抢先重启的服务读不到新设置，配对一直卡在「Setting up remote access」） | `packages/cli/src/services/service-config.ts` |
@@ -85,7 +86,7 @@ git merge upstream/dev
 2026 年 9 月的 Koma 0.1.x 基于 OpenCode 1.18，保存在 `koma-1.x` 分支。2026-11-23 重启时上游已整体换成 2.x，旧 Koma 的大部分功能上游已经自带，所以这次以上游 2.x 为底重新开始，没有搬的部分及原因：
 
 - 模型与服务商设置、后台子代理、本地网页入口：上游已有。
-- 任务侧栏：上游有按项目分组的侧栏，但归档、置顶、侧栏内搜索、项目行菜单、菜单字母快捷键没有接到这个布局里，已由 Koma 补上（见上表）。和旧版仍不同的地方：搜索只按标题（服务端只搜标题，没有正文片段）；已归档是弹窗而不是侧栏内的视图；置顶的会话集中在顶部的置顶区，不是留在项目组里排前；没有「主页」按钮（这个布局里上游没有主页，回到主页会直接跳回上一个会话，对应入口是「新建会话」）；项目行菜单里没有移除项目（在「设置 → 项目」）。
+- 任务侧栏：上游有按项目分组的侧栏，但归档、置顶、侧栏内搜索、项目行菜单、菜单字母快捷键没有接到这个布局里，已由 Koma 补上（见上表）。上游行尾的 × 只关闭标签页，而「最近会话」关掉时、或会话排在每组前 5 个之后，关掉的会话会从列表里消失，看起来像丢了；Koma 改成和旧版一样：所有会话都留在列表里，悬停按钮是「归档」并可撤销。和旧版仍不同的地方：搜索只按标题（服务端只搜标题，没有正文片段）；已归档是弹窗而不是侧栏内的视图；置顶的会话集中在顶部的置顶区，不是留在项目组里排前；没有「主页」按钮（这个布局里上游没有主页，回到主页会直接跳回上一个会话，对应入口是「新建会话」）；项目行菜单里没有移除项目（在「设置 → 项目」）。
 - 原生 Codex 宿主、Remote 隧道与设备目录、Tauri 版：按"全部沿用上游"的方向放弃。上游用 Claude Agent 和 ChatGPT 登录接入模型，用配对码和隧道做远程访问。
 - Worktree 归档快照、权限三档、扩展目录、Computer Use：属于后端，暂不做。
 - `~/.koma` 里的旧数据没有迁移，原样留在磁盘上。
