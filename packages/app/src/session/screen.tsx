@@ -23,6 +23,7 @@ import type { SessionModel } from "@/session/model"
 import { SESSION_PANEL_WIDTH_MIN } from "@/session/session-panel-width"
 import { useLayout } from "@/shell/state/layout"
 import { SessionPanelFrame } from "@/session/session-frame"
+import { SessionPanelRail } from "@/session/panel-rail"
 import { createWebLinks, PluginLinks } from "@/runtime/plugin/render"
 import { createPanelSidebar, createRegion, MobilePanel } from "@/runtime/plugin/panels"
 import { createMobileViews, MobileViewTabs } from "@/runtime/plugin/mobile"
@@ -494,6 +495,9 @@ function SessionScreenContent(props: {
               <SessionPanelFrame raised>
                 <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
               </SessionPanelFrame>
+            </Show>
+            <Show when={isDesktop() && !!session.identity.params.id && !sideVisible()}>
+              <SessionPanelRail />
             </Show>
             <Show when={windowDragEnabled(platform)}>
               <SessionHeaderDrag pane={chat} gap={headerGap()} />

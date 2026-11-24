@@ -827,6 +827,12 @@ export const dict = {
   "common.time.minutesAgo.short": "{{count}}m ago",
   "common.time.hoursAgo.short": "{{count}}h ago",
   "common.time.daysAgo.short": "{{count}}d ago",
+  "common.time.compact.now": "now",
+  "common.time.compact.minutes": "{{count}}m",
+  "common.time.compact.hours": "{{count}}h",
+  "common.time.compact.days": "{{count}}d",
+  "common.time.compact.weeks": "{{count}}w",
+  "common.time.compact.years": "{{count}}y",
 
   "sidebar.settings": "Settings",
   "sidebar.help": "Help",

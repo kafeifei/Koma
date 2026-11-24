@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useQueries } from "@tanstack/solid-query"
 import type { SessionInfo } from "@opencode/client/promise"
@@ -17,6 +17,7 @@ import type { Project } from "@/runtime/server/types"
 import { projectSettingsKey, useSettings } from "@/settings/model"
 import { sessionStatus } from "@/shell/layout/project-avatar-state"
 import { ProjectIcon } from "@/shell/layout/project-icon"
+import { getCompactTime } from "@/shell/time"
 import { createProjectSessionActions } from "@/shell/tabs/project-sessions"
 import { tabKey, useTabs, type SessionTab, type Tab } from "@/shell/tabs/tabs"
 import { ProjectSessionRow } from "./project-session-row"
@@ -120,6 +121,11 @@ export function SidebarCustomized(props: {
   const actions = createProjectSessionActions()
 
   createSidebarActivityListener()
+
+  // Ticks once a minute so the rows' relative times stay current while the sidebar is idle.
+  const [clock, setClock] = createSignal(0)
+  const clockTimer = setInterval(() => setClock((value) => value + 1), 60_000)
+  onCleanup(() => clearInterval(clockTimer))
 
   const [view, setView] = persisted(Persist.global("sidebar.view"), ViewState, {
     grouping: "project",
@@ -313,12 +319,22 @@ export function SidebarCustomized(props: {
   const projectOptions = () =>
     [...projectLabels().values()].map((project) => ({ id: project.id, label: displayName(project) }))
 
-  const showLabel = (row: Row, group: SidebarGroup<Row> | undefined) => {
+  const serverLabel = (row: Row, group: SidebarGroup<Row> | undefined) => {
     if (!view.show.serverLabels || !row.conn) return
 
     if (group && group.kind !== "all" && !group.spansServers) return
 
     return servers.tag(row.conn)
+  }
+
+  // Koma: a row that has no server to name says when its session last changed, as an agent list does.
+  const showLabel = (row: Row, group: SidebarGroup<Row> | undefined) => {
+    const server = serverLabel(row, group)
+
+    if (server || !row.updated) return server
+    clock()
+
+    return getCompactTime(row.updated, language.t)
   }
 
   const rowByKey = createMemo(() => new Map(visibleRows().map((row) => [row.key, row])))

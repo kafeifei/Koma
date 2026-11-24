@@ -990,9 +990,8 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                       fallback={
                                         <>
                                           {searchButton(true)}
-                                          <Show when={projectNavigation()} fallback={newSessionButton()}>
-                                            {settingsButton()}
-                                          </Show>
+                                          {/* Koma: with project navigation, Settings sits at the foot of the sidebar. */}
+                                          <Show when={!projectNavigation()}>{newSessionButton()}</Show>
                                         </>
                                       }
                                     >
@@ -1032,9 +1031,13 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                       </Match>
                                     </Switch>
                                   </div>
-                                  <Show when={titlebarItems.ids().length > 0}>
-                                    <div data-slot="vertical-tabs-footer" class="mt-2 flex w-full shrink-0 flex-col">
+                                  <Show when={projectNavigation() || titlebarItems.ids().length > 0}>
+                                    <div
+                                      data-slot="vertical-tabs-footer"
+                                      class="mt-2 flex w-full shrink-0 flex-col gap-[3px]"
+                                    >
                                       <TitlebarItems items={titlebarItems} vertical />
+                                      <Show when={projectNavigation()}>{settingsButton()}</Show>
                                     </div>
                                   </Show>
                                 </Portal>

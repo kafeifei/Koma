@@ -102,7 +102,7 @@ describe("settings schema", () => {
         foldUserMessages: false,
         wrapCodeBlocks: false,
         newQuestionUI: false,
-        sidebarOrganize: "list",
+        sidebarOrganize: "customize",
         mobileTitlebarPosition: "top",
         followUpBehavior: "steer",
       },
@@ -111,7 +111,7 @@ describe("settings schema", () => {
         mono: "",
         sans: "",
         terminal: "",
-        tabLayout: "horizontal",
+        tabLayout: "vertical",
         reduceMotion: "system",
       },
       keybinds: {},
@@ -146,7 +146,7 @@ describe("settings schema", () => {
   })
 
   test("the retired Recent sessions switch does not opt into Recent organization", () => {
-    expect(decode({ general: { recentSessions: true } }).general.sidebarOrganize).toBe("list")
+    expect(decode({ general: { recentSessions: true } }).general.sidebarOrganize).toBe("customize")
   })
 
   test("defaults invalid preferences locally while retaining valid siblings", () => {
@@ -178,7 +178,7 @@ describe("settings schema", () => {
       backgroundActivity: "left",
       timelineWidth: "comfortable",
       newQuestionUI: false,
-      sidebarOrganize: "list",
+      sidebarOrganize: "customize",
     })
     expect(settings.appearance).toEqual({
       fontSize: 14,
