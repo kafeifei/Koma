@@ -7,6 +7,7 @@ import { NativeArch } from "../../script/native-arch"
 import { DESKTOP_NATIVE_ENGLISH } from "@opencode/app/i18n/desktop-native"
 import { CLI_BINARIES, getCurrentCli, nodePtyPackage } from "./script/utils"
 import { previewBinding, verifyPreviewBinding } from "./script/preview-binding"
+import { KOMA } from "./src/main/koma"
 
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -41,10 +42,11 @@ function resolveChannel() {
   return "dev"
 }
 
+// Koma: packaged under Koma's identity (`src/main/koma.ts`), with no `opencode://` scheme and no update feed.
 const APP_IDS = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: KOMA.dev.appID,
+  beta: KOMA.beta.appID,
+  prod: KOMA.prod.appID,
 } as const
 
 // libappimage (used by AppImageLauncher) resolves the .desktop entry inside an
@@ -196,10 +198,6 @@ const getBase = (appId: string): Configuration => {
       },
       target: ["dmg", "zip"],
     },
-    protocols: {
-      name: "OpenCode",
-      schemes: ["opencode"],
-    },
     win: {
       icon: `resources/icons/icon.ico`,
       target: ["nsis"],
@@ -242,12 +240,9 @@ export function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode Dev",
-        publish: {
-          provider: "generic",
-          url: "https://opencode.ai/update/api/dev/desktop/opencode/",
-          channel: "latest",
-        },
+        productName: KOMA.dev.appName,
+        // Koma: no update feed. Without one the updater stays off (`gui-plugins/src/updater/main.ts`).
+        publish: null,
         deb: { fpm: [...previewCompressionFpm("deb"), metainfoFpm(appId)] },
         rpm: {
           packageName: "opencode-dev",
@@ -260,13 +255,9 @@ export function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode Beta",
-        protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: {
-          provider: "generic",
-          url: "https://opencode.ai/update/api/beta/desktop/opencode/",
-          channel: "latest",
-        },
+        productName: KOMA.beta.appName,
+        // Koma: no update feed. Without one the updater stays off (`gui-plugins/src/updater/main.ts`).
+        publish: null,
         deb: { fpm: [...previewCompressionFpm("deb"), metainfoFpm(appId)] },
         rpm: {
           packageName: "opencode-beta",
@@ -279,18 +270,9 @@ export function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
-        // An Icon Composer package compiles to Assets.car, which macOS 26 and later draw the app icon from
-        // (Dock, Finder, system dialogs and the system icon styles). Older macOS keeps using the ICNS.
-        mac: { ...base.mac, icon: "resources/icons/icon.icon" },
-        // The DMG volume icon would otherwise use the same actool-generated ICNS.
-        dmg: { icon: "resources/icons/icon.icns" },
-        publish: {
-          provider: "generic",
-          url: "https://opencode.ai/update/api/latest/desktop/opencode/",
-          channel: "latest",
-        },
+        productName: KOMA.prod.appName,
+        // Koma: no update feed. Without one the updater stays off (`gui-plugins/src/updater/main.ts`).
+        publish: null,
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [rpmNoBuildIdLinksFpm, metainfoFpm(appId), legacyDesktopEntryFpm] },
       }

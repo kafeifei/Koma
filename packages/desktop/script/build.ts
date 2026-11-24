@@ -16,7 +16,8 @@ const channel = resolveChannel()
 
 process.chdir(dir)
 
-await $`bun ./script/copy-icons.ts ${channel}`
+// Koma: packaged builds carry Koma's icons.
+await $`bun ./script/copy-icons.ts koma`
 
 await $`bun ./script/copy-metainfo.ts ${channel}`
 

@@ -12,6 +12,7 @@
     "dev:vite": "bun run --cwd packages/cli --conditions=browser dev/vite.ts",
     "dev:vite:live": "sh -c 'OPENCODE_TUI_CHANNEL=dev OPENCODE_PASSWORD=\"$(opencode service get password)\" exec bun run dev:vite \"$@\" --server \"$(opencode service status)\"' --",
     "dev:desktop": "bun --cwd packages/desktop dev",
+    "debug": "bun run script/koma-debug.ts",
     "dev:web": "bun --cwd packages/app dev",
     "dev:site": "bun run --cwd services/site dev",
     "lint": "oxlint && ast-grep scan -c script/ast-grep/gui-plugins/sgconfig.yml && ast-grep scan --rule script/ast-grep/dialog-size.yml packages && bun script/sdk-docs.ts && bun script/check-greys.ts",

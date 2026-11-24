@@ -5,7 +5,8 @@ const arg = process.argv[2]
 
 const channel = arg === "dev" || arg === "beta" || arg === "prod" ? arg : resolveChannel()
 
-const src = `./icons/${channel}`
+// Koma: `koma` selects Koma's icons, which every packaged build uses; the dev run keeps the channel's.
+const src = arg === "koma" ? "./icons/koma" : `./icons/${channel}`
 
 const dest = "resources/icons"
 

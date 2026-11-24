@@ -3,6 +3,7 @@ import type { Endpoint } from "@opencode/client/service"
 import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { SidecarChanged } from "../../shared/ipc-rpc/events"
 import { CHANNEL } from "../constants"
+import { KOMA, komaServiceFile } from "../koma"
 import { emitIpcEvent } from "../ipc-events"
 import { getMainWindows } from "../windows"
 import { BackgroundServiceMachine } from "./background-service-machine"
@@ -69,6 +70,7 @@ const ensure = Effect.fn("BackgroundService.ensure")(function* (mode: Background
         "serve",
         "--service",
         ...(setup.isolated ? ["--hostname", "0.0.0.0", "--port", String(0x0c0c)] : []),
+        ...(setup.port ? ["--port", String(setup.port)] : []),
       ],
       onStart: (reason, previousVersion) =>
         runFork(Effect.logInfo("v2 CLI background service starting", { reason, previousVersion })),
@@ -111,6 +113,9 @@ const prepare = Effect.fn("BackgroundService.prepare")(function* (mode: Backgrou
 
   const reuseFile = reuse ? process.env.OPENCODE_DESKTOP_REUSE_SERVICE_FILE || undefined : undefined
 
+  // Koma: a packaged build runs its own service, apart from an installed OpenCode's (`koma.ts`).
+  const koma = app.isPackaged && CHANNEL !== "local" ? CHANNEL : undefined
+
   const file = reuse
     ? reuseFile
     : process.env.OPENCODE_DESKTOP_SERVER_CHANNEL === "local"
@@ -119,9 +124,11 @@ const prepare = Effect.fn("BackgroundService.prepare")(function* (mode: Backgrou
           "opencode",
           "service-local.json",
         )
-      : undefined
+      : koma
+        ? komaServiceFile(koma)
+        : undefined
 
-  return { cli, client, file, isolated, version }
+  return { cli, client, file, isolated, version, port: koma ? KOMA[koma].port : undefined }
 })
 
 const adopt = Effect.fn("BackgroundService.adopt")(function* (

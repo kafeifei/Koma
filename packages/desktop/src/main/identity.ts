@@ -1,19 +1,21 @@
 import path from "node:path"
+import { KOMA } from "./koma"
 
 export type Channel = "local" | "dev" | "beta" | "prod"
 
+// Koma: packaged builds carry Koma's identity (`koma.ts`); only the unpackaged dev run keeps upstream's.
 const appNames: Record<Channel, string> = {
   local: "OpenCode Dev",
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
+  dev: KOMA.dev.appName,
+  beta: KOMA.beta.appName,
+  prod: KOMA.prod.appName,
 }
 
 const appIDs: Record<Channel, string> = {
   local: "ai.opencode.desktop.dev",
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: KOMA.dev.appID,
+  beta: KOMA.beta.appID,
+  prod: KOMA.prod.appID,
 }
 
 // Unpackaged dev runs keep the dev profile directory (`appID`), but use a separate Windows
