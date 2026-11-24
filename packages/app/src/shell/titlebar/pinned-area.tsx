@@ -38,6 +38,7 @@ import {
   type PinsState,
 } from "@/shell/tabs/pins"
 import { AUTO_TAB_GROUP_COLORS, nextManualGroupColor, type TabGroupColor } from "./tab-groups"
+import { createSessionArchiver } from "./session-archive"
 import { TabNavItem } from "./tab-nav"
 import { syncInactiveSession, type TabStripLeading } from "./tab-strip"
 import "./tab-groups.css"
@@ -503,6 +504,7 @@ function PinnedSession(props: { pin: PinRef; orientation: Orientation; grouped?:
   const key = () => pins.keyOf(props.pin)
   const session = () => pins.session(props.pin)
   const global = useGlobal()
+  const archive = createSessionArchiver()
 
   const status = useSessionTabAvatarState(
     server,
@@ -533,8 +535,25 @@ function PinnedSession(props: { pin: PinRef; orientation: Orientation; grouped?:
   const menu = (rename: () => void): JSX.Element => (
     <>
       <PinMenuItems pin={props.pin} />
+      {/* Koma: a pinned session archives from here too, and leaves the pinned area with it. */}
+      <Show when={session()}>
+        {(value) => (
+          <Menu.Item
+            data-menu-key="a"
+            shortcut="A"
+            onSelect={() => {
+              pins.unpin(props.pin)
+              archive(props.pin.server, value())
+            }}
+          >
+            {language.t("common.archive")}
+          </Menu.Item>
+        )}
+      </Show>
       <Menu.Separator />
-      <Menu.Item onSelect={rename}>{language.t("common.rename")}</Menu.Item>
+      <Menu.Item data-menu-key="r" shortcut="R" onSelect={rename}>
+        {language.t("common.rename")}
+      </Menu.Item>
     </>
   )
 
@@ -574,7 +593,11 @@ export function PinMenuItems(props: { pin: PinRef }) {
 
   return (
     <>
-      <Menu.Item onSelect={() => (pins.pinned(props.pin) ? pins.unpin(props.pin) : pins.pin(props.pin))}>
+      <Menu.Item
+        data-menu-key="p"
+        shortcut="P"
+        onSelect={() => (pins.pinned(props.pin) ? pins.unpin(props.pin) : pins.pin(props.pin))}
+      >
         {language.t(pins.pinned(props.pin) ? "sidebar.recent.unpin" : "sidebar.recent.pin")}
       </Menu.Item>
       <Menu.Sub gutter={4} overflowPadding={16} overlap>

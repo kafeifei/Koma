@@ -402,6 +402,13 @@ export const dict = {
   "common.key.esc": "ESC",
 
   "sidebar.settings": "设置",
+  "sidebar.project.settings": "项目设置",
+  "tabs.groups.new": "新建分组",
+  "tabs.groups.addToGroup": "添加到分组",
+  "tabs.groups.removeFromGroup": "移出分组",
+  "tabs.groups.ungroup": "取消分组",
+  "tabs.groups.name.placeholder": "分组名称",
+  "tabs.groups.unnamed": "分组 {{number}}",
   "sidebar.help": "帮助",
   "sidebar.project.recentSessions": "最近会话",
   "sidebar.project.clearNotifications": "清除通知",

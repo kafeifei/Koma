@@ -655,7 +655,12 @@ export function TabNavItem(
                   </>
                 )}
               </Show>
-              <Menu.Item disabled={!props.session} onSelect={() => startRename("menu")}>
+              <Menu.Item
+                data-menu-key="r"
+                shortcut="R"
+                disabled={!props.session}
+                onSelect={() => startRename("menu")}
+              >
                 {language.t("common.rename")}
               </Menu.Item>
               <Menu.Item
@@ -685,7 +690,7 @@ export function TabNavItem(
                 onCloseAfter={props.onCloseAfter}
               />
               <Menu.Separator />
-              <Menu.Item disabled={!props.session} onSelect={props.onDelete}>
+              <Menu.Item data-menu-key="d" shortcut="D" disabled={!props.session} onSelect={props.onDelete}>
                 {language.t("common.delete")}…
               </Menu.Item>
             </>

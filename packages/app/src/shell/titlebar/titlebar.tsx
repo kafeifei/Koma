@@ -990,8 +990,9 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                       when={settings.appearance.navigationPrototype()}
                                       fallback={
                                         <>
-                                          {searchButton(true)}
-                                          {/* Koma: with project navigation, Settings sits at the foot of the sidebar. */}
+                                          {/* Koma: with project navigation the sidebar has its own search box, and
+                                              Settings sits at the foot of the sidebar. */}
+                                          <Show when={!projectNavigation()}>{searchButton(true)}</Show>
                                           <Show when={!projectNavigation()}>{newSessionButton()}</Show>
                                         </>
                                       }

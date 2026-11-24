@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useQueries, useQueryClient } from "@tanstack/solid-query"
+import { useQueries } from "@tanstack/solid-query"
 import type { SessionInfo } from "@opencode/client/promise"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
@@ -16,16 +16,16 @@ import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { useGlobal, type ServerCtx } from "@/runtime/server/runtime"
 import type { Project } from "@/runtime/server/types"
 import { projectSettingsKey, useSettings } from "@/settings/model"
-import { errorMessage } from "@/shell/layout/helpers"
+import { useSettingsSurface } from "@/settings/surface"
 import { sessionStatus } from "@/shell/layout/project-avatar-state"
 import { ProjectIcon } from "@/shell/layout/project-icon"
-import { showToast } from "@/shell/notifications/toast"
 import { getCompactTime } from "@/shell/time"
 import { createProjectSessionActions } from "@/shell/tabs/project-sessions"
 import { tabKey, useTabs, type SessionTab, type Tab } from "@/shell/tabs/tabs"
 import { PinMenuItems, PinnedArea, usePins } from "./pinned-area"
 import { ProjectSessionRow } from "./project-session-row"
-import { notifySessionTabsRemoved } from "./session-events"
+import { createSessionArchiver } from "./session-archive"
+import { createMenuLetterKeys } from "./menu-keys"
 import { isSidebarSessionActivity, mergeSidebarSessions } from "./sidebar-sessions"
 import type { TabStripLeading, TabStripSection } from "./tab-strip"
 import { SidebarViewMenu } from "./sidebar-view-menu"
@@ -127,10 +127,13 @@ export function SidebarCustomized(props: {
 
   const actions = createProjectSessionActions()
 
-  const queryClient = useQueryClient()
+  const surface = useSettingsSurface()
 
   // Koma: pinned sessions sit in the pinned area above the groups, and every row's menu can pin and archive.
   const pins = usePins()
+  const archive = createSessionArchiver()
+
+  createMenuLetterKeys()
 
   // Built once: the strip renders it inside its scroll, and pinned sessions share the ⌘1–9 numbers with the tabs.
   const pinnedArea = <PinnedArea orientation="vertical" divider />
@@ -180,6 +183,49 @@ export function SidebarCustomized(props: {
     queries: connected().map((conn) => homeSessionsQuery(conn, ctxOf(ServerConnection.key(conn)))),
   }))
 
+  // Koma: the search box at the top of the sidebar narrows the groups to sessions whose title matches: the loaded
+  // ones at once, and the rest of the server's list once it answers. The server searches titles only.
+  const [search, setSearch] = createStore({ input: "", query: "" })
+  let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+  const typeSearch = (value: string) => {
+    setSearch("input", value)
+    clearTimeout(searchTimer)
+    searchTimer = setTimeout(() => setSearch("query", value.trim()), 200)
+  }
+
+  const clearSearch = () => {
+    clearTimeout(searchTimer)
+    setSearch({ input: "", query: "" })
+  }
+
+  onCleanup(() => clearTimeout(searchTimer))
+
+  const searching = () => search.query.length > 0
+
+  const searchQueries = useQueries(() => ({
+    queries: connected().map((conn) => {
+      const ctx = ctxOf(ServerConnection.key(conn))
+      const query = search.query
+
+      return {
+        queryKey: ["sidebar-search", conn, query] as const,
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          ctx
+            ? ctx.sdk.api.session
+                .list({ parentID: null, search: query, archived: false, limit: 50 }, { signal })
+                .then((response) => response.data)
+            : Promise.resolve<SessionInfo[]>([]),
+        enabled: !!ctx && query.length > 0,
+        retry: false,
+        gcTime: 30_000,
+      }
+    }),
+  }))
+
+  const titleMatches = (session: SessionInfo | undefined) =>
+    !!session?.title && session.title.toLowerCase().includes(search.query.toLowerCase())
+
   // Server groupings only separate anything once a second server is added; the saved choice returns with it.
   const grouping = () =>
     global.servers.list().length > 1 || (view.grouping !== "server" && view.grouping !== "server-project")
@@ -191,7 +237,8 @@ export function SidebarCustomized(props: {
     ordering: view.ordering,
     show: view.show,
     filters: local.filters,
-    collapsed: view.collapsed,
+    // Koma: a search shows its matches wherever they are, so every group opens.
+    collapsed: searching() ? {} : view.collapsed,
   })
 
   // Status is the one per-row read that walks the whole session store, so only work it out when it changes the view.
@@ -265,7 +312,18 @@ export function SidebarCustomized(props: {
       }
     })
 
-    const openKeys = new Set(openRows.map((row) => row.key))
+    const found = new Map<string, Set<string>>(
+      connected().map((conn, index) => [
+        ServerConnection.key(conn),
+        new Set((searchQueries[index]?.data ?? []).map((session) => session.id)),
+      ]),
+    )
+
+    const matches = (server: string, session: SessionInfo | undefined) =>
+      !!session && (titleMatches(session) || !!found.get(server)?.has(session.id))
+
+    const shownOpenRows = searching() ? openRows.filter((row) => matches(row.server, row.session)) : openRows
+    const openKeys = new Set(shownOpenRows.map((row) => row.key))
 
     const sessionRows = connected().flatMap((conn, index) => {
       const server = ServerConnection.key(conn)
@@ -274,9 +332,15 @@ export function SidebarCustomized(props: {
 
       if (!ctx) return []
       const recent = recentQueries[index]?.data?.() ?? []
+      const known = mergeSidebarSessions(recent, ctx.data.session.known())
+      const hits = searchQueries[index]?.data ?? []
 
       // `apply` drops sessions being deleted or already deleted, which the fetched lists still hold until they refetch.
-      const indexed = ctx.data.session.apply(mergeSidebarSessions(recent, ctx.data.session.known()))
+      const indexed = ctx.data.session.apply(
+        searching()
+          ? [...hits, ...known.filter((session) => titleMatches(session) && !hits.some((hit) => hit.id === session.id))]
+          : known,
+      )
 
       const children = view.show.subagents
         ? ctx.data.session.list().filter((session) => !!session.parentID && session.time.archived === undefined)
@@ -311,7 +375,7 @@ export function SidebarCustomized(props: {
       })
     })
 
-    return [...openRows, ...sessionRows]
+    return [...shownOpenRows, ...sessionRows]
   })
 
   const result = createMemo(() => sidebarView(rows(), state()))
@@ -389,39 +453,15 @@ export function SidebarCustomized(props: {
     })
   }
 
-  // Koma: archiving takes the session out of every list and closes its tab; Archived at the foot of the sidebar
-  // brings it back.
-  const archive = (server: string, session: SessionInfo) => {
-    const conn = connOf(server)
-    const ctx = ctxOf(server)
-
-    if (!conn || !ctx) return
-
-    void ctx.sdk.api.session
-      .update({ sessionID: session.id, archived: true })
-      .then(() => {
-        for (const queryKey of ["home-sessions", "inbox-sessions", "inbox-archived-sessions"]) {
-          void queryClient.invalidateQueries({ queryKey: [queryKey, conn], exact: true })
-        }
-
-        notifySessionTabsRemoved({
-          server: ServerConnection.Key.make(server),
-          directory: session.location.directory,
-          sessionIDs: [session.id],
-        })
-      })
-      .catch((cause) =>
-        showToast({
-          title: language.t("common.requestFailed"),
-          description: errorMessage(cause, language.t("common.requestFailed")),
-        }),
-      )
-  }
-
   const rowMenu = (server: string, session: SessionInfo) => (
     <>
       <PinMenuItems pin={{ server: ServerConnection.Key.make(server), sessionId: session.id }} />
-      <Menu.Item data-action="sidebar-session-archive" onSelect={() => archive(server, session)}>
+      <Menu.Item
+        data-action="sidebar-session-archive"
+        data-menu-key="a"
+        shortcut="A"
+        onSelect={() => archive(server, session)}
+      >
         {language.t("common.archive")}
       </Menu.Item>
     </>
@@ -491,7 +531,8 @@ export function SidebarCustomized(props: {
 
         const step = group.kind === "all" ? RECENT_STEP_UNGROUPED : RECENT_STEP
 
-        const limit = local.limits[group.key] ?? step
+        // Koma: a search lists every match; "Show more" is for browsing.
+        const limit = searching() ? Number.POSITIVE_INFINITY : (local.limits[group.key] ?? step)
 
         const shown = new Set(topLevel.slice(0, limit))
 
@@ -648,8 +689,8 @@ export function SidebarCustomized(props: {
       return value ? displayName(value) : language.t("sidebar.view.other")
     }
 
-    // A new session starts in the project on this group's server, or on the current server when it spans several.
-    const newSession = () => {
+    // The project's copy on this group's server, or on the current server when the group spans several.
+    const target = () => {
       const value = project()
 
       if (!value) return
@@ -665,11 +706,27 @@ export function SidebarCustomized(props: {
 
       const conn = (server ? connOf(server) : undefined) ?? owners.find(servers.current) ?? owners[0]
 
-      if (conn) actions.openProjectNewSession(conn, copy(conn)?.worktree ?? value.worktree)
+      if (conn) return { conn, worktree: copy(conn)?.worktree ?? value.worktree }
     }
 
+    const newSession = () => {
+      const value = target()
+
+      if (value) actions.openProjectNewSession(value.conn, value.worktree)
+    }
+
+    // Koma: the project's own settings, on the server a new session would start on.
+    const openSettings = () => {
+      const value = target()
+
+      if (value) surface.openProject({ server: ServerConnection.key(value.conn), project: value.worktree })
+    }
+
+    // Koma: the row is the trigger of the project's context menu. Its children keep upstream's indentation.
     return (
-      <div
+      <Menu.Context modal={false}>
+      <Menu.Context.Trigger
+        as="div"
         data-slot="sidebar-project-row"
         class="group/sidebar-group relative flex min-w-0 shrink-0 items-center rounded-[6px] pe-1"
         classList={{
@@ -731,7 +788,20 @@ export function SidebarCustomized(props: {
             </span>
           </Show>
         </span>
-      </div>
+      </Menu.Context.Trigger>
+      <Show when={project()}>
+        <Menu.Context.Portal>
+          <Menu.Context.Content>
+            <Menu.Item data-action="sidebar-project-new-session" onSelect={newSession}>
+              {language.t("command.session.new")}
+            </Menu.Item>
+            <Menu.Item data-action="sidebar-project-settings" onSelect={openSettings}>
+              {language.t("sidebar.project.settings")}
+            </Menu.Item>
+          </Menu.Context.Content>
+        </Menu.Context.Portal>
+      </Show>
+      </Menu.Context>
     )
   }
 
@@ -755,6 +825,26 @@ export function SidebarCustomized(props: {
 
   return (
     <div class="flex min-h-0 flex-1 flex-col [app-region:no-drag]">
+      <label
+        data-slot="sidebar-search"
+        class="mb-2 flex h-7 shrink-0 items-center gap-2 rounded-[6px] px-2 text-v2-text-text-faint focus-within:bg-v2-overlay-simple-overlay-hover"
+      >
+        <Icon name="magnifying-glass" class="shrink-0" />
+        <input
+          type="search"
+          data-action="sidebar-search"
+          class="min-w-0 flex-1 bg-transparent text-[13px] leading-[var(--line-height-compact)] text-v2-text-text-base outline-none placeholder:text-v2-text-text-faint [&::-webkit-search-cancel-button]:hidden"
+          placeholder={language.t("home.sessions.search.placeholder")}
+          aria-label={language.t("home.sessions.search.placeholder")}
+          value={search.input}
+          onInput={(event) => typeSearch(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !search.input) return
+            event.stopPropagation()
+            clearSearch()
+          }}
+        />
+      </label>
       <div class="flex h-7 shrink-0 items-center gap-1.5 ps-2 pe-1">
         <span class="min-w-0 flex-1 truncate text-[13px] leading-[var(--line-height-compact)] font-medium text-v2-text-text-muted">
           {language.t("sidebar.view.sessions")}
@@ -788,7 +878,12 @@ export function SidebarCustomized(props: {
           leading: pinnedLeading(),
           hidden: pins.holds,
         })}
-        <Show when={filterCount() > 0 && !visibleRows().some((row) => !row.active)}>
+        <Show when={searching() && visibleRows().length === 0 && !searchQueries.some((query) => query.isFetching)}>
+          <div class="px-2 py-2 text-12-regular text-v2-text-text-faint">
+            {language.t("home.sessions.search.noResults", { query: search.query })}
+          </div>
+        </Show>
+        <Show when={!searching() && filterCount() > 0 && !visibleRows().some((row) => !row.active)}>
           <div class="px-2 py-2 text-12-regular text-v2-text-text-faint">
             {language.t("sidebar.view.noMatch")}{" "}
             <button

@@ -835,6 +835,7 @@ export const dict = {
   "common.time.compact.years": "{{count}}y",
 
   "sidebar.settings": "Settings",
+  "sidebar.project.settings": "Project settings",
   "sidebar.help": "Help",
   "sidebar.inbox.empty": "Sessions you work on will appear here",
   "sidebar.inbox.section.needsAttention": "Needs attention",

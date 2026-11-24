@@ -201,6 +201,8 @@ export function ProjectSessionRow(props: {
             )}
           </Show>
           <Menu.Item
+            data-menu-key="r"
+            shortcut="R"
             disabled={!ctx()}
             onSelect={() =>
               dialog.show(() => (
@@ -221,7 +223,12 @@ export function ProjectSessionRow(props: {
           </Menu.Item>
           <SessionReadMenuItem server={props.server} session={props.session} />
           <Menu.Separator />
-          <Menu.Item disabled={!ctx()} onSelect={() => dialog.show(() => <DeleteDialog />)}>
+          <Menu.Item
+            data-menu-key="d"
+            shortcut="D"
+            disabled={!ctx()}
+            onSelect={() => dialog.show(() => <DeleteDialog />)}
+          >
             {language.t("common.delete")}…
           </Menu.Item>
         </Menu.Context.Content>
