@@ -39,6 +39,19 @@ await $`bunx electron-builder --mac --${arch} --publish never --config electron-
 const built = path.join(desktop, "dist", arch === "arm64" ? "mac-arm64" : "mac", `${identity.appName}.app`)
 
 if (!existsSync(built)) throw new Error(`Packaging did not produce ${built}`)
+
+// An ad-hoc signature changes with every build, so macOS treats each build as another app and asks for the Keychain
+// ("Koma Debug Safe Storage") again and again. A Developer ID signature is the same app across builds, so "Always
+// Allow" holds. Debug builds are not hardened or notarized; they only run on the machine that built them.
+const signer = process.env.KOMA_SIGN_IDENTITY ?? (await developerID())
+
+if (signer) {
+  await $`codesign --force --sign ${signer} ${path.join(built, "Contents/Resources/opencode-cli")}`
+  await $`codesign --force --deep --sign ${signer} ${built}`
+  await $`codesign --verify --deep --strict ${built}`
+}
+
+if (!signer) console.warn("No Developer ID identity found: the build stays ad-hoc signed and macOS will ask for the Keychain after every build")
 const installed = `/Applications/${identity.appName}.app`
 
 // A running copy keeps its files open; quit it before replacing the bundle. Its service is replaced on next launch.
@@ -53,3 +66,10 @@ await $`rm -rf ${installed}`
 await $`ditto ${built} ${installed}`
 
 console.log(`Installed ${installed} (main at ${commit})`)
+
+/** The first Developer ID Application identity in the keychain, by hash so that same-named certificates do not clash. */
+async function developerID() {
+  const identities = await $`security find-identity -v -p codesigning`.nothrow().text()
+
+  return identities.match(/([0-9A-F]{40}) "Developer ID Application:/)?.[1]
+}
