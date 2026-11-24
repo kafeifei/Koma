@@ -19,6 +19,7 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | 会话菜单的字母快捷键（P 置顶、R 重命名、A 归档、D 删除），置顶行也能归档 | `packages/app/src/shell/titlebar/menu-keys.ts`、`packages/app/src/shell/titlebar/session-archive.ts` |
 | 对话区右侧的面板图标栏 | `packages/app/src/session/panel-rail.tsx`、`packages/app/src/session/screen.tsx` |
 | 旧式 OpenAI 登录过期时提示重新连接 | `packages/core/src/plugin/provider/openai.ts` |
+| 开关远程访问时先保存设置再停服务（否则桌面端抢先重启的服务读不到新设置，配对一直卡在「Setting up remote access」） | `packages/cli/src/services/service-config.ts` |
 | 配置里的 OpenAI 兼容提供商从自己的 `/models` 读取模型清单，设置页可手动刷新 | `packages/core/src/plugin/provider/openai-compatible-discovery.ts`、`packages/schema/src/provider-discovery.ts`、`packages/app/src/settings/models/refresh-button.tsx` |
 | 打包身份、图标、独立的后台服务 | `packages/desktop/src/main/koma.ts` 及引用它的文件 |
 | 「发 debug」脚本 | `script/koma-debug.ts` |

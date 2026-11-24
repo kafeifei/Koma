@@ -262,12 +262,11 @@ export const set = Effect.fn("cli.service-config.set")(function* (key: string, v
       if (value !== "true" && value !== "false") throw new Error("Remote must be true or false")
       // A tunnel that cannot be created leaves remote access off instead of a service that keeps retrying.
       if (value === "true") yield* RemoteTunnel.ensure()
+      // Koma: save before stopping. The desktop app starts the service again the moment it stops, while `stop`
+      // only notices on its next poll; a service that starts before the setting is saved runs without the tunnel
+      // (or keeps it) until something else restarts it.
+      yield* value === "true" ? remote() : disableRemote()
       yield* Service.stop(yield* options())
-      if (value === "true") {
-        yield* remote()
-        return
-      }
-      yield* disableRemote()
       return
     }
     case "hostname": {
@@ -320,8 +319,9 @@ export const unset = Effect.fn("cli.service-config.unset")(function* (key: strin
       return
     }
     case "remote": {
-      yield* Service.stop(yield* options())
+      // Koma: save before stopping, as `set` does.
       yield* disableRemote()
+      yield* Service.stop(yield* options())
       return
     }
     case "hostname": {
