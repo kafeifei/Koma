@@ -59,7 +59,7 @@ bun run release 0.2.0        # Koma Beta：dist/koma/Koma-Beta-0.2.0-mac-arm64.z
 bun run release 0.2.0 prod   # Koma（正式版身份）
 ```
 
-脚本和「发 debug」共用同一套构建：从干净的 `main` 出包，用钥匙串里的 Developer ID 签名，没有签名身份就失败。安装包没有公证（这台机器没有公证凭据），所以下载后第一次打开要右键「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/Koma Beta.app"`；发布说明里要写明。出包后先在本机启动确认，再推送标签并用 `gh release create koma-v<版本> --prerelease` 上传 `dist/koma` 里的两个文件。
+脚本和「发 debug」共用同一套构建：从干净的 `main` 出包，用钥匙串里的 Developer ID 签名，没有签名身份就失败。安装包没有公证（这台机器没有公证凭据），所以下载后第一次打开要到「系统设置 → 隐私与安全性」点“仍要打开”，或执行 `xattr -dr com.apple.quarantine "/Applications/Koma Beta.app"`；发布说明里要写明。出包后先在本机启动确认，再推送标签并用 `gh release create koma-v<版本> --prerelease` 上传 `dist/koma` 里的两个文件。
 
 改 `packages/app` 前先读 `packages/app/AGENTS.md`：文案必须走 i18n 且只加英文；不为测试加参数；应用包的单元测试要带项目配置跑：
 
