@@ -24,6 +24,7 @@ import { SettingsRow } from "@/settings/row"
 import { CONSOLE_GROUP_KEY, consoleModelGroup, ProviderModelSections } from "@/providers/models/provider-group"
 import { SettingsSearchEmpty } from "@/settings/search-empty"
 import { SettingsSearchField } from "@/settings/search-field"
+import { RefreshModelsButton } from "@/settings/models/refresh-button"
 import { settingsScroller } from "@/settings/scroller"
 import {
   createModelsRevealState,
@@ -207,7 +208,10 @@ export const SettingsModels: Component<{
             <h2 class="settings-tab-title">{language.t("settings.models.title")}</h2>
             <span class="text-11-regular text-v2-text-text-muted">{language.t("settings.models.description")}</span>
           </div>
-          <div class="settings-tab-header-actions">{props.headerAction}</div>
+          <div class="settings-tab-header-actions">
+            <RefreshModelsButton />
+            {props.headerAction}
+          </div>
         </div>
         <SettingsSearchField
           value={list.filter()}

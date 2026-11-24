@@ -1369,6 +1369,12 @@ export const dict = {
   "settings.providers.tag.other": "Other",
   "settings.models.title": "Models",
   "settings.models.description": "Choose which models appear in model picker",
+  "settings.models.refresh": "Refresh models",
+  "settings.models.refresh.done.title": "Model lists refreshed",
+  "settings.models.refresh.failed.title": "Could not refresh every provider",
+  "settings.models.refresh.none.title": "Nothing to refresh",
+  "settings.models.refresh.none.description":
+    "Only providers added in config with the OpenAI-compatible package list their models on request.",
   "settings.models.enableAll": "Enable all models",
   "settings.models.disableAll": "Disable all models",
 

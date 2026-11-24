@@ -524,6 +524,11 @@ export const dict = {
 
   "settings.models.title": "模型",
   "settings.models.description": "可在此处配置模型设置。",
+  "settings.models.refresh": "刷新模型",
+  "settings.models.refresh.done.title": "模型清单已刷新",
+  "settings.models.refresh.failed.title": "有提供商没刷新成功",
+  "settings.models.refresh.none.title": "没有可刷新的提供商",
+  "settings.models.refresh.none.description": "只有在配置里用 OpenAI 兼容方式添加的提供商，才支持按需读取模型清单。",
 
   "settings.permissions.tool.read.title": "读取",
   "settings.permissions.tool.read.description": "读取文件（匹配文件路径）",

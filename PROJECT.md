@@ -15,6 +15,7 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | 设置入口在侧边栏底部 | `packages/app/src/shell/titlebar/titlebar.tsx` |
 | 对话区右侧的面板图标栏 | `packages/app/src/session/panel-rail.tsx`、`packages/app/src/session/screen.tsx` |
 | 旧式 OpenAI 登录过期时提示重新连接 | `packages/core/src/plugin/provider/openai.ts` |
+| 配置里的 OpenAI 兼容提供商从自己的 `/models` 读取模型清单，设置页可手动刷新 | `packages/core/src/plugin/provider/openai-compatible-discovery.ts`、`packages/schema/src/provider-discovery.ts`、`packages/app/src/settings/models/refresh-button.tsx` |
 | 打包身份、图标、独立的后台服务 | `packages/desktop/src/main/koma.ts` 及引用它的文件 |
 | 「发 debug」脚本 | `script/koma-debug.ts` |
 
