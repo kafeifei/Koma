@@ -4,12 +4,17 @@ import { Schema } from "effect"
 import { Rpc } from "./rpc.js"
 import { optional } from "./schema.js"
 
-/** One provider's refresh: how many models its endpoint listed, or why the list could not be read. */
+/**
+ * One provider's refresh: how many models its endpoint listed, or why the list could not be read. `status` is the
+ * HTTP status when the endpoint answered with an error, so a client can tell a refused key from an outage.
+ */
 export interface Result extends Schema.Schema.Type<typeof Result> {}
 export const Result = Schema.Struct({
   providerID: Schema.String,
+  name: optional(Schema.String),
   models: optional(Schema.Number),
   error: optional(Schema.String),
+  status: optional(Schema.Number),
 }).annotate({ identifier: "ProviderDiscovery.Result" })
 
 /**

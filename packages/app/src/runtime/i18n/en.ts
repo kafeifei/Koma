@@ -1372,6 +1372,9 @@ export const dict = {
   "settings.models.refresh": "Refresh models",
   "settings.models.refresh.done.title": "Model lists refreshed",
   "settings.models.refresh.failed.title": "Could not refresh every provider",
+  "settings.models.refresh.unauthorized":
+    "{{provider}} has no working API key: none is saved, or the saved one was refused. Connect it in Settings › Providers.",
+  "settings.models.refresh.openProviders": "Open Providers",
   "settings.models.refresh.none.title": "Nothing to refresh",
   "settings.models.refresh.none.description":
     "Only providers added in config with the OpenAI-compatible package list their models on request.",

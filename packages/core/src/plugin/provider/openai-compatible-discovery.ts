@@ -4,7 +4,7 @@ import { define } from "@opencode/plugin/effect/plugin"
 import type { Document, Entry } from "@opencode/schema/config"
 import { ProviderDiscovery } from "@opencode/schema/provider-discovery"
 import { Effect, FiberSet, Schema, Semaphore, Stream } from "effect"
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
+import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/http"
 import { Bus } from "../../bus.js"
 import { Config } from "../../config.js"
 import { Credential } from "../../credential.js"
@@ -36,7 +36,12 @@ const RemoteModel = Schema.Struct({
 
 const Response = Schema.Struct({ data: Schema.Array(RemoteModel) })
 
-type Target = { readonly providerID: string; readonly url: string; readonly apiKey: string | undefined }
+type Target = {
+  readonly providerID: string
+  readonly name: string | undefined
+  readonly url: string
+  readonly apiKey: string | undefined
+}
 
 type Found = { readonly id: string; readonly context: number | undefined }
 
@@ -104,7 +109,7 @@ export const Plugin = define({
                 Effect.map((models): ProviderDiscovery.Result => {
                   inventory.set(target.providerID, { url: target.url, models })
 
-                  return { providerID: target.providerID, models: models.length }
+                  return { providerID: target.providerID, name: target.name, models: models.length }
                 }),
                 Effect.catch((cause) =>
                   Effect.logWarning("failed to list an OpenAI-compatible provider's models", {
@@ -114,7 +119,9 @@ export const Plugin = define({
                   }).pipe(
                     Effect.as<ProviderDiscovery.Result>({
                       providerID: target.providerID,
+                      name: target.name,
                       error: cause instanceof Error ? cause.message : String(cause),
+                      status: statusOf(cause),
                     }),
                   ),
                 ),
@@ -174,12 +181,21 @@ export const Plugin = define({
   }),
 } satisfies PluginInternal.InternalPlugin)
 
+/** The HTTP status of an endpoint that answered with an error. */
+function statusOf(cause: unknown) {
+  if (!(cause instanceof HttpClientError.HttpClientError) || cause.reason._tag !== "StatusCodeError") return undefined
+
+  return cause.reason.response.status
+}
+
 /** The providers config declares with the OpenAI-compatible package and an http(s) `baseURL`. */
 function targets(entries: readonly Entry[]): Target[] {
+  const declared = entries
+    .filter((entry): entry is Document => entry.type === "document")
+    .flatMap((entry) => Object.entries(entry.info.providers ?? {}))
+
   const ids = new Set(
-    entries
-      .filter((entry): entry is Document => entry.type === "document")
-      .flatMap((entry) => Object.entries(entry.info.providers ?? {}))
+    declared
       .filter(([, provider]) => provider.package !== undefined && packages.has(provider.package))
       .map(([id]) => id),
   )
@@ -190,6 +206,13 @@ function targets(entries: readonly Entry[]): Target[] {
 
     if (!URL.canParse(baseURL) || !/^https?:$/.test(new URL(baseURL).protocol)) return []
 
-    return [{ providerID, url: baseURL, apiKey: typeof settings?.apiKey === "string" ? settings.apiKey : undefined }]
+    return [
+      {
+        providerID,
+        name: declared.findLast(([id, provider]) => id === providerID && !!provider.name)?.[1].name,
+        url: baseURL,
+        apiKey: typeof settings?.apiKey === "string" ? settings.apiKey : undefined,
+      },
+    ]
   })
 }

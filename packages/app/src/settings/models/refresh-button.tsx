@@ -4,6 +4,7 @@ import { ProviderDiscovery } from "@opencode/schema/provider-discovery"
 import { useLanguage } from "@/runtime/i18n/language"
 import { useServerSDK } from "@/runtime/server/client"
 import { formatServerError } from "@/runtime/server/errors"
+import { useSettingsSurface } from "@/settings/surface"
 import { showToast } from "@/shell/notifications/toast"
 import { createRefreshState, refreshClaimed, transitionRefresh, type RefreshEvent } from "./refresh-machine"
 
@@ -14,6 +15,7 @@ import { createRefreshState, refreshClaimed, transitionRefresh, type RefreshEven
 export function RefreshModelsButton() {
   const language = useLanguage()
   const sdk = useServerSDK()
+  const settings = useSettingsSurface()
   const [state, setState] = createSignal(createRefreshState())
   let attempts = 0
 
@@ -29,6 +31,8 @@ export function RefreshModelsButton() {
     try {
       const result = await sdk.api.rpc(ProviderDiscovery.Definition).refresh({})
       const failed = result.providers.filter((item) => item.error !== undefined)
+      // The endpoint refused the request: no key is saved for the provider, or the saved one no longer works.
+      const refused = (item: (typeof failed)[number]) => item.status === 401 || item.status === 403
 
       if (result.providers.length === 0)
         showToast({
@@ -39,7 +43,21 @@ export function RefreshModelsButton() {
         showToast({
           variant: "error",
           title: language.t("settings.models.refresh.failed.title"),
-          description: failed.map((item) => `${item.providerID}: ${item.error}`).join("\n"),
+          description: failed
+            .map((item) =>
+              refused(item)
+                ? language.t("settings.models.refresh.unauthorized", { provider: item.name ?? item.providerID })
+                : `${item.name ?? item.providerID}: ${item.error}`,
+            )
+            .join("\n"),
+          actions: failed.some(refused)
+            ? [
+                {
+                  label: language.t("settings.models.refresh.openProviders"),
+                  onClick: () => settings.open("providers"),
+                },
+              ]
+            : undefined,
         })
       else showToast({ variant: "success", title: language.t("settings.models.refresh.done.title") })
     } catch (error) {

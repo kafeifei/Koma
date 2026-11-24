@@ -2,6 +2,7 @@ import { Bus } from "@opencode/core/bus"
 import { Config } from "@opencode/core/config"
 import { ConfigProviderPlugin } from "@opencode/core/config/plugin/provider"
 import { Credential } from "@opencode/core/credential"
+import { Integration } from "@opencode/core/integration"
 import { Model } from "@opencode/core/model"
 import { Plugin } from "@opencode/core/plugin"
 import { PluginHost } from "@opencode/core/plugin/host"
@@ -77,7 +78,7 @@ describe("OpenAICompatibleDiscovery", () => {
           // Unique per run: the plugin shares its inventory between Locations of one process.
           const providerID = Provider.ID.make(`gateway-${server.port}`)
           const switched = bus.publish(Credential.Event.Switched, {
-            integrationID: providerID,
+            integrationID: Integration.ID.make(providerID),
             credentialID: Credential.ID.make("cred_test"),
           })
 
