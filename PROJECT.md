@@ -22,7 +22,7 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | 开关远程访问时先保存设置再停服务（否则桌面端抢先重启的服务读不到新设置，配对一直卡在「Setting up remote access」） | `packages/cli/src/services/service-config.ts` |
 | 配置里的 OpenAI 兼容提供商从自己的 `/models` 读取模型清单，设置页可手动刷新 | `packages/core/src/plugin/provider/openai-compatible-discovery.ts`、`packages/schema/src/provider-discovery.ts`、`packages/app/src/settings/models/refresh-button.tsx` |
 | 打包身份、图标、独立的后台服务 | `packages/desktop/src/main/koma.ts` 及引用它的文件 |
-| 「发 debug」脚本 | `script/koma-debug.ts` |
+| 「发 debug」和发版脚本 | `script/koma-debug.ts`、`script/koma-release.ts`、`script/koma-build.ts` |
 
 ## 身份与数据
 
@@ -49,6 +49,17 @@ bun run debug         # 从干净的 main 构建 Koma Debug 并装到 /Applicati
 ```
 
 「发 debug」的顺序固定为：验证本次改动 → 提交并合入本地 `main` → 从该干净提交构建、安装并启动验证。它已授权本次改动所需的提交和合并，不包含推送、打标签和正式发布。脚本会拒绝在工作树不干净或不在 `main` 时构建。
+
+## 发版
+
+版本号沿用 `0.x.y`，标签 `koma-v<版本>`，Beta 在 GitHub 上标为预发布。只在用户明确要求时发。
+
+```sh
+bun run release 0.2.0        # Koma Beta：dist/koma/Koma-Beta-0.2.0-mac-arm64.zip 和 SHA256SUMS.txt
+bun run release 0.2.0 prod   # Koma（正式版身份）
+```
+
+脚本和「发 debug」共用同一套构建：从干净的 `main` 出包，用钥匙串里的 Developer ID 签名，没有签名身份就失败。安装包没有公证（这台机器没有公证凭据），所以下载后第一次打开要右键「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/Koma Beta.app"`；发布说明里要写明。出包后先在本机启动确认，再推送标签并用 `gh release create koma-v<版本> --prerelease` 上传 `dist/koma` 里的两个文件。
 
 改 `packages/app` 前先读 `packages/app/AGENTS.md`：文案必须走 i18n 且只加英文；不为测试加参数；应用包的单元测试要带项目配置跑：
 
