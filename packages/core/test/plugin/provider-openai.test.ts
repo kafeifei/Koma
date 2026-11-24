@@ -4,6 +4,7 @@ import { Session } from "@opencode/core/session"
 import { OpenAIResponses } from "@opencode/ai/protocols/openai-responses"
 import { describe, expect } from "bun:test"
 import { DateTime, Effect } from "effect"
+import { App } from "@opencode/core/app"
 import { Credential } from "@opencode/core/credential"
 import { Integration } from "@opencode/core/integration"
 import { Location } from "@opencode/core/location"
@@ -14,7 +15,7 @@ import { Plugin } from "@opencode/core/plugin"
 import { PluginHost } from "@opencode/core/plugin/host"
 import { PluginHooks } from "@opencode/core/plugin/hooks"
 import { GithubCopilotPlugin } from "@opencode/core/plugin/provider/github-copilot"
-import { OpenAIPlugin } from "@opencode/core/plugin/provider/openai"
+import { OpenAIPlugin, refresh } from "@opencode/core/plugin/provider/openai"
 import { Project } from "@opencode/core/project"
 import { Provider } from "@opencode/core/provider"
 import { AbsolutePath } from "@opencode/core/schema"
@@ -84,6 +85,47 @@ const request = Effect.fn(function* (
 })
 
 describe("OpenAIPlugin", () => {
+  it.live("asks to connect again only when OpenAI rejects the legacy refresh token", () =>
+    Effect.gen(function* () {
+      const server = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          Bun.serve({
+            port: 0,
+            routes: {
+              "/unauthorized": new Response("unauthorized", { status: 401 }),
+              "/expired": Response.json({ error: "invalid_grant" }, { status: 400 }),
+              "/invalid": Response.json({ error: "invalid_request" }, { status: 400 }),
+              "/error": new Response("unavailable", { status: 500 }),
+            },
+            fetch: () => new Response(null, { status: 404 }),
+          }),
+        ),
+        (server) => Effect.sync(() => server.stop()),
+      )
+      const baseURL = `http://localhost:${server.port}`
+      const methodID = Integration.MethodID.make("chatgpt-browser")
+      const value = { refresh: "refresh-token", metadata: undefined }
+      const rejected = "This OpenAI sign-in has expired or was revoked. Connect again."
+
+      expect(yield* Effect.flip(refresh(methodID, value, App.make(), `${baseURL}/unauthorized`))).toHaveProperty(
+        "message",
+        rejected,
+      )
+      expect(yield* Effect.flip(refresh(methodID, value, App.make(), `${baseURL}/expired`))).toHaveProperty(
+        "message",
+        rejected,
+      )
+      expect(yield* Effect.flip(refresh(methodID, value, App.make(), `${baseURL}/invalid`))).toHaveProperty(
+        "message",
+        "Request failed: 400",
+      )
+      expect(yield* Effect.flip(refresh(methodID, value, App.make(), `${baseURL}/error`))).toHaveProperty(
+        "message",
+        "Request failed: 500",
+      )
+    }),
+  )
+
   it.effect("registers browser and headless ChatGPT OAuth methods", () =>
     Effect.gen(function* () {
       yield* addPlugin()

@@ -364,16 +364,27 @@ function exchange(code: string, redirect: string, pkce: Pkce, app: App.Info) {
   })
 }
 
-function refresh(methodID: Integration.MethodID, value: Pick<Credential.OAuth, "refresh" | "metadata">, app: App.Info) {
-  return request<TokenResponse>(`${issuer}/oauth/token`, {
-    method: "POST",
-    headers: headers("application/x-www-form-urlencoded", app),
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: value.refresh,
-      client_id: clientID,
-    }).toString(),
-  }).pipe(
+// Koma: a refresh token OpenAI no longer accepts cannot recover on its own, so the error says to connect again
+// instead of the bare status, as the ChatGPT sign-in does.
+export function refresh(
+  methodID: Integration.MethodID,
+  value: Pick<Credential.OAuth, "refresh" | "metadata">,
+  app: App.Info,
+  url = `${issuer}/oauth/token`,
+) {
+  return request<TokenResponse>(
+    url,
+    {
+      method: "POST",
+      headers: headers("application/x-www-form-urlencoded", app),
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: value.refresh,
+        client_id: clientID,
+      }).toString(),
+    },
+    "This OpenAI sign-in has expired or was revoked. Connect again.",
+  ).pipe(
     Effect.map((tokens) => {
       const next = credential(methodID, tokens)
       return Credential.OAuth.make({ ...next, metadata: next.metadata ?? value.metadata })
@@ -381,12 +392,22 @@ function refresh(methodID: Integration.MethodID, value: Pick<Credential.OAuth, "
   )
 }
 
-function request<A>(url: string, init: RequestInit) {
+const decodeInvalidGrant = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ error: Schema.Literal("invalid_grant") })),
+)
+
+// `rejected` replaces the error when OpenAI refuses the grant itself: a 401, or a 400 that answers invalid_grant.
+function request<A>(url: string, init: RequestInit, rejected?: string) {
   return Effect.tryPromise({
     try: async (signal) => {
       const response = await fetch(url, { ...init, signal })
-      if (!response.ok) throw new Error(`Request failed: ${response.status}`)
-      return response.json() as Promise<A>
+
+      if (response.ok) return response.json() as Promise<A>
+
+      if (rejected && (response.status === 401 || Option.isSome(decodeInvalidGrant(await response.text()))))
+        throw new Error(rejected)
+
+      throw new Error(`Request failed: ${response.status}`)
     },
     catch: (cause) => cause,
   })
