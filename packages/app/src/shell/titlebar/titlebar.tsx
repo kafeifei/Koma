@@ -1056,6 +1056,17 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                           }}
                                         />
                                         {settingsButton()}
+                                        <Show when={import.meta.env.VITE_KOMA_BUILD}>
+                                          {(build) => (
+                                            <div
+                                              data-slot="vertical-tabs-build"
+                                              class="px-2 pt-1 text-[11px] leading-4 text-v2-text-text-faint select-text"
+                                              title={platform.version}
+                                            >
+                                              {language.t("sidebar.build", { build: build() })}
+                                            </div>
+                                          )}
+                                        </Show>
                                       </Show>
                                     </div>
                                   </Show>

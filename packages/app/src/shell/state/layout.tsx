@@ -174,6 +174,8 @@ export const layoutSchema = Persistence.struct({
   session: Persistence.struct({ width: Schema.Finite }),
   // The side region's width per panel (`${plugin}:${panel id}`) that sizes itself, app-wide.
   panelWidths: Schema.optional(Persistence.record(Schema.Finite)),
+  // Koma: the session panel width beside the side region, shared by every tab once the user drags the divider.
+  sessionPanelWidth: Schema.optional(Schema.Finite),
   mobileSidebar: Persistence.struct({ opened: Schema.Boolean }),
   sessionTabs: Persistence.record(Persistence.fallback(sessionTabsSchema, () => ({ all: [] }))),
   sessionView: Persistence.record(Persistence.fallback(sessionViewSchema, () => ({ scroll: {} }))),
@@ -581,6 +583,13 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           }
 
           setStore("panelWidths", panel, width)
+        },
+      },
+      /** Koma: the session panel width every tab shows beside its side region, once the user has dragged it. */
+      sessionPanelWidth: {
+        get: () => store.sessionPanelWidth,
+        set(width: number) {
+          if (Number.isFinite(width)) setStore("sessionPanelWidth", width)
         },
       },
       mobileSidebar: {

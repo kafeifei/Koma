@@ -30,6 +30,10 @@ export const DEFAULT_TIMEOUT_MS = 2 * 60 * 1_000
 const CODE_MODE_TIMEOUT_MS = 10 * 60 * 1_000
 // How long a call the user interrupted waits for its stopped command to exit before settling with the output so far.
 const INTERRUPT_WAIT = "500 millis"
+// Koma: a command still running at its timeout moves to the background. One that hangs there (waiting on a window, a
+// prompt or a lock) would otherwise run forever while its session waits to hear how it ended, so it is stopped once
+// it has run this much longer. Commands the model starts in the background keep only their own timeout.
+const BACKGROUND_LIMIT_MS = 10 * 60 * 1_000
 
 const BACKGROUND_INSTRUCTION =
   "You will be notified automatically when the command finishes. The notification will include the command's output. Unless the user explicitly asks otherwise, DO NOT poll for completion, even if you need the final result to continue. Repeatedly sleeping and reading or searching the output file is polling, not useful work. You may read the current output if it lets you do useful work now, but do not repeatedly check it while waiting for the command to finish. Keep working on anything that does not depend on the result. If you have nothing else to do, end your response; you will be resumed automatically when the command finishes."
@@ -49,7 +53,7 @@ const description = (shell?: string, codeMode = false) =>
     "Prefer dedicated tools over shell commands when possible.",
     "When output is large, the full result is saved to a file and a truncated preview is returned.",
     "Rely on automatic truncation unless filtering the output is more useful.",
-    "Commands still running after their timeout move to the background.",
+    `Commands still running after their timeout move to the background, and are stopped if still running ${BACKGROUND_LIMIT_MS / 60_000} minutes later.`,
     // Code Mode has no background parameter.
     ...(codeMode ? [] : ["Background commands return immediately, and you will be notified when they complete."]),
     "The current session ID is available in the OPENCODE_SESSION_ID environment variable.",
@@ -149,6 +153,7 @@ const backgroundText = (info: ShellSchema.Info, timeout?: number) =>
       : [
           "",
           `The command did not finish within its timeout of ${timeout / 1_000} seconds and was moved to the background. Do not start another copy while it is running.`,
+          `It will be stopped if it is still running ${BACKGROUND_LIMIT_MS / 1_000} seconds from now.`,
         ]),
   ].join("\n")
 
@@ -227,6 +232,9 @@ const startJob = Effect.fnUntraced(function* (
     background: input.background,
     run: Effect.gen(function* () {
       const result = yield* shell.result(info)
+      // Koma: removed while still running, which is what the user's Stop does. The job ends as cancelled, so the
+      // session hears that the command was stopped rather than a Shell.NotFoundError.
+      if (!result.capture && result.info.status === "killed") return yield* Effect.interrupt
       if (!result.capture) return yield* new Shell.NotFoundError({ id: info.id })
       const completed = result.info.time.completed ?? (yield* Clock.currentTimeMillis)
       return {
@@ -539,9 +547,10 @@ export const Plugin = {
                   if (outcome.type === "cancelled") return yield* cancelled(info, job.id)
                   const result = outcome.result
                   if (result?.type === "backgrounded") {
-                    yield* shell.timeout(info.id, 0)
                     const elapsed = "timedOut" in result ? finalTimeout : undefined
-                    finalTimeout = 0
+                    // Koma: moved by its timeout, it gets a limit in the background too (see BACKGROUND_LIMIT_MS).
+                    yield* shell.timeout(info.id, elapsed === undefined ? 0 : BACKGROUND_LIMIT_MS)
+                    finalTimeout = elapsed === undefined ? 0 : elapsed + BACKGROUND_LIMIT_MS
                     yield* notifyWhenDone(context.sessionID, job.id, info.id, info.command, settled)
                     return backgroundResult(info, yield* Clock.currentTimeMillis, elapsed)
                   }

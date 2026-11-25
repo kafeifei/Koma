@@ -18,7 +18,10 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | 项目行右键菜单：新建会话、项目设置 | `packages/app/src/shell/titlebar/sidebar-customized.tsx` |
 | 会话菜单的字母快捷键（P 置顶、R 重命名、A 归档、D 删除），置顶行也能归档 | `packages/app/src/shell/titlebar/menu-keys.ts`、`packages/app/src/shell/titlebar/session-archive.ts` |
 | 每个会话都留在项目列表里（去掉「最近会话」开关）；行尾悬停按钮是「归档」而不是关闭标签页，归档后提示里可「撤销」 | `packages/app/src/shell/titlebar/sidebar-customized.tsx`、`tab-nav.tsx`、`tab-strip.tsx`、`project-session-row.tsx`、`session-archive.ts` |
+| 侧边栏最下面显示构建号（每次「发 debug」或发版加一） | `packages/app/src/shell/titlebar/titlebar.tsx`、`packages/desktop/electron.vite.config.ts`、`script/koma-build.ts` |
 | 对话区右侧的面板图标栏 | `packages/app/src/session/panel-rail.tsx`、`packages/app/src/session/screen.tsx` |
+| 右侧面板的宽度所有标签页共用一份并记住（上游每个标签页各记一份，新开会话回到默认宽度） | `packages/app/src/session/session-layout.ts`、`packages/app/src/shell/state/layout.tsx` |
+| 超时转到后台的 Shell 命令再跑 10 分钟仍未结束就停掉（上游会一直跑，卡住的命令让会话永远等着）；用户停掉后台命令时，会话收到「已取消」而不是 `Shell.NotFoundError` | `packages/core/src/tool/plugin/shell.ts` |
 | 旧式 OpenAI 登录过期时提示重新连接 | `packages/core/src/plugin/provider/openai.ts` |
 | 开关远程访问时先保存设置再停服务（否则桌面端抢先重启的服务读不到新设置，配对一直卡在「Setting up remote access」） | `packages/cli/src/services/service-config.ts` |
 | 配置里的 OpenAI 兼容提供商从自己的 `/models` 读取模型清单，设置页可手动刷新 | `packages/core/src/plugin/provider/openai-compatible-discovery.ts`、`packages/schema/src/provider-discovery.ts`、`packages/app/src/settings/models/refresh-button.tsx` |
@@ -50,6 +53,8 @@ bun run debug         # 从干净的 main 构建 Koma Debug 并装到 /Applicati
 ```
 
 「发 debug」的顺序固定为：验证本次改动 → 提交并合入本地 `main` → 从该干净提交构建、安装并启动验证。它已授权本次改动所需的提交和合并，不包含推送、打标签和正式发布。脚本会拒绝在工作树不干净或不在 `main` 时构建。
+
+构建号记在 `.git/koma-build-sequence`（各 worktree 共用），每次构建成功后加一，接着旧 Koma 的编号（旧版最后是 170）。开发运行不显示构建号。
 
 ## 发版
 

@@ -25,14 +25,21 @@ export async function buildKoma(input: { channel: keyof typeof KOMA; version?: s
   if (branch !== "main") throw new Error(`${identity.appName} builds from main, not ${branch}. Merge into main first.`)
   const commit = (await $`git rev-parse HEAD`.cwd(root).text()).trim()
   const version = input.version ? { OPENCODE_VERSION: input.version } : {}
+  // Every build of any channel takes the next build number, shown at the foot of the sidebar. The count is kept with
+  // the repository's Git data, so worktrees share it, and moves on only once a build succeeds.
+  const counter = path.join(
+    (await $`git rev-parse --path-format=absolute --git-common-dir`.cwd(root).text()).trim(),
+    "koma-build-sequence",
+  )
+  const build = (existsSync(counter) ? Number((await Bun.file(counter).text()).trim()) : 0) + 1
 
-  console.log(`Building ${identity.appName} ${input.version ?? "(preview)"} from main at ${commit.slice(0, 10)}`)
+  console.log(`Building ${identity.appName} ${input.version ?? "(preview)"} #${build} from main at ${commit.slice(0, 10)}`)
 
   await $`bun run build --single --skip-install`
     .cwd(cli)
     .env({ ...process.env, ...version, OPENCODE_CHANNEL: identity.service })
 
-  const env = { ...process.env, ...version, OPENCODE_CHANNEL: input.channel }
+  const env = { ...process.env, ...version, OPENCODE_CHANNEL: input.channel, KOMA_BUILD: String(build) }
 
   await $`bun run build`.cwd(desktop).env(env)
 
@@ -60,7 +67,9 @@ export async function buildKoma(input: { channel: keyof typeof KOMA; version?: s
     await $`codesign --verify --deep --strict ${app}`
   }
 
-  return { app, arch, commit, identity, signed: !!signer }
+  await Bun.write(counter, `${build}\n`)
+
+  return { app, arch, build, commit, identity, signed: !!signer }
 }
 
 /** The first Developer ID Application identity in the keychain, by hash so that same-named certificates do not clash. */

@@ -108,6 +108,8 @@ export default defineConfig(({ command }) => {
       define: {
         "import.meta.env.OPENCODE_VERSION": JSON.stringify(process.env.OPENCODE_VERSION),
         "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
+        // Koma: set by script/koma-build.ts.
+        "import.meta.env.VITE_KOMA_BUILD": JSON.stringify(process.env.KOMA_BUILD),
         "import.meta.env.OPENCODE_TEST_ONBOARDING": JSON.stringify(
           command === "serve" && process.env.OPENCODE_TEST_ONBOARDING === "1",
         ),

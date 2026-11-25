@@ -25,4 +25,4 @@ await $`ditto -c -k --zlibCompressionLevel 9 --sequesterRsrc --keepParent ${buil
 
 await Bun.write(path.join(out, "SHA256SUMS.txt"), await $`shasum -a 256 ${name}`.cwd(out).text())
 
-console.log(`Release files in ${out} (${build.identity.appName} ${version}, main at ${build.commit})`)
+console.log(`Release files in ${out} (${build.identity.appName} ${version} #${build.build}, main at ${build.commit})`)

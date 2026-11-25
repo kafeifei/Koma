@@ -1617,7 +1617,7 @@ describe("ShellTool", () => {
           expect(result.metadata).not.toHaveProperty("timeout")
           expect(result.content?.[0]).toEqual({
             type: "text",
-            text: `Command moved to the background (shell ID: ${id}).\nPID: ${info.pid}\nOutput is streaming to: ${info.file}\n\nThe command did not finish within its timeout of 0.01 seconds and was moved to the background. Do not start another copy while it is running.`,
+            text: `Command moved to the background (shell ID: ${id}).\nPID: ${info.pid}\nOutput is streaming to: ${info.file}\n\nThe command did not finish within its timeout of 0.01 seconds and was moved to the background. Do not start another copy while it is running.\nIt will be stopped if it is still running 600 seconds from now.`,
           })
           expect(info.status).toBe("running")
           expect((yield* shell.list()).map((item) => item.id)).toEqual([id])
@@ -1734,6 +1734,63 @@ describe("ShellTool", () => {
           // Cancelling stops the command and keeps it, output file included.
           expect((yield* shell.wait(id)).status).toBe("killed")
           expect(yield* shell.list()).toEqual([])
+        }),
+      )
+    }),
+  )
+
+  // Koma: a hung command moved to the background used to run until someone stopped it.
+  it.effect("stops a timeout-promoted command that is still running after the background limit", () =>
+    withTempDir((tmp) => {
+      reset()
+      return withSession(tmp.path, (registry) =>
+        Effect.gen(function* () {
+          const running = yield* executeTool(
+            registry,
+            call({ command: progressOverflowCommand(0, "release"), timeout: 10 }, "call-background-limit"),
+          ).pipe(Effect.forkScoped({ startImmediately: true }))
+          const result = yield* Fiber.join(running).pipe(
+            Effect.raceFirst(
+              Effect.forever(Effect.promise(() => Bun.sleep(20)).pipe(Effect.andThen(TestClock.adjust("1 second")))),
+            ),
+          )
+          const id = ID.make(String(result.metadata?.shellID))
+          const shell = yield* Shell.Service
+          expect((yield* shell.get(id)).status).toBe("running")
+          const ended = yield* shell.wait(id).pipe(
+            Effect.raceFirst(
+              Effect.forever(Effect.promise(() => Bun.sleep(20)).pipe(Effect.andThen(TestClock.adjust("1 minute")))),
+            ),
+          )
+          expect(ended.status).toBe("timeout")
+        }),
+      )
+    }),
+  )
+
+  // Koma: the user's Stop removes the command; its session used to hear "Shell.NotFoundError".
+  it.live("tells the session a removed background command was cancelled", () =>
+    withTempDir((tmp) => {
+      reset()
+      return withSession(tmp.path, (registry) =>
+        Effect.gen(function* () {
+          const bus = yield* Bus.Service
+          const admitted = yield* bus.subscribe(SessionEvent.InboxEnqueued).pipe(
+            Stream.filter((event) => event.data.sessionID === sessionID && event.data.item.type === "synthetic"),
+            Stream.runHead,
+            Effect.forkScoped({ startImmediately: true }),
+          )
+          const result = yield* executeTool(
+            registry,
+            call({ command: progressOverflowCommand(0, "release"), timeout: 10 }, "call-removed"),
+          )
+          const id = ID.make(String(result.metadata?.shellID))
+          const shell = yield* Shell.Service
+          yield* shell.remove(id)
+          expect((yield* Fiber.join(admitted)).valueOrUndefined?.data.item.payload).toMatchObject({
+            text: expect.stringContaining('state="cancelled"'),
+            metadata: { source: "shell", shellID: id, state: "cancelled" },
+          })
         }),
       )
     }),

@@ -402,6 +402,7 @@ export const dict = {
   "common.key.esc": "ESC",
 
   "sidebar.settings": "设置",
+  "sidebar.build": "构建 #{{build}}",
   "sidebar.project.settings": "项目设置",
   "sidebar.session.archived": "已归档：{{title}}",
   "sidebar.session.archived.undo": "撤销",

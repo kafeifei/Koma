@@ -38,8 +38,9 @@ export const useSessionLayout = () => {
     // The bottom pane shows whenever it holds tabs until the user hides it.
     bottomOpened: () => tabs.region(currentTab(), "bottom", true),
     setBottomOpened: (opened: boolean) => tabs.setRegion(currentTab(), "bottom", opened),
-    sessionWidth: () => tabs.regionSize(currentTab(), "sessionWidth"),
-    setSessionWidth: (width: number) => tabs.setRegionSize(currentTab(), "sessionWidth", width),
+    // Koma: one width for every tab, so the side region opens at the width it was last dragged to.
+    sessionWidth: layout.sessionPanelWidth.get,
+    setSessionWidth: layout.sessionPanelWidth.set,
     bottomHeight: () => tabs.regionSize(currentTab(), "bottomHeight"),
     setBottomHeight: (height: number) => tabs.setRegionSize(currentTab(), "bottomHeight", height),
     splitRatio: () => tabs.regionSize(currentTab(), "splitRatio"),

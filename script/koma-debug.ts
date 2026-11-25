@@ -20,4 +20,4 @@ await $`rm -rf ${installed}`
 
 await $`ditto ${build.app} ${installed}`
 
-console.log(`Installed ${installed} (main at ${build.commit.slice(0, 10)})`)
+console.log(`Installed ${installed} #${build.build} (main at ${build.commit.slice(0, 10)})`)
