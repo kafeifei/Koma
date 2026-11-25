@@ -18,7 +18,7 @@ Koma 是 [OpenCode](https://github.com/anomalyco/opencode) 的一个自用分支
 | 项目行右键菜单：新建会话、项目设置 | `packages/app/src/shell/titlebar/sidebar-customized.tsx` |
 | 会话菜单的字母快捷键（P 置顶、R 重命名、A 归档、D 删除），置顶行也能归档 | `packages/app/src/shell/titlebar/menu-keys.ts`、`packages/app/src/shell/titlebar/session-archive.ts` |
 | 每个会话都留在项目列表里（去掉「最近会话」开关）；行尾悬停按钮是「归档」而不是关闭标签页，归档后提示里可「撤销」 | `packages/app/src/shell/titlebar/sidebar-customized.tsx`、`tab-nav.tsx`、`tab-strip.tsx`、`project-session-row.tsx`、`session-archive.ts` |
-| 侧边栏最下面显示构建号（每次「发 debug」或发版加一） | `packages/app/src/shell/titlebar/titlebar.tsx`、`packages/desktop/electron.vite.config.ts`、`script/koma-build.ts` |
+| 侧边栏「设置」行的右端显示构建号（每次「发 debug」或发版加一；悬停时让位给快捷键） | `packages/app/src/shell/titlebar/titlebar.tsx`、`packages/desktop/electron.vite.config.ts`、`script/koma-build.ts` |
 | 对话区右侧的面板图标栏 | `packages/app/src/session/panel-rail.tsx`、`packages/app/src/session/screen.tsx` |
 | 右侧面板的宽度所有标签页共用一份并记住（上游每个标签页各记一份，新开会话回到默认宽度） | `packages/app/src/session/session-layout.ts`、`packages/app/src/shell/state/layout.tsx` |
 | 超时转到后台的 Shell 命令再跑 10 分钟仍未结束就停掉（上游会一直跑，卡住的命令让会话永远等着）；用户停掉后台命令时，会话收到「已取消」而不是 `Shell.NotFoundError` | `packages/core/src/tool/plugin/shell.ts` |

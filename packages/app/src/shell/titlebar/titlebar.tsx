@@ -88,6 +88,8 @@ function SidebarAction(props: {
   keybind: string[]
   pressed?: boolean
   current?: boolean
+  /** Koma: faint text at the row's end, which gives way to the keybind on hover. */
+  trailing?: { text: string; title: string }
   onClick: () => void
 }) {
   return (
@@ -104,6 +106,16 @@ function SidebarAction(props: {
     >
       <Icon name={props.icon} class="shrink-0" />
       <span class="min-w-0 truncate">{props.label}</span>
+      <Show when={props.trailing}>
+        {(trailing) => (
+          <span
+            class="ms-auto shrink-0 font-mono text-[11px] text-v2-text-text-faint group-hover:hidden group-focus-visible:hidden"
+            title={trailing().title}
+          >
+            {trailing().text}
+          </span>
+        )}
+      </Show>
       <div class="ms-auto hidden shrink-0 group-hover:block group-focus-visible:block" aria-hidden="true">
         <Keybind keys={props.keybind} variant="neutral" dir="ltr" />
       </div>
@@ -497,6 +509,20 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   label={language.t("sidebar.settings")}
                   keybind={command.keybindParts("settings.open")}
                   current={layout.route().type === "settings"}
+                  // Koma: the build number sits at the end of the settings row (see script/koma-build.ts).
+                  trailing={
+                    import.meta.env.VITE_KOMA_BUILD
+                      ? {
+                          text: `#${import.meta.env.VITE_KOMA_BUILD}`,
+                          title: [
+                            language.t("sidebar.build", { build: import.meta.env.VITE_KOMA_BUILD }),
+                            platform.version,
+                          ]
+                            .filter(Boolean)
+                            .join(" · "),
+                        }
+                      : undefined
+                  }
                   onClick={show}
                 />
               )
@@ -1056,17 +1082,6 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                           }}
                                         />
                                         {settingsButton()}
-                                        <Show when={import.meta.env.VITE_KOMA_BUILD}>
-                                          {(build) => (
-                                            <div
-                                              data-slot="vertical-tabs-build"
-                                              class="px-2 pt-1 text-[11px] leading-4 text-v2-text-text-faint select-text"
-                                              title={platform.version}
-                                            >
-                                              {language.t("sidebar.build", { build: build() })}
-                                            </div>
-                                          )}
-                                        </Show>
                                       </Show>
                                     </div>
                                   </Show>
